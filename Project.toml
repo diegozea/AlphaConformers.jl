@@ -1,0 +1,13 @@
+name = "AlphaConformers"
+uuid = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
+authors = ["Diego Javier Zea <diegozea@gmail.com> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
