@@ -3,6 +3,11 @@ uuid = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
 authors = ["Diego Javier Zea <diegozea@gmail.com> and contributors"]
 version = "0.1.0"
 
+[deps]
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+MIToS = "51bafb47-8a16-5ded-8b04-24ef4eede0b5"
+
 [compat]
 julia = "1"
 
