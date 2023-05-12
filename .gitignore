@@ -4,6 +4,9 @@
 /Manifest.toml
 /docs/build/
 
+# VSCode
+.vscode
+
 # PBS
 download_pdb_files_pbs.jl.o*
 download_pdb_files_pbs.jl.e*
