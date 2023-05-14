@@ -69,9 +69,10 @@ function run_foldseek_clustering(search_results::DataFrame)
     pdb_folder = "/alpha/database/pdb/pdb_files"
 
     # Create a local folder for PDB files
-    if !isdir("first_targets")
-        mkdir("first_targets")
+    if isdir("first_targets")
+        rm("first_targets"; recursive=true)
     end
+    mkdir("first_targets")
     local_pdb_folder = abspath("first_targets")
     
     # Go through the target column of search results
@@ -102,11 +103,14 @@ function run_foldseek_clustering(search_results::DataFrame)
     tmp_folder = mktempdir()
     out_file = "first_targets"
     foldseek = "/store/EQUIPES/AMIG/PROGRAMMES/foldseek/bin/foldseek"
-    run(`$foldseek easy-cluster $local_pdb_folder $out_file $tmp_folder`)
+    run(`$foldseek easy-cluster $local_pdb_folder $out_file $tmp_folder --alignment-mode 3 --tmalign-fast 1 --rescore-mode 4 --cov-mode 1 --cluster-mode 1 --similarity-type 1 --min-seq-id 0.0 -e 0.0000001`)
     return out_file
 end
 
 run_foldseek_clustering(search_results)
+
+# I made just a few attempts with one example, but it seems that foldseek cannot 
+# effectively distinguish between conformations belonging to different clusters.
 
 #---
 
