@@ -21,6 +21,8 @@ Pkg.activate("/home/diego.zea/.julia/dev/AlphaConformers/")
 import MIToS
 import CSV
 import DataFrames
+import Clustering
+import PairwiseListMatrices
 
 const WORKING_DIR = "/alpha/runs/diego.zea/first_test"
 
@@ -64,7 +66,7 @@ UnicodePlots.scatterplot(search_results.fident, log10.(search_results.evalue), c
 
 # create a folder with all the structures from the search results
 
-function create_pdb_folder(search_results::DataFrames.DataFrame)
+function create_pdb_folder_symlink(search_results::DataFrames.DataFrame)
     # PATH to the PDB files
     pdb_folder = "/alpha/database/pdb/pdb_files"
 
@@ -101,6 +103,43 @@ function create_pdb_folder(search_results::DataFrames.DataFrame)
 
     return local_pdb_folder
 end
+
+function create_pdb_folder(search_results::DataFrames.DataFrame)
+    # PATH to the PDB files
+    pdb_folder = "/alpha/database/pdb/pdb_files"
+
+    # Create a local folder for PDB files
+    if isdir("first_targets")
+        rm("first_targets"; recursive=true)
+    end
+    mkdir("first_targets")
+    local_pdb_folder = abspath("first_targets")
+    
+    # Go through the target column of search results
+    for row in DataFrames.eachrow(search_results)
+        target = row[:target]
+        # Split target into pdb_code and chain_code
+        fields = split(target, '_')
+        pdb_code = fields[1]
+        if length(fields) == 2
+            chain_code = String(fields[2])
+        else
+            chain_code = MIToS.PDB.All
+        end
+        # Define original and local file paths
+        original_pdb_path = joinpath(pdb_folder, pdb_code)
+        local_pdb_path = joinpath(local_pdb_folder, pdb_code)
+        # Read only specific chain and write to local file
+        # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
+        chain = MIToS.PDB.read(original_pdb_path, MIToS.PDB.PDBFile, 
+            onlyheavy=true, occupancyfilter=true,
+            chain=chain_code)
+        MIToS.PDB.write(local_pdb_path, chain, MIToS.PDB.PDBFile)
+    end
+
+    return local_pdb_folder
+end
+
 
 local_pdb_folder = create_pdb_folder(search_results)
 
@@ -141,10 +180,58 @@ if dir_path[end] != '/'
     dir_path *= '/'
 end
 chain_list_path = abspath("chain_list")
-run(`/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path`)
 # NOTE: There is an older fortran version of TMaling in node 48
+run(pipeline(`/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path`, 
+    stdout="first_targets.out", stderr="first_targets.err"))
+tmalign_out = read("first_targets.out", String)
 
+"""
+    parse_tm_align_output(tm_align_output::String)
 
+Parse the output of a TM-align alignment using `-dir` and return a named tuple containing
+the name of Chain_1, the name of Chain_2, RMSD, Seq_ID, and the TM-scores 
+(normalized by the length of Chain_1 and Chain_2) for each alignment.
+
+# Arguments
+- `tm_align_output::String`: The text output from TM-align.
+
+# Returns
+- `Vector{NamedTuple}`: A vector of named tuples, where each tuple corresponds to 
+  an alignment and contains the following fields: `:chain_a`, `:chain_b`, `:RMSD`, 
+  `:seq_id`, `:TM_score_a`, and `:TM_score_b`.
+"""
+function parse_tm_align_output(tm_align_output::String)
+    alignments = split(tm_align_output, r" \*+") 
+    # TODO: improve this by iterating the lines and looking for Chain_1 as an alignment start
+    parsed_alignments = NamedTuple{(:chain_a, :chain_b, :RMSD, :seq_id, :TM_score_a, :TM_score_b), Tuple{String, String, Vararg{Float64, 4}}}[]
+    
+    for alignment in alignments
+        if alignment != "" && occursin("Chain_1", alignment)
+            chain_a = match(r"Chain_1: .*/(.*\.pdb_?[a-zA-Z0-9]?)", alignment).captures[1]
+            chain_b = match(r"Chain_2: .*/(.*\.pdb_?[a-zA-Z0-9]?)", alignment).captures[1]
+            RMSD = parse(Float64, match(r"RMSD=\s+(.*),", alignment).captures[1])
+            seq_id = parse(Float64, match(r"Seq_ID=n_identical/n_aligned=\s+(.*)", alignment).captures[1])
+            TM_score_a = parse(Float64, match(r"TM-score=\s+(.*) \(if normalized by length of Chain_1", alignment).captures[1])
+            TM_score_b = parse(Float64, match(r"TM-score=\s+(.*) \(if normalized by length of Chain_2", alignment).captures[1])
+            push!(parsed_alignments, (chain_a=chain_a, chain_b=chain_b, RMSD=RMSD, seq_id=seq_id, TM_score_a=TM_score_a, TM_score_b=TM_score_b))
+        end
+    end
+    
+    return parsed_alignments
+end
+
+tmalign_data = DataFrames.DataFrame(parse_tm_align_output(tmalign_out))
+
+rmsd_mat = PairwiseListMatrices.from_table(tmalign_data[:,1:3], false)
+
+rmsd_clust = Clustering.hclust(rmsd_mat, linkage=:complete, branchorder=:optimal)
+
+rmsd_clusters = Clustering.cutree(rmsd_clust, h=1.0)
+
+rmsd_chains = names(rmsd_mat)[1]
+
+rmsd_chains[rmsd_clusters .== 1]
+rmsd_chains[rmsd_clusters .== 2]
 
 # ---
 
