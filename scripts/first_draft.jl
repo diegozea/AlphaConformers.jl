@@ -435,11 +435,16 @@ for cluster in unique(tmalign_results.rmsd_clusters)
             print(file, "\n")
         end
     end
-    run(`clustalo -i $(joinpath(cluster_folder, "sequences.fasta")) -o $(joinpath(cluster_folder, "sequences.a3m")) --force --output-order=input-order`)
+    run(`clustalo -i $(joinpath(cluster_folder, "sequences.fasta")) -o $(joinpath(cluster_folder, "sequences.aln")) --force --output-order=input-order`)
+    msa = read(joinpath(cluster_folder, "sequences.aln"), MIToS.MSA.FASTA)
+    MIToS.MSA.adjustreference!(msa)
+    complete_msa = msa[vec(MIToS.MSA.coverage(msa) .> 0.5), :]
+    MIToS.MSA.write(joinpath(cluster_folder, "sequences.a3m"), complete_msa, MIToS.MSA.FASTA)
     mkdir(joinpath(cluster_folder, "templates"))
     pdbs = unique(String["$(split(pdb, '.')[1]).pdb" for pdb in targets])
     for pdb in pdbs
-        cp(joinpath("/alpha/database/pdb/pdb_files", pdb), joinpath(cluster_folder, "templates", pdb))
+        res = read(joinpath("/alpha/database/pdb/pdb_files", pdb), MIToS.PDB.PDBFile, model="1", onlyheavy=true, occupancyfilter=true)
+        MIToS.PDB.write(joinpath(cluster_folder, "templates", lowercase(pdb)), res, MIToS.PDB.PDBFile)
     end
 end
 
