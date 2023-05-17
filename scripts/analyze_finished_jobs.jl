@@ -176,8 +176,10 @@ end
 #=
 a = analyze_clusters(WORKING_DIR, finished_folders[1])
 b = analyze_clusters(WORKING_DIR, finished_folders[2])
+=#
 
 using Serialization
+
 function save_objects_to_disk(objects::Dict{String, Any})
     for (filename, obj) in objects
         open(filename, "w") do f
@@ -185,8 +187,10 @@ function save_objects_to_disk(objects::Dict{String, Any})
         end
     end
 end
+
 cd(WORKING_DIR)
-save_objects_to_disk(Dict{String, Any}("a.bin" => a, "b.bin" => b))
+
+#save_objects_to_disk(Dict{String, Any}("a.bin" => a, "b.bin" => b))
 
 function rmsd_stats_cluster(af_cluster)
     data = af_cluster.tmalign_data
@@ -196,6 +200,7 @@ function rmsd_stats_cluster(af_cluster)
     println("min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))")
 end
 
+#=
 for elem in a
     println(elem.folder)
     rmsd_stats_cluster(elem.af_cluster)
@@ -205,7 +210,6 @@ for elem in b
     println(elem.folder)
     rmsd_stats_cluster(elem.af_cluster)
 end
-
 =#
 
 using Serialization
@@ -255,7 +259,10 @@ function run_tmalign_and_cluster_models(folder, pdb_a, pdb_b)
     return run_tmalign_and_cluster(tmp_dir, "tmalign_$folder")
 end
 
+#=
 data_a = run_tmalign_and_cluster_models("1BV2_A", "1BV2.pdb", "1UVB.pdb")
 data_b = run_tmalign_and_cluster_models("1C54_A", "1C54.pdb", "1RGH.pdb")
+=#
 
+save_objects_to_disk(Dict{String, Any}("data_a.bin" => data_a, "data_b.bin" => data_b))
 
