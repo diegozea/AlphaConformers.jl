@@ -15,6 +15,11 @@ Plots.plotly()
 const WORKING_DIR = "/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/from_apo"
 
 const folders = ["1AEL_A", "1BV2_A", "1C54_A", "1EAL_A"]
+# 1AEL: NMR
+# 1BV2: NMR
+# 1C54: NMR
+# 1EAL: NMR 
+# ... all the runned examples have the bug with the NMR sequences.
 
 function progress(folder)
     results = NamedTuple{(:folder, :subfolder, :finished),Tuple{String,String,Bool}}[]
