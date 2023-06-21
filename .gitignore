@@ -12,3 +12,6 @@ download_pdb_files_pbs.jl.o*
 download_pdb_files_pbs.jl.e*
 create_db.jl.o*
 create_db.jl.e*
+
+# tests
+test/data/1EX6_B_results.m8

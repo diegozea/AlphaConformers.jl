@@ -15,8 +15,8 @@
 # qsub -I -l host=node48 -l walltime=300:00:00 -l ncpus=20 -l mem=64g
 
 import Pkg
-# Pkg.activate(abspath(@__DIR__, ".."))
-Pkg.activate("/home/diego.zea/.julia/dev/AlphaConformers/")
+Pkg.activate(@__DIR__)
+# Pkg.activate("/home/diego.zea/.julia/dev/AlphaConformers/")
 
 import MIToS
 import CSV

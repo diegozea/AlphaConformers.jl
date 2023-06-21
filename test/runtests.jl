@@ -1,6 +1,3 @@
-using AlphaConformers
-using Test
+using TestItemRunner
 
-@testset "AlphaConformers.jl" begin
-    # Write your tests here.
-end
+@run_package_tests verbose=true
