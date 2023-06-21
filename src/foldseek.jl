@@ -1,7 +1,5 @@
 # Functions to run Foldseek inside the pipeline
 
-ENV["FOLDSEEK_DB_PATH"] = ""
-
 const _M8_COL_NAMES = ["query", "target", "fident", "alnlen", "mismatch", "gapopen", 
     "qstart", "qend", "tstart", "tend", "evalue", "bits"]
     
