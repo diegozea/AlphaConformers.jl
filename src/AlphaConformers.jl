@@ -9,8 +9,8 @@ import DataFrames
 
 using TestItems
 
-export foldseek_search # foldseek.jl
-       
+export  foldseek_search, # foldseek.jl
+        read_foldseek_results
 
 include("foldseek.jl")
 

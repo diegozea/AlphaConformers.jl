@@ -15,6 +15,25 @@
     # Check that the output file exists
     @test isfile(output_file)
 
+    # Parse the output table
+    df = read_foldseek_results(output_file)
+
+    # Check that the results in the table are correct based on the test database 
+    # tailored for this test
+    @test size(df, 1) == 3 # 3 hits: 4F4J (A & B) and 1EX7
+    @test df[1, :query] == "1EX6_B.pdb"
+    @test df[1, :target] == "4F4J.pdb_A"
+    @test df[1, :fident] > 0.9
+    @test df[1, :alnlen] == 183
+    @test df[1, :mismatch] == 1
+    @test df[1, :gapopen] == 0
+    @test df[1, :qstart] == 1
+    @test df[1, :qend] == 183
+    @test df[1, :tstart] == 6
+    @test df[1, :tend] == 188
+    @test df[1, :evalue] < 0.001
+    @test df[1, :bits] == 1216
+
     # Clean up
     isfile(output_file) && rm(output_file)
 end
