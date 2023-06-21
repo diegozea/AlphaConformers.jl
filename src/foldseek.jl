@@ -37,12 +37,12 @@ end
 
 
 """
-    read_foldseek_results(file::AbstractString)
+    read_foldseek_search_results(file::AbstractString)
 
 Reads the Foldseek easy-search output file (m8) and returns a DataFrame with the results 
 and proper column names.
 """
-function read_foldseek_results(file::AbstractString)
+function read_foldseek_search_results(file::AbstractString)
     DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
 end
 

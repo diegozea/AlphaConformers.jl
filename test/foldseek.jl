@@ -16,7 +16,7 @@
     @test isfile(output_file)
 
     # Parse the output table
-    df = read_foldseek_results(output_file)
+    df = read_foldseek_search_results(output_file)
 
     # Check that the results in the table are correct based on the test database 
     # tailored for this test
