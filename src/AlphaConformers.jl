@@ -10,8 +10,10 @@ import DataFrames
 using TestItems
 
 export  foldseek_search, # foldseek.jl
-        read_foldseek_search_results
+        read_foldseek_search_results,
+        create_pdb_folder # pdb_folders.jl
 
 include("foldseek.jl")
+include("pdb_folders.jl")
 
 end
