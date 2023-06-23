@@ -13,10 +13,14 @@
 
         # Check if a folder is created when the function is called with a Set
         created_folder_path = create_pdb_folder(targets, folder_path)
+        @test abspath(created_folder_path) == abspath(folder_path)
         @test isdir(created_folder_path)
 
         # Check if the correct number of files is created
         @test length(readdir(created_folder_path)) == length(targets)
+
+        # Check that "1lvg" is in the folder
+        @test isfile(joinpath(created_folder_path, "1lvg"))
 
         # Check if the correct files are created
         for target in targets
@@ -31,12 +35,17 @@
         df = DataFrames.DataFrame(target = ["1EX7.pdb", "4F4J.pdb_B"])
         created_folder_path = create_pdb_folder(df, folder_path)
         @test isdir(created_folder_path)
+        @test abspath(created_folder_path) == abspath(folder_path)
         @test length(readdir(created_folder_path)) == DataFrames.nrow(df)
+
+        # Check that "1lvg" is not in the folder as the previous folder has been deleted
+        @test !isfile(joinpath(created_folder_path, "1lvg"))
 
         # Check if the function works with an array
         arr = ["1EX7.pdb", "4F4J.pdb_B"]
         created_folder_path = create_pdb_folder(arr, folder_path)
         @test isdir(created_folder_path)
+        @test abspath(created_folder_path) == abspath(folder_path)
         @test length(readdir(created_folder_path)) == length(arr)
     end
 end
