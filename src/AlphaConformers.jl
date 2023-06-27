@@ -12,11 +12,13 @@ using TestItems
 export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,
         create_pdb_folder, # pdb_folders.jl
-        usalign # clustering.jl
+        usalign # usalign.jl
+        # clustering.jl
 
 
 include("foldseek.jl")
 include("pdb_folders.jl")
+include("usalign.jl")
 include("clustering.jl")
 
 end
