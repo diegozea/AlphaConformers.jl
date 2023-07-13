@@ -7,7 +7,7 @@
     
     mktempdir() do tmp_folder
         pdb_folder = joinpath(tmp_folder, "test_folder")
-        create_pdb_folder(targets, pdb_folder)
+        create_pdb_folder(targets, pdb_folder, pdb_db=pdb_db)
         # Check usalign (pairs)
         for target in targets
             target_path = joinpath(pdb_folder, target)

@@ -6,14 +6,15 @@ import MAFFT_jll
 import USalign_jll
 import CSV
 import DataFrames
+import Clustering
 
 using TestItems
 
 export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,
         create_pdb_folder, # pdb_folders.jl
-        usalign # usalign.jl
-        # clustering.jl
+        usalign, # usalign.jl
+        structural_clustering # clustering.jl
 
 
 include("foldseek.jl")

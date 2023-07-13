@@ -75,7 +75,8 @@ from the tool's tabular output format (`-outfmt 2`). This function uses the foll
 default parameters when running USalign:
 
 - `-mol prot`: Align proteins only 
-- `-TMcut 0.5`: Skip alignment if TM-score is unlikely to reach 0.5 
+- `-TMcut 0.5`: Skip alignment if TM-score is unlikely to reach 0.5 as we are looking 
+  for close conformations.
 - `-fast`: Use a faster but slightly less accurate alignment method 
 - `-outfmt 2`: Use the tabular format for compact output that can be parsed with CSV.jl 
 
@@ -84,7 +85,7 @@ keyword arguments to change this default behavior. To avoid using the TMscore cu
 should set `TMcut` to `nothing`. To use the slower but more accurate alignment method, you
 should set `fast` to `false`. 
 
-Also, you can pass a `Cmd` object to the `` keyword argument to add or 
+Also, you can pass a `Cmd` object to the `extra_parameters` keyword argument to add or 
 modify other USalign arguments. Please note that you do not need to give the structures 
 to align, as they are automatically passed to USalign.
 """
