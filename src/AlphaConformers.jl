@@ -16,7 +16,11 @@ export  foldseek_search, # foldseek.jl
         create_pdb_folder, # pdb_folders.jl
         usalign, # usalign.jl
         structural_clustering, # clustering.jl
-        get_uniprot_mapping # sifts.jl
+        get_uniprot_mapping, # sifts.jl
+        get_uniprot_acc,
+        get_pdb_codes,
+        delete_query_from_target!,
+        list_known_conformations
 
 
 include("foldseek.jl")
