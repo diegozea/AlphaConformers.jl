@@ -1,0 +1,88 @@
+# These functions create the folder structure defining AlphaFold 2 inputs, including the 
+# input sequence, the MSA, and the templates.
+
+"""
+    get_residues_and_sequence(pdb_file, chain=MIToS.PDB.All; model="1")
+
+This function reads a pdb file and returns the residues and the sequence of the chain
+specified by the `chain` argument. The `chain` keyword argument can be a string with the 
+chain name or the `MIToS.PDB.All` type. However, this function will throw an error if more 
+than one chain is selected; so `All` is used only to avoid specifiying a chain when there is 
+only one in the file. The `model` argument is used to select the model to read (by default
+the first model is selected).
+"""
+function get_residues_and_sequence(pdb_file; 
+        chain::Union{Type{MIToS.PDB.All}, String}=MIToS.PDB.All,
+        model::String="1")
+    query_res = read(pdb_file, MIToS.PDB.PDBFile, 
+        model=model, chain=chain, group="ATOM",
+        onlyheavy=true, occupancyfilter=true)
+    sequences = collect(values(MIToS.PDB.modelled_sequences(query_res)))
+    @assert length(sequences) == 1 "The query must be a single chain"
+    (residues=query_res, sequence=sequences[1])
+end
+
+
+"""
+    save_sequences(cluster_folder::String, pdb_files::Vector{String}; chains, models)
+
+This function uses the `get_residues_and_sequence` function to create a fasta file with 
+the sequences of the structures in the cluster. The second arguments should be a vector
+with the paths to the pdb files of the structures in the cluster. The `chains` and `models`
+arguments are vectors with the chain and model to read for each pdb file. By default, the
+first model and all the chains are selected.
+"""
+function save_sequences(cluster_folder::String, pdb_files::Vector{String}; 
+        chains=fill(MIToS.PDB.All, length(pdb_files)),
+        models::Vector{String}=fill("1", length(pdb_files)))
+    open(joinpath(cluster_folder, "sequences.fasta"), "w") do file 
+        for (pdb_file, chain, model) in zip(pdb_files, chains, models)
+            pdb_name = basename(pdb_file)
+            pdb_data = get_residues_and_sequence(pdb_file; chain=chain, model=model)
+            println(file, ">$pdb_name")
+            println(file, pdb_data.sequence)
+        end
+    end
+end
+
+
+#= 
+
+query_res = read(pdb_file, MIToS.PDB.PDBFile, group="ATOM", onlyheavy=true, occupancyfilter=true)
+query_seq = join(MIToS.MSA.three2residue(residue.id.name) for residue in query_res)
+
+if isdir("clusters")
+    rm("clusters"; recursive=true)
+end
+mkdir("clusters")
+
+for cluster in unique(tmalign_results.rmsd_clusters)
+    targets = tmalign_results.rmsd_chains[tmalign_results.rmsd_clusters .== cluster]
+    cluster_folder = "clusters/cluster_$(cluster)"
+    mkdir(cluster_folder)
+    open(joinpath(cluster_folder, "sequences.fasta"), "w") do file 
+        println(file, ">query")
+        println(file, query_seq)
+        for target in targets
+            res = read(joinpath(local_pdb_folder, target), MIToS.PDB.PDBFile, group="ATOM", onlyheavy=true, occupancyfilter=true)
+            println(file, ">$target")
+            for residue in res
+                print(file, MIToS.MSA.three2residue(residue.id.name))
+            end
+            print(file, "\n")
+        end
+    end
+    run(`clustalo -i $(joinpath(cluster_folder, "sequences.fasta")) -o $(joinpath(cluster_folder, "sequences.aln")) --force --output-order=input-order`)
+    msa = read(joinpath(cluster_folder, "sequences.aln"), MIToS.MSA.FASTA)
+    MIToS.MSA.adjustreference!(msa)
+    complete_msa = msa[vec(MIToS.MSA.coverage(msa) .> 0.5), :]
+    MIToS.MSA.write(joinpath(cluster_folder, "sequences.a3m"), complete_msa, MIToS.MSA.FASTA)
+    mkdir(joinpath(cluster_folder, "templates"))
+    pdbs = unique(String["$(split(pdb, '.')[1]).pdb" for pdb in targets])
+    for pdb in pdbs
+        res = read(joinpath("/alpha/database/pdb/pdb_files", pdb), MIToS.PDB.PDBFile, model="1", onlyheavy=true, occupancyfilter=true)
+        MIToS.PDB.write(joinpath(cluster_folder, "templates", lowercase(pdb)), res, MIToS.PDB.PDBFile)
+    end
+end
+
+=#

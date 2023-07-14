@@ -20,13 +20,15 @@ export  foldseek_search, # foldseek.jl
         get_uniprot_acc,
         get_pdb_codes,
         delete_query_from_target!,
-        list_known_conformations
-
+        list_known_conformations,
+        get_residues_and_sequence, # af_input.jl
+        save_sequences
 
 include("foldseek.jl")
 include("pdb_folders.jl")
 include("usalign.jl")
 include("clustering.jl")
 include("sifts.jl")
+include("af_input.jl")
 
 end
