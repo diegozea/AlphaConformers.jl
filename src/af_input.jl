@@ -73,6 +73,28 @@ function clean_msa(msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment)
     msa_ref[vec(MIToS.MSA.coverage(msa_ref) .≥ 0.5), :]
 end
 
+
+# NOTE: MODELS: We want to select a specific model for the query, as we usually consider
+# all the models when looking for the pair of conformations with the highest RMSD 
+# (maximum conformational diversity as in CoDNaS). However, we will use only the first 
+# model for the templates, to reduce the number of structural alignments. This could be
+# changed in the future, but it is not a priority now.
+
+"""
+    create_alpha_fold_inputs(ref_pdb, pdb_files, cluster_folder, chains, models) 
+
+
+function create_alpha_fold_inputs(ref_pdb, pdb_files, cluster_folder, chains, models)
+    query_info = get_residues_and_sequence(ref_pdb)
+    save_sequences(cluster_folder, pdb_files, chains=chains, models=models)
+    msa = align_sequences(joinpath(cluster_folder, "sequences.fasta"))
+    cleaned_msa = clean_msa(msa)
+    MIToS.MSA.write(joinpath(cluster_folder, "sequences.a3m"), cleaned_msa, MIToS.MSA.FASTA)
+    MIToS.PDB.write(joinpath(cluster_folder, "query.pdb"), query_info.residues, MIToS.PDB.PDBFile)
+end
+
+
+
 #= 
 
 query_res = read(pdb_file, MIToS.PDB.PDBFile, group="ATOM", onlyheavy=true, occupancyfilter=true)
