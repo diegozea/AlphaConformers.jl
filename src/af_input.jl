@@ -45,6 +45,33 @@ function save_sequences(cluster_folder::String, pdb_files::Vector{String};
     end
 end
 
+"""
+    align_sequences(sequences::String)
+
+This function uses `MAFFT` (thanks to the `MAFFT_jll` package) to align the sequences in 
+the given fasta file. It returns a MSA object from `MIToS.MSA` that keeps the original 
+order of the sequences.
+"""
+function align_sequences(sequences::String)
+    @assert isfile(sequences) "$(sequences) does not exist."
+    mktemp() do aln_path, _
+        run(pipeline(`$(MAFFT_jll.mafft()) --quiet $sequences`, stdout=aln_path))
+        @assert isfile(aln_path) && filesize(aln_path) > 0 "The MSA was not properly created."
+        read(aln_path, MIToS.MSA.FASTA)
+    end
+end
+
+
+"""
+    clean_msa(msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment)
+
+This function removes the sequences with more than 50% of gaps and the columns with gaps 
+in the reference sequence (the first one). The function returns a new MSA object.
+"""
+function clean_msa(msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment)
+    msa_ref = MIToS.MSA.adjustreference(msa)
+    msa_ref[vec(MIToS.MSA.coverage(msa_ref) .≥ 0.5), :]
+end
 
 #= 
 

@@ -22,7 +22,10 @@ export  foldseek_search, # foldseek.jl
         delete_query_from_target!,
         list_known_conformations,
         get_residues_and_sequence, # af_input.jl
-        save_sequences
+        save_sequences,
+        align_sequences,
+        clean_msa
+
 
 include("foldseek.jl")
 include("pdb_folders.jl")

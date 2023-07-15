@@ -31,3 +31,37 @@ end
         @test length(split(file_content, "\n")) == 5 # 4 lines, but there is a \n at the end
     end
 end
+
+@testitem "align and clean sequences" begin
+    import MIToS
+
+    pdb_db = joinpath(@__DIR__, "data", "test_db")
+    targets = ["4F4J.pdb", "1EX7.pdb"]
+    pdb_files = [joinpath(pdb_db, target) for target in targets]
+
+    # Test the align_sequences function
+    @test_throws AssertionError align_sequences("non_existent_file.fasta")
+
+    msa = mktempdir() do tmp_folder
+        save_sequences(tmp_folder, pdb_files, chains=["A", "A"])
+        filename = joinpath(tmp_folder, "sequences.fasta")
+        align_sequences(filename)
+    end
+    
+    @test MIToS.MSA.nsequences(msa) == 2
+    @test MIToS.MSA.sequencenames(msa) == ["4F4J.pdb", "1EX7.pdb"] # keep the original order
+    @test MIToS.MSA.stringsequence(msa, 1) == "FQGSMSRPIVISGPSGTGKSTLLKKLFAEYPDSFG" * 
+        "FSVPSTTRTPRAGEVNGKDYNFVSVDEFKSMIKNNEFIEWAQFSGNYYGSTVASVKQVSKSGKTCILDIDMQG" * 
+        "VKSVKAIPELNARFLFIAPPSVEDLKKRLEGRGTETEESINKRLSAAQAELAYAETGAHDKVIVNDDLDKAYK" *
+        "ELKDFIFA--"
+    
+    # Test the clean_msa function
+    cleaned_msa = clean_msa(msa)
+    @test MIToS.MSA.nsequences(cleaned_msa) == 2 # keep both sequences
+    @test MIToS.MSA.sequencenames(cleaned_msa) == ["4F4J.pdb", "1EX7.pdb"]
+    @test MIToS.MSA.stringsequence(cleaned_msa, 1) == "FQGSMSRPIVISGPSGTGKSTLLKKLF" * 
+        "AEYPDSFGFSVPSTTRTPRAGEVNGKDYNFVSVDEFKSMIKNNEFIEWAQFSGNYYGSTVASVKQVSKSGKTC" * 
+        "ILDIDMQGVKSVKAIPELNARFLFIAPPSVEDLKKRLEGRGTETEESINKRLSAAQAELAYAETGAHDKVIVN" *
+        "DDLDKAYKELKDFIFA" # no gaps in the first sequence
+end
+
