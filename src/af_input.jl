@@ -80,6 +80,13 @@ end
 # model for the templates, to reduce the number of structural alignments. This could be
 # changed in the future, but it is not a priority now.
 
+
+"""
+    create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
+
+This function creates the lists of pdb files, chains and models to use as input for
+AlphaFold 2; defining the sequence and templates to consider.
+"""
 function create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
     ref_abspath = abspath(ref_pdb)
     pdb_abspaths = abspath.(pdb_files)
@@ -107,18 +114,15 @@ function create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, mode
     (;pdb_files=pdb_abspaths, chains, models)
 end
 
+# TO DO
 function create_alpha_fold_inputs(ref_pdb, pdb_files, cluster_folder, ref_chain, ref_model, chains, models)
     paths = create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
     # get the info for the query
     query_info = get_residues_and_sequence(paths.pdb_files[1], chain=paths.chains[1], model=paths.models[1])
-
-
-    # query_info = get_residues_and_sequence(ref_pdb)
-    
-
-    # save_sequences(cluster_folder, pdb_files, chains=chains, models=models)
-    # msa = align_sequences(joinpath(cluster_folder, "sequences.fasta"))
-    # cleaned_msa = clean_msa(msa)
+    save_sequences(cluster_folder, paths.pdb_files, chains=paths.chains, models=paths.models)
+    msa = align_sequences(joinpath(cluster_folder, "sequences.fasta"))
+    cleaned_msa = clean_msa(msa)
+    msa
     # MIToS.MSA.write(joinpath(cluster_folder, "sequences.a3m"), cleaned_msa, MIToS.MSA.FASTA)
     # MIToS.PDB.write(joinpath(cluster_folder, "query.pdb"), query_info.residues, MIToS.PDB.PDBFile)
 end

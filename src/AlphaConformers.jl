@@ -24,7 +24,9 @@ export  foldseek_search, # foldseek.jl
         get_residues_and_sequence, # af_input.jl
         save_sequences,
         align_sequences,
-        clean_msa
+        clean_msa,
+        create_pdb_lists,
+        create_alpha_fold_inputs
 
 
 include("foldseek.jl")

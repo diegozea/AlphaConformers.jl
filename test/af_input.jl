@@ -65,3 +65,53 @@ end
         "DDLDKAYKELKDFIFA" # no gaps in the first sequence
 end
 
+@testitem "create_pdb_lists" begin
+    query = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    pdb_db = joinpath(@__DIR__, "data", "test_db")
+    targets = ["4F4J.pdb_A", "1EX7.pdb"]
+    pdb_files = [joinpath(pdb_db, target) for target in targets]
+
+    ref_first = pushfirst!(deepcopy(pdb_files), query)
+
+    # Do nothing if the query is the first pdb file on the list
+    ref_first_paths = create_pdb_lists(query, "B", "1", ref_first, ["B", "A", "A"], ["1", "1", "1"])
+    @test ref_first_paths.pdb_files == abspath.(ref_first)
+    @test ref_first_paths.chains == ["B", "A", "A"]
+    @test ref_first_paths.models == ["1", "1", "1"]
+
+    # Throw an error if the query is on the pdb list, but not in chains and models
+    @test_throws AssertionError create_pdb_lists(query, "B", "1", ref_first, ["A", "A"], ["1", "1"])
+
+    # Add the reference if it is not on the list
+    paths = create_pdb_lists(query, "B", "1", pdb_files, ["A", "A"], ["1", "1"])
+    @test paths.pdb_files == abspath.(ref_first)
+    @test paths.chains == ["B", "A", "A"]
+    @test paths.models == ["1", "1", "1"]
+
+    # Move the reference to the first position if it is on the list
+    ref_last = push!(deepcopy(pdb_files), query)
+
+    ref_last_paths = create_pdb_lists(query, "B", "1", ref_last, ["A", "A", "B"], ["1", "1", "1"])
+    @test ref_last_paths.pdb_files == abspath.(ref_first[[1, 3, 2]]) # 2 was the first
+    @test ref_last_paths.chains == ["B", "A", "A"]
+    @test ref_last_paths.models == ["1", "1", "1"]
+end
+
+@testitem "create_alpha_fold_inputs" begin
+    query = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    pdb_db = joinpath(@__DIR__, "data", "test_db")
+    targets = ["4F4J.pdb_A", "1EX7.pdb"]
+    pdb_files = [joinpath(pdb_db, target) for target in targets]
+
+    ref_pdb = query
+    ref_chain = "B"
+    ref_model = "1"
+    chains = ["A", "A"]
+    models = ["1", "1"]
+
+    mktempdir() do cluster_folder
+        
+        @show create_alpha_fold_inputs(ref_pdb, pdb_files, cluster_folder, ref_chain, ref_model, chains, models)
+    end
+
+end
