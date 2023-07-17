@@ -1,5 +1,5 @@
 # These functions create the folder structure defining AlphaFold 2 inputs, including the 
-# input sequence, the MSA, and the templates.
+# the MSA, and the templates.
 
 """
     get_residues_and_sequence(pdb_file; chain=MIToS.PDB.All, model="1")
@@ -114,58 +114,37 @@ function create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, mode
     (;pdb_files=pdb_abspaths, chains, models)
 end
 
-# TO DO
-function create_alpha_fold_inputs(ref_pdb, pdb_files, cluster_folder, ref_chain, ref_model, chains, models)
+"""
+    create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model, 
+        pdb_files, chains, models)
+
+This function creates the folder structure defining AlphaFold 2 inputs, including the
+MSA and the templates. The `cluster_folder` argument is the path to the folder where the
+inputs will be created. The `ref_pdb`, `ref_chain` and `ref_model` arguments define the
+query structure. The `pdb_files`, `chains` and `models` arguments define the structures
+to use as templates. Note that the query structure or reference can also be included in 
+`pdb_files`, `chains` and `models`; in that case, the `ref_chain` and `ref_model` arguments
+are ignored. The function returns the path to the pdb files, and their chains
+and models as well as the MSA. The returned values are a NamedTuple with the fields
+`pdb_files`, `chains`, `models` and `msa`.
+"""
+function create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model, 
+        pdb_files, chains, models)
     paths = create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
-    # get the info for the query
-    query_info = get_residues_and_sequence(paths.pdb_files[1], chain=paths.chains[1], model=paths.models[1])
+    # create the input MSA
     save_sequences(cluster_folder, paths.pdb_files, chains=paths.chains, models=paths.models)
     msa = align_sequences(joinpath(cluster_folder, "sequences.fasta"))
     cleaned_msa = clean_msa(msa)
-    msa
-    # MIToS.MSA.write(joinpath(cluster_folder, "sequences.a3m"), cleaned_msa, MIToS.MSA.FASTA)
-    # MIToS.PDB.write(joinpath(cluster_folder, "query.pdb"), query_info.residues, MIToS.PDB.PDBFile)
-end
-
-
-
-#= 
-
-query_res = read(pdb_file, MIToS.PDB.PDBFile, group="ATOM", onlyheavy=true, occupancyfilter=true)
-query_seq = join(MIToS.MSA.three2residue(residue.id.name) for residue in query_res)
-
-if isdir("clusters")
-    rm("clusters"; recursive=true)
-end
-mkdir("clusters")
-
-for cluster in unique(tmalign_results.rmsd_clusters)
-    targets = tmalign_results.rmsd_chains[tmalign_results.rmsd_clusters .== cluster]
-    cluster_folder = "clusters/cluster_$(cluster)"
-    mkdir(cluster_folder)
-    open(joinpath(cluster_folder, "sequences.fasta"), "w") do file 
-        println(file, ">query")
-        println(file, query_seq)
-        for target in targets
-            res = read(joinpath(local_pdb_folder, target), MIToS.PDB.PDBFile, group="ATOM", onlyheavy=true, occupancyfilter=true)
-            println(file, ">$target")
-            for residue in res
-                print(file, MIToS.MSA.three2residue(residue.id.name))
-            end
-            print(file, "\n")
-        end
+    write(joinpath(cluster_folder, "sequences.a3m"), cleaned_msa, MIToS.MSA.FASTA)
+    # save the template structures
+    template_folder = joinpath(cluster_folder, "templates")
+    isdir(template_folder) || mkdir(template_folder)
+    for (pdb_file, chain, model) in zip(paths.pdb_files[2:end], paths.chains[2:end], paths.models[2:end])
+        pdb_name = basename(pdb_file)
+        pdb_data = get_residues_and_sequence(pdb_file; chain=chain, model=model)
+        MIToS.PDB.write(joinpath(template_folder, pdb_name), pdb_data.residues, MIToS.PDB.PDBFile)
     end
-    run(`clustalo -i $(joinpath(cluster_folder, "sequences.fasta")) -o $(joinpath(cluster_folder, "sequences.aln")) --force --output-order=input-order`)
-    msa = read(joinpath(cluster_folder, "sequences.aln"), MIToS.MSA.FASTA)
-    MIToS.MSA.adjustreference!(msa)
-    complete_msa = msa[vec(MIToS.MSA.coverage(msa) .> 0.5), :]
-    MIToS.MSA.write(joinpath(cluster_folder, "sequences.a3m"), complete_msa, MIToS.MSA.FASTA)
-    mkdir(joinpath(cluster_folder, "templates"))
-    pdbs = unique(String["$(split(pdb, '.')[1]).pdb" for pdb in targets])
-    for pdb in pdbs
-        res = read(joinpath("/alpha/database/pdb/pdb_files", pdb), MIToS.PDB.PDBFile, model="1", onlyheavy=true, occupancyfilter=true)
-        MIToS.PDB.write(joinpath(cluster_folder, "templates", lowercase(pdb)), res, MIToS.PDB.PDBFile)
-    end
+    
+    # return the path to the pdb files, and their chains and models as well as the MSA
+    (pdb_files=paths.pdb_files, chains=paths.chains, models=paths.models, msa=cleaned_msa)
 end
-
-=#

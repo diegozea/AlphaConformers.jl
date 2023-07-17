@@ -98,9 +98,11 @@ end
 end
 
 @testitem "create_alpha_fold_inputs" begin
+    import MIToS
+
     query = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     pdb_db = joinpath(@__DIR__, "data", "test_db")
-    targets = ["4F4J.pdb_A", "1EX7.pdb"]
+    targets = ["4F4J.pdb", "1EX7.pdb"]
     pdb_files = [joinpath(pdb_db, target) for target in targets]
 
     ref_pdb = query
@@ -110,8 +112,18 @@ end
     models = ["1", "1"]
 
     mktempdir() do cluster_folder
+        output = create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
+        # test the returned values
+        @test MIToS.MSA.sequencenames(output.msa) == ["1EX6_B.pdb", "4F4J.pdb", "1EX7.pdb"]
+        @test output.pdb_files[1] == abspath(query)
+        @test length(output.pdb_files) == 3
+        @test output.chains == ["B", "A", "A"]
+        @test output.models == ["1", "1", "1"]
         
-        @show create_alpha_fold_inputs(ref_pdb, pdb_files, cluster_folder, ref_chain, ref_model, chains, models)
+        # test the created files
+        @test isfile(joinpath(cluster_folder, "sequences.fasta"))
+        @test isfile(joinpath(cluster_folder, "sequences.a3m"))
+        @test isdir(joinpath(cluster_folder, "templates"))
+        @test length(readdir(joinpath(cluster_folder, "templates"))) == 2
     end
-
 end
