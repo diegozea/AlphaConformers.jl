@@ -28,7 +28,8 @@ export  foldseek_search, # foldseek.jl
         clean_msa,
         create_pdb_lists,
         create_msa_and_templates,
-        create_alpha_fold_inputs
+        create_alpha_fold_inputs,
+        run_alphafold # run_alphafold.jl
 
 
 include("foldseek.jl")
@@ -37,5 +38,6 @@ include("usalign.jl")
 include("clustering.jl")
 include("sifts.jl")
 include("af_input.jl")
+include("run_alphafold.jl")
 
 end
