@@ -8,7 +8,7 @@ function _read_pdb(file::String, chain_code)
 end
 
 
-function _get_pdb_chain(pdb_db, pdb_code, chain_code; extention=".pdb")
+function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention=".pdb")
     # If the pdb_db path is an empty string, download the PDB file from the web
     chain = nothing
     if isempty(pdb_db)
@@ -24,7 +24,9 @@ function _get_pdb_chain(pdb_db, pdb_code, chain_code; extention=".pdb")
         end
     else
         pdb_path = joinpath(pdb_db, pdb_code * extention)
-        chain = _read_pdb(pdb_path, chain_code)
+        if isfile(pdb_path)
+            chain = _read_pdb(pdb_path, chain_code)
+        end
     end
     chain
 end
@@ -38,7 +40,7 @@ all its contents will be deleted.
 function _create_empty_folder(path)
     if isdir(path)
         @warn "The folder $path already exists; all its contents will be deleted."
-        rm(joinpath(path, "*"), recursive=true)
+        rm(path, recursive=true, force=true)
     end
     @info "Creating folder $path"
     mkdir(path)

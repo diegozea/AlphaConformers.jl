@@ -195,8 +195,13 @@ function create_alpha_fold_inputs(path::String, ref_pdb::String,
         cluster_folder = joinpath(clusters_folder, "cluster_$(i)")
         _create_empty_folder(cluster_folder)
         pdb_files = [ joinpath(pdb_folder, pdb) for pdb in pdbs ]
-        chains = [ _get_pdb_and_chain(pdb)[2] for pdb in pdbs ]
-        models = fill("1", length(pdbs))
+        filter!(isfile, pdb_files)
+        if isempty(pdb_files)
+            @error "There are no templates in cluster $i."
+            continue
+        end
+        chains = Union{String, DataType}[ _get_pdb_and_chain(basename(pdb))[2] for pdb in pdb_files ]
+        models = fill("1", length(pdb_files))
         create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model, 
             pdb_files, chains, models)
     end
