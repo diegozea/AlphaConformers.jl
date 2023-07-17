@@ -80,3 +80,21 @@ function structural_clustering(query_pdb, pdb_folder, targets; rmsd_cutoff::Floa
     end
     StructuralClustering(pdbs, clusters, cluster_sizes, cluster_number)
 end
+
+"""
+    get_clustered_pdbs(clustering_result::StructuralClustering)
+
+This function returns a list of lists of the PDB files in each cluster. The index of 
+the outer list is the cluster number, and the inner list contains the PDB files.
+"""
+function get_clustered_pdbs(clustering_result)
+    pdbs = [ String[] for i in 1:clustering_result.nclusters ]
+    for (pdb, cluster) in zip(clustering_result.pdbs, clustering_result.clusters)
+        if isempty(pdbs[cluster])
+            pdbs[cluster] = [pdb]
+        else
+            push!(pdbs[cluster], pdb)
+        end
+    end
+    pdbs
+end

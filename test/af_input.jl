@@ -97,7 +97,7 @@ end
     @test ref_last_paths.models == ["1", "1", "1"]
 end
 
-@testitem "create_alpha_fold_inputs" begin
+@testitem "create_msa_and_templates" begin
     import MIToS
 
     query = joinpath(@__DIR__, "data", "1EX6_B.pdb")
@@ -112,7 +112,7 @@ end
     models = ["1", "1"]
 
     mktempdir() do cluster_folder
-        output = create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
+        output = create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
         # test the returned values
         @test MIToS.MSA.sequencenames(output.msa) == ["1EX6_B.pdb", "4F4J.pdb", "1EX7.pdb"]
         @test output.pdb_files[1] == abspath(query)
@@ -125,5 +125,44 @@ end
         @test isfile(joinpath(cluster_folder, "sequences.a3m"))
         @test isdir(joinpath(cluster_folder, "templates"))
         @test length(readdir(joinpath(cluster_folder, "templates"))) == 2
+    end
+end
+
+@testitem "create_alpha_fold_inputs" begin
+    query = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    test_db_folder = joinpath(@__DIR__, "data", "test_db", "test_db")
+
+    # testing = false
+    mktempdir() do output_folder
+        paths = create_alpha_fold_inputs(output_folder, query, "B", "1",
+            foldseek_db=test_db_folder)
+        @test isdir(paths.clusters)
+        @test isdir(paths.pdb)
+        cluster_folders = filter!(
+            dir -> occursin("cluster_", dir), 
+            readdir(paths.clusters, join=true))
+        @test !isempty(cluster_folders)
+        for folder in cluster_folders
+            @test isfile(joinpath(folder, "sequences.fasta"))
+            @test isfile(joinpath(folder, "sequences.a3m"))
+            template_folder = joinpath(folder, "templates")
+            @test isdir(template_folder)
+            @test !isempty(readdir(template_folder))
+        end
+        @test "1EX6.pdb_A" in readdir(paths.pdb)
+        @test "1EX6.pdb_B" in readdir(paths.pdb)
+        @test "1EX7.pdb" in readdir(paths.pdb)
+        @test "4F4J.pdb_A" in readdir(paths.pdb)
+    end
+
+    # testing = true
+    mktempdir() do output_folder
+        # 4F4J and 1EX7 are known conformations of 1EX6
+        @test_throws ErrorException create_alpha_fold_inputs(output_folder, query, 
+            "B", "1", foldseek_db=test_db_folder, testing=true)
+        # Error is thrown before creating the pdb folder
+        @test !isdir(joinpath(output_folder, "clusters", "pdb"))
+        # But after creating the clusters folder
+        @test isdir(joinpath(output_folder, "clusters"))
     end
 end

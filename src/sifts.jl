@@ -137,3 +137,10 @@ function list_known_conformations(search_results::DataFrames.DataFrame,
     end
     new_targets
 end
+
+function add_known_conformations!(search_results::DataFrames.DataFrame, 
+    sifts_uniprot_mapping::DataFrames.DataFrame)
+    new_targets = list_known_conformations(search_results, sifts_uniprot_mapping)
+    to_add = DataFrames.DataFrame(target=collect(new_targets))
+    DataFrames.append!(search_results, to_add, cols=:union)
+end

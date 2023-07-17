@@ -29,6 +29,20 @@ function _get_pdb_chain(pdb_db, pdb_code, chain_code; extention=".pdb")
     chain
 end
 
+"""
+    _create_empty_folder(path)
+
+Helper function to create an empty folder at the given path. If the folder already exists,
+all its contents will be deleted.
+"""
+function _create_empty_folder(path)
+    if isdir(path)
+        @warn "The folder $path already exists; all its contents will be deleted."
+        rm(joinpath(path, "*"), recursive=true)
+    end
+    @info "Creating folder $path"
+    mkdir(path)
+end
 
 """
     create_pdb_folder(targets::Union{Set, DataFrames.DataFrame, AbstractArray}, 
@@ -66,11 +80,7 @@ function create_pdb_folder(targets::Set, folder_path::String;
     local_pdb_folder = abspath(folder_path)
 
     # If the folder already exists, delete it and create a new one
-    if isdir(folder_path)
-        @warn "$folder_path already exists. Deleting the folder and creating a new one."
-        rm(folder_path; recursive=true)
-    end
-    mkdir(folder_path)
+    _create_empty_folder(folder_path)
     
     for target in targets
         # Split target into pdb_code and chain_code.

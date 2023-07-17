@@ -16,6 +16,7 @@ export  foldseek_search, # foldseek.jl
         create_pdb_folder, # pdb_folders.jl
         usalign, # usalign.jl
         structural_clustering, # clustering.jl
+        get_clustered_pdbs,
         get_uniprot_mapping, # sifts.jl
         get_uniprot_acc,
         get_pdb_codes,
@@ -26,6 +27,7 @@ export  foldseek_search, # foldseek.jl
         align_sequences,
         clean_msa,
         create_pdb_lists,
+        create_msa_and_templates,
         create_alpha_fold_inputs
 
 

@@ -115,7 +115,7 @@ function create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, mode
 end
 
 """
-    create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model, 
+    create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model, 
         pdb_files, chains, models)
 
 This function creates the folder structure defining AlphaFold 2 inputs, including the
@@ -128,7 +128,7 @@ are ignored. The function returns the path to the pdb files, and their chains
 and models as well as the MSA. The returned values are a NamedTuple with the fields
 `pdb_files`, `chains`, `models` and `msa`.
 """
-function create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model, 
+function create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model, 
         pdb_files, chains, models)
     paths = create_pdb_lists(ref_pdb, ref_chain, ref_model, pdb_files, chains, models)
     # create the input MSA
@@ -147,4 +147,59 @@ function create_alpha_fold_inputs(cluster_folder, ref_pdb, ref_chain, ref_model,
     
     # return the path to the pdb files, and their chains and models as well as the MSA
     (pdb_files=paths.pdb_files, chains=paths.chains, models=paths.models, msa=cleaned_msa)
+end
+
+
+function create_alpha_fold_inputs(path::String, ref_pdb::String, 
+        ref_chain::String, ref_model::String; 
+        foldseek_db::String=get(ENV, "FOLDSEEK_DB_PATH", ""), 
+        sifts_db::String = get(ENV, "SIFTS_DB", ""),
+        pdb_db::String = get(ENV, "PDB_DB_PATH", ""),
+        testing::Bool=false)
+    # Create the folder that will store the AlphaFold input for the different clusters
+    clusters_folder = joinpath(path, "clusters")
+    _create_empty_folder(clusters_folder)
+    # Look for proteins showing similar structures to the query
+    foldseek_output = foldseek_search(ref_pdb; db_path=foldseek_db)
+    foldseek_results = read_foldseek_search_results(foldseek_output)
+    if isempty(foldseek_results)
+        throw(ErrorException("No similar structures were found."))
+    end
+    # Expand the results to include known conformations of the found proteins
+    #     1. Get the UniProt PDB mapping from SIFTS
+    if isempty(sifts_db)
+        sifts_db = clusters_folder
+    end
+    uniprot_mapping = get_uniprot_mapping(sifts_db)
+    #     2. Add the known conformations to the Foldseek results
+    add_known_conformations!(foldseek_results, uniprot_mapping)
+    # If testing AlphaConformers, remove known query conformations from the results
+    if testing
+        ref_pdb_code, _ = _get_pdb_and_chain(ref_pdb)
+        delete_query_from_target!(foldseek_results, uniprot_mapping, ref_pdb_code, ref_chain)
+        if isempty(foldseek_results)
+            throw(ErrorException("There are no template structures."))
+        end
+    end
+    # Create a PDB folder to store the structures of the targets
+    pdb_folder = create_pdb_folder(foldseek_results.target, joinpath(path, "pdb"), 
+        pdb_db=pdb_db)
+    # Cluster the target structures
+    clusters = structural_clustering(ref_pdb, pdb_folder, foldseek_results.target)
+    clustered_pdbs = get_clustered_pdbs(clusters)
+    if length(clustered_pdbs) == 1
+        throw(ErrorException("There is a single structural cluster."))
+    end
+    # Create the AlphaFold input for each cluster
+    for (i, pdbs) in enumerate(clustered_pdbs)
+        cluster_folder = joinpath(clusters_folder, "cluster_$(i)")
+        _create_empty_folder(cluster_folder)
+        pdb_files = [ joinpath(pdb_folder, pdb) for pdb in pdbs ]
+        chains = [ _get_pdb_and_chain(pdb)[2] for pdb in pdbs ]
+        models = fill("1", length(pdbs))
+        create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model, 
+            pdb_files, chains, models)
+    end
+    # Return the path the the created folders 
+    (clusters=clusters_folder, pdb=pdb_folder)
 end

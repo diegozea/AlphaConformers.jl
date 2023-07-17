@@ -14,12 +14,16 @@
         @test Clustering.nclusters(clusters) == 3
         @test Clustering.counts(clusters) == [1, 1, 1]
         @test Clustering.assignments(clusters) == [1, 2, 3]
-        
+        @test [ basename.(l) for l in get_clustered_pdbs(clusters) ] == [
+            ["1EX6_B.pdb"], ["4F4J.pdb"], ["1EX7.pdb"]]
+
         # The structures are clustered in two groups
         clusters_3 = structural_clustering(query_pdb, pdb_folder, targets, rmsd_cutoff=3.0)
         @test Clustering.nclusters(clusters_3) == 2
         @test Clustering.counts(clusters_3) == [2, 1]
         @test Clustering.assignments(clusters_3) == [1, 1, 2]
+        @test [ basename.(l) for l in get_clustered_pdbs(clusters_3) ] == [
+            ["1EX6_B.pdb", "4F4J.pdb"], ["1EX7.pdb"]]
 
         # All structures are in the same cluster
         clusters_100 = structural_clustering(query_pdb, pdb_folder, targets, 
@@ -27,6 +31,8 @@
         @test Clustering.nclusters(clusters_100) == 1
         @test Clustering.counts(clusters_100) == [3]
         @test Clustering.assignments(clusters_100) == [1, 1, 1]
+        @test [ basename.(l) for l in get_clustered_pdbs(clusters_100) ] == [
+            ["1EX6_B.pdb", "4F4J.pdb", "1EX7.pdb"]]
 
         for cluster_result in [clusters, clusters_3, clusters_100]
             # Check that the query structure is the first one and that the targets are
