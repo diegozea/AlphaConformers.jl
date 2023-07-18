@@ -3,8 +3,13 @@
 function _read_pdb(file::String, chain_code)
     # Read the chain specified by chain_code from the PDB file
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    read(file, MIToS.PDB.PDBFile, chain=chain_code,
+    try
+        read(file, MIToS.PDB.PDBFile, chain=chain_code,
         onlyheavy=true, occupancyfilter=true)
+    catch err
+        @error "Error reading the PDB file $file: $err"
+        nothing
+    end
 end
 
 
