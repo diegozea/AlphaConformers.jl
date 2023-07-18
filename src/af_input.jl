@@ -17,9 +17,21 @@ function get_residues_and_sequence(pdb_file;
     query_res = read(pdb_file, MIToS.PDB.PDBFile, 
         model=model, chain=chain, group="ATOM",
         onlyheavy=true, occupancyfilter=true)
-    sequences = collect(values(MIToS.PDB.modelled_sequences(query_res)))
-    @assert length(sequences) == 1 "The query must be a single chain"
-    (residues=query_res, sequence=sequences[1])
+    sequences = MIToS.PDB.modelled_sequences(query_res)
+    @assert !isempty(sequences) "The are no residues in the pdb file: $(pdb_file) (chain: $chain)"    
+    if isa(chain, String)
+        seq = sequences[(model=model, chain=chain)]
+    else
+        seq_values = collect(values(sequences))
+        if length(seq_values) == 1 
+            seq = seq_values[1]
+        else
+            seq = "" # return an empty sequence
+            @warn "The query must be a single chain if the chain argument is `All`: $(pdb_file)"
+        end
+    end
+    
+    (residues=query_res, sequence=seq)
 end
 
 
@@ -39,8 +51,10 @@ function save_sequences(cluster_folder::String, pdb_files::Vector{String};
         for (pdb_file, chain, model) in zip(pdb_files, chains, models)
             pdb_name = basename(pdb_file)
             pdb_data = get_residues_and_sequence(pdb_file; chain=chain, model=model)
-            println(file, ">$pdb_name")
-            println(file, pdb_data.sequence)
+            if !isempty(pdb_data.sequence)
+                println(file, ">$pdb_name")
+                println(file, pdb_data.sequence)
+            end
         end
     end
 end
@@ -139,10 +153,23 @@ function create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model,
     # save the template structures
     template_folder = joinpath(cluster_folder, "templates")
     isdir(template_folder) || mkdir(template_folder)
+    # AF: PDB files should have only one model.
+    # AF: Filenames should be in lowercase.
     for (pdb_file, chain, model) in zip(paths.pdb_files[2:end], paths.chains[2:end], paths.models[2:end])
         pdb_name = basename(pdb_file)
-        pdb_data = get_residues_and_sequence(pdb_file; chain=chain, model=model)
-        MIToS.PDB.write(joinpath(template_folder, pdb_name), pdb_data.residues, MIToS.PDB.PDBFile)
+        # Use first chain to avoid errors when selecting single chain later in pipeline.
+        # [TODO] Fix that later in the pipeline to allow storing multiple chains.
+        pdb_code, _ = _get_pdb_and_chain(pdb_name)
+        pdb_template = joinpath(template_folder, "$(lowercase(pdb_code)).pdb")
+        if !isfile(pdb_template)
+            pdb_data = get_residues_and_sequence(pdb_file; chain=chain, model=model)
+            # AF: Insertion codes are not supported.
+            res = filter!(r -> isnothing(match(r"[^0-9]+", r.id.number)), pdb_data.residues)
+            # Save the cleaned pdb file
+            MIToS.PDB.write(pdb_template, res, MIToS.PDB.PDBFile)
+        else
+            @warn "A chain from $(pdb_name) already exists at $(pdb_template); skipping chain $(chain)."
+        end
     end
     
     # return the path to the pdb files, and their chains and models as well as the MSA
