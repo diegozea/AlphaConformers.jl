@@ -157,18 +157,15 @@ function create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model,
     # AF: Filenames should be in lowercase.
     for (pdb_file, chain, model) in zip(paths.pdb_files[2:end], paths.chains[2:end], paths.models[2:end])
         pdb_name = basename(pdb_file)
-        # Use first chain to avoid errors when selecting single chain later in pipeline.
-        # [TODO] Fix that later in the pipeline to allow storing multiple chains.
         pdb_code, _ = _get_pdb_and_chain(pdb_name)
         pdb_template = joinpath(template_folder, "$(lowercase(pdb_code)).pdb")
         if !isfile(pdb_template)
-            pdb_data = get_residues_and_sequence(pdb_file; chain=chain, model=model)
+            # Keep all the chains in the template pdb structures
+            pdb_data = get_residues_and_sequence(pdb_file; chain=MIToS.PDB.All, model=model)
             # AF: Insertion codes are not supported.
             res = filter!(r -> isnothing(match(r"[^0-9]+", r.id.number)), pdb_data.residues)
             # Save the cleaned pdb file
             MIToS.PDB.write(pdb_template, res, MIToS.PDB.PDBFile)
-        else
-            @warn "A chain from $(pdb_name) already exists at $(pdb_template); skipping chain $(chain)."
         end
     end
     
