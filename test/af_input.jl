@@ -1,3 +1,12 @@
+@testitem "_read_pdb_chain" begin
+    pdb_file = joinpath(@__DIR__, "data", "7ADD.pdb.gz")
+
+    # auth chain is lowercase in 7ADD; test that it is read correctly
+    lowercase_chain = AlphaConformers._read_pdb_chain(pdb_file, "e")
+    uppercase_chain = AlphaConformers._read_pdb_chain(pdb_file, "E")
+    @test lowercase_chain == uppercase_chain
+end
+
 @testitem "get_residues_and_sequence" begin
     query_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     query_info = get_residues_and_sequence(query_pdb)

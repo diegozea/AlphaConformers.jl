@@ -39,6 +39,9 @@ function _get_abspath(list_item, pdb_folder)
     end
 end
 
+# TODO: check the alignment length, as we can have 0.2 RMSD but only four residues aligned
+# TODO: also check the coverage
+
 function structural_clustering(query_pdb, pdb_folder, targets; rmsd_cutoff::Float64=1.0)
     # Ensure that the query structure is before the target structures
     pdb_list = String[query_pdb]

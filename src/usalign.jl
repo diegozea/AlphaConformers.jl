@@ -1,5 +1,7 @@
 # We use USalign as it is slightly faster than the TMalign implementation.
 
+# TODO: Use basename if pdb_list is a list of full paths
+
 "Parse the table output format of USalign (`-outfmt 2`) into a DataFrame"
 function _read_usalign_output_table(file)
     df = DataFrames.DataFrame(CSV.File(file, delim='\t'))

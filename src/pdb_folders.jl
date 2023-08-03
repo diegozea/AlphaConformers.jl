@@ -1,18 +1,4 @@
 
-
-function _read_pdb(file::String, chain_code)
-    # Read the chain specified by chain_code from the PDB file
-    # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    try
-        read(file, MIToS.PDB.PDBFile, chain=chain_code,
-        onlyheavy=true, occupancyfilter=true)
-    catch err
-        @error "Error reading the PDB file $file: $err"
-        nothing
-    end
-end
-
-
 function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention=".pdb")
     # If the pdb_db path is an empty string, download the PDB file from the web
     chain = nothing
@@ -21,7 +7,7 @@ function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention=".pdb")
         tmp_path = joinpath(tempdir(), pdb_code * ".pdb.gz")
         try
             MIToS.PDB.downloadpdb(pdb_code, filename=tmp_path, format=MIToS.PDB.PDBFile)
-            chain = _read_pdb(tmp_path, chain_code)
+            chain = _read_pdb_chain(tmp_path, chain_code)
         catch err
             @error "Error downloading or reading the PDB file $pdb_code: $err"
         finally
@@ -30,7 +16,7 @@ function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention=".pdb")
     else
         pdb_path = joinpath(pdb_db, pdb_code * extention)
         if isfile(pdb_path)
-            chain = _read_pdb(pdb_path, chain_code)
+            chain = _read_pdb_chain(pdb_path, chain_code)
         end
     end
     chain

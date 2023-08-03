@@ -1,6 +1,42 @@
 # These functions create the folder structure defining AlphaFold 2 inputs, including the 
 # the MSA, and the templates.
 
+function _read_pdb_chain(file::String, chain_code) # MIToS.PDB.All
+    # assume that the chain_code is All if it is not a string
+    # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
+    try
+        read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+    catch err
+        @error "Error reading the PDB file $file: $err"
+        nothing
+    end
+end
+
+function _read_pdb_chain(file::String, chain_code::String)
+    # Read the chain specified by chain_code from the PDB file
+    # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
+    try
+        # read the whole file
+        res = read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+        # note that auth chains can be lower case, so test the lowercase one if 
+        # the uppercase one is not found. For example, 7ADD has lowercase chains.
+        chains = Set{String}(r.id.chain for r in res)
+        if chain_code in chains
+            MIToS.PDB.residues(res, MIToS.PDB.All, chain_code)
+        else
+            lowercase_chain_code = lowercase(chain_code)
+            if lowercase_chain_code in chains
+                return MIToS.PDB.residues(res, MIToS.PDB.All, lowercase_chain_code)
+            end
+            @error "The chain $chain_code was not found in the PDB file $file"
+            nothing
+        end
+    catch err
+        @error "Error reading the PDB file $file: $err"
+        nothing
+    end
+end
+
 """
     get_residues_and_sequence(pdb_file; chain=MIToS.PDB.All, model="1")
 
@@ -14,20 +50,29 @@ the first model is selected).
 function get_residues_and_sequence(pdb_file; 
         chain::Union{Type{MIToS.PDB.All}, String}=MIToS.PDB.All,
         model::String="1")
-    query_res = read(pdb_file, MIToS.PDB.PDBFile, 
-        model=model, chain=chain, group="ATOM",
-        onlyheavy=true, occupancyfilter=true)
-    sequences = MIToS.PDB.modelled_sequences(query_res)
-    @assert !isempty(sequences) "The are no residues in the pdb file: $(pdb_file) (chain: $chain)"    
-    if isa(chain, String)
-        seq = sequences[(model=model, chain=chain)]
-    else
-        seq_values = collect(values(sequences))
-        if length(seq_values) == 1 
-            seq = seq_values[1]
+    # if something goes wrong, return an empty vector and an empty string
+    query_res = MIToS.PDB.PDBResidue[]
+    seq = ""
+
+    res = _read_pdb_chain(pdb_file, chain)
+    if res !== nothing
+        actual_chain = first(res).id.chain # chain can be lowercase
+        query_res = MIToS.PDB.residues(res, model, actual_chain, "ATOM")
+        if !isempty(query_res)
+            sequences = MIToS.PDB.modelled_sequences(query_res)
+            @assert !isempty(sequences) "The are no residues in the pdb file: $(pdb_file) (chain: $actual_chain)"    
+            if isa(chain, String)
+                seq = sequences[(model=model, chain=actual_chain)]
+            else
+                seq_values = collect(values(sequences))
+                if length(seq_values) == 1 
+                    seq = seq_values[1]
+                else
+                    @warn "The query must be a single chain if the chain argument is `All`: $(pdb_file)"
+                end
+            end
         else
-            seq = "" # return an empty sequence
-            @warn "The query must be a single chain if the chain argument is `All`: $(pdb_file)"
+            @warn "The are no ATOM residues in $(pdb_file) (model: $model, chain: $actual_chain)"
         end
     end
     
