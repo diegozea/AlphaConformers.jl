@@ -1,18 +1,21 @@
-using MIToS.PDB, AlphaConformers, CSV, DataFrames, Plots, StatsBase, Statistics
-import UnicodePlots
-import MIToS
-import JSON3
+using Distributed
+addprocs(12)
 
-const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
+@everywhere using MIToS.PDB, AlphaConformers, CSV, DataFrames, Plots, StatsBase, Statistics
+@everywhere import UnicodePlots
+@everywhere import MIToS
+@everywhere import JSON3
+
+@everywhere const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
 !isdir(PDB_FOLDER) && @warn "PDB database is located at node 48"
 
-const EXAMPLES = DataFrame(CSV.File("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"))
+@everywhere const EXAMPLES = DataFrame(CSV.File("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"))
 
-function get_path_clusters_folder(apo_pdb, apo_chain)
+@everywhere function get_path_clusters_folder(apo_pdb, apo_chain)
     "/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/$(apo_pdb)_$(apo_chain)/clusters"
 end
 
-function clean_and_get_model_id(code::String) 
+@everywhere function clean_and_get_model_id(code::String) 
     fields = split(code, "-")
     if length(fields) == 1
         return code, MIToS.PDB.All
@@ -21,7 +24,7 @@ function clean_and_get_model_id(code::String)
     end
 end
 
-function compare_models(apo_pdb, apo_chain, holo_pdb, holo_chain)
+@everywhere function compare_models(apo_pdb, apo_chain, holo_pdb, holo_chain)
     clusters_folder = get_path_clusters_folder(apo_pdb, apo_chain)
     cwd = pwd()
     cd(clusters_folder)
@@ -107,15 +110,15 @@ function compare_models(apo_pdb, apo_chain, holo_pdb, holo_chain)
         scores, msas)
 end
 
-function plot_data(comparison)
+@everywhere function plot_data(comparison)
     holo_vs_af_rmsd = comparison.holo_vs_af_rmsd
     apo_vs_af_rmsd = comparison.apo_vs_af_rmsd
 
     sel = (holo_vs_af_rmsd .> 0) .& (apo_vs_af_rmsd .> 0)
 
     plt = UnicodePlots.scatterplot(apo_vs_af_rmsd[sel], holo_vs_af_rmsd[sel], xlabel="RMSD to apo", ylabel="RMSD to holo")
-    UnicodePlots.hline!(plt, 1)
-    UnicodePlots.vline!(plt, 1)
+    UnicodePlots.hline!(plt, 1.5)
+    UnicodePlots.vline!(plt, 1.5)
     plt
 end
 
@@ -144,23 +147,40 @@ end
 # 19, 82 (both acceptable)
 # 16, 88 (both bad)
 
-# comparison = compare_models("1AKZ", "A", "1SSP", "E");      ## APO OK HOLO OK : + # (good apo, acceptable holo) # domain movement
-# comparison = compare_models("1HW1", "B", "1H9G", "A");      ## APO OK HOLO NO : - # (good apo, acceptable holo) # domain movement
-# comparison = compare_models("1GQN", "A", "1QFE", "B");      ## APO OK HOLO OK : + # (good holo, acceptable apo) # loop movement
-# comparison = compare_models("2LHS-6", "A", "2BEM", "A");    ## APO NO HOLO OK : - # (good holo, acceptable apo) # loop movement
-# comparison = compare_models("1FMF-4", "A", "1ID8-11", "A"); ## APO NO HOLO NO : - # (acceptable apo, bad holo)  # loop movement
-# comparison = compare_models("2F63-4", "A", "1EQM", "A");    ## APO NO HOLO NO : - # (acceptable apo, bad holo)  # loop movement
-# comparison = compare_models("2UZ5-9", "A", "2VCD-8", "A");  ## APO NO HOLO NO : - # (bad apo, acceptable holo)  # loop movement
-# comparison = compare_models("4AKE", "B", "2ECK", "B");      ## APO NO HOLO OK : - # (bad apo, acceptable holo)  # domain movement
-# comparison = compare_models("1O1U-9", "A", "1O1V-5", "A");  ## NO DATA            # (both acceptable)           # loop movement
-# comparison = compare_models("6OY9", "B", "1A0R", "B");      ## APO NO HOLO NO : - # (both acceptable)           # loop movement
-# comparison = compare_models("1MUT-11", "A", "1PUN-7", "A"); ## APO NO HOLO NO : - # (both bad)                  # loop movement
-# comparison = compare_models("4LP5", "A", "4P2Y", "A");      ## ERROR              # (both bad)                  # domain movement
+# comparison = compare_models("1AKZ", "A", "1SSP", "E");      ## APO OK HOLO OK : + + +  # (good apo, acceptable holo) # domain movement
+# comparison = compare_models("1HW1", "B", "1H9G", "A");      ## APO OK HOLO NO : - + -  # (good apo, acceptable holo) # domain movement
+# comparison = compare_models("1GQN", "A", "1QFE", "B");      ## APO OK HOLO OK : + + +  # (good holo, acceptable apo) # loop movement
+# comparison = compare_models("2LHS-6", "A", "2BEM", "A");    ## APO NO HOLO OK : - + +  # (good holo, acceptable apo) # loop movement
+# comparison = compare_models("1FMF-4", "A", "1ID8-11", "A"); ## APO NO HOLO NO : - - -  # (acceptable apo, bad holo)  # loop movement
+# comparison = compare_models("2F63-4", "A", "1EQM", "A");    ## APO NO HOLO NO : - - -  # (acceptable apo, bad holo)  # loop movement
+# comparison = compare_models("2UZ5-9", "A", "2VCD-8", "A");  ## APO NO HOLO NO : - - -  # (bad apo, acceptable holo)  # loop movement
+# comparison = compare_models("4AKE", "B", "2ECK", "B");      ## APO NO HOLO OK : - + +  # (bad apo, acceptable holo)  # domain movement
+# comparison = compare_models("1O1U-9", "A", "1O1V-5", "A");  ## NO DATA                # (both acceptable)           # loop movement
+# comparison = compare_models("6OY9", "B", "1A0R", "B");      ## APO NO HOLO NO : - + -  # (both acceptable)           # loop movement
+# comparison = compare_models("1MUT-11", "A", "1PUN-7", "A"); ## APO NO HOLO NO : - - -  # (both bad)                  # loop movement
+# comparison = compare_models("4LP5", "A", "4P2Y", "A");      ## ERROR                  # (both bad)                  # domain movement
 
 # RERUN = ["1FMF-4_A", "2F63-4_A", "1O1U-9_A", "4LP5_A"] 
 
 comparison = compare_models("1AKZ", "A", "1SSP", "E");
 plot_data(comparison)
+
+# --- all --- #
+
+comparisons = pmap(eachrow(EXAMPLES)) do row
+    apo_id = row.apo_id
+    holo_id = row.holo_id
+    apo_fields = split(apo_id, "_")
+    holo_fields = split(holo_id, "_")
+    apo_pdb, apo_chain = apo_fields[1], apo_fields[2]
+    holo_pdb, holo_chain = holo_fields[1], holo_fields[2]
+    try
+        compare_models(apo_pdb, apo_chain, holo_pdb, holo_chain)
+    catch err
+        println("ERROR: $(apo_id) $(holo_id): $err")
+        missing
+    end
+end;
 
 # --- at frontend --- #
 
@@ -307,7 +327,7 @@ min_apo = [ s.apo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismi
 min_holo = [ s.holo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
 scatter(min_apo, min_holo, xlabel="min apo", ylabel="min holo", legend=false)
 
-# Well, in fat, there are not good templates for the apo structure.
+# Well, in fact, there are not good templates for the apo structure.
 
 # From comparison get the minimum RMSD for each cluster by looking into af_models and 
 # apo_vs_af_rmsd/holo_vs_af_rmsd
@@ -368,7 +388,7 @@ cluster_numbers = parse.(Int, last.(split.(filter!(f -> isdir(f) && occursin('_'
 stats = map(cluster_numbers) do cl
     apo_stats = cluster_stats(apo_pdb, clusters_path, cl)
     holo_stats = cluster_stats(holo_pdb, clusters_path, cl)
-    (;apo=apo_stats, holo=holo_stats)
+    (;apo=apo_stats, holo=holo_stats)                                                                                 1 2 1.5
 end
 
 min_apo = [ s.apo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
@@ -429,4 +449,3 @@ plot(pp, plt, plt_holo, layout=(1, 3), link=:both)
 # templates. I think atht maybe, since I am not checking the coverage when clutering; I am 
 # getting good RMSD (lower than 1) but for a very small region. Therefore, this bus is 
 # poluting the clusters.
-
