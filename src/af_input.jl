@@ -274,6 +274,6 @@ function create_alpha_fold_inputs(path::String, ref_pdb::String,
         create_msa_and_templates(cluster_folder, ref_pdb, ref_chain, ref_model, 
             pdb_files, chains, models)
     end
-    # Return the path the the created folders 
+    # Return the path to the created folders 
     (clusters=clusters_folder, pdb=pdb_folder)
 end
