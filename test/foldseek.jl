@@ -1,6 +1,5 @@
 @testitem "Foldseek search" begin
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    output_file = joinpath(@__DIR__, "data", "1EX6_B_results.m8")
     test_db_folder = joinpath(@__DIR__, "data", "test_db")
 
     # Throw an error if db_path is not set
@@ -10,13 +9,14 @@
     @test_throws ErrorException foldseek_search(input_pdb, db_path=test_db_folder)
 
     # Run it
-    foldseek_search(input_pdb, db_path=joinpath(test_db_folder, "test_db"))
+    output = foldseek_search(input_pdb, db_path=joinpath(test_db_folder, "test_db"))
 
     # Check that the output file exists
-    @test isfile(output_file)
+    @test output == joinpath(@__DIR__, "data", "1EX6_B_results.m8")
+    @test isfile(output)
 
     # Parse the output table
-    df = read_foldseek_search_results(output_file)
+    df = read_foldseek_search_results(output)
 
     # Check that the results in the table are correct based on the test database 
     # tailored for this test
@@ -35,5 +35,25 @@
     @test df[1, :bits] == 1216
 
     # Clean up
-    isfile(output_file) && rm(output_file)
+    isfile(output) && rm(output)
+end
+
+@testitem "Foldseek aln structures" begin
+    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    test_db_folder = joinpath(@__DIR__, "data", "test_db")
+
+    # Run it
+    output = foldseek_search(input_pdb, db_path=joinpath(test_db_folder, "test_db"), format_mode=5)
+
+    # Check that the output folder exists
+    @test output == joinpath(@__DIR__, "data", "aligned_structures")
+    @test isdir(output)
+
+    # Check that the output folder contains the expected files
+    files = readdir(output)
+    @test length(files) == 3
+    @test all(startswith("aln_"), files)
+
+    # Clean up
+    isdir(output) && rm(output; recursive=true)
 end
