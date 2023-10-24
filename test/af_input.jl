@@ -27,10 +27,8 @@ end
     pdb_files = [joinpath(pdb_db, target) for target in targets]
     
     mktempdir() do tmp_folder
-        # The PDB files have more than one chain...
-        @test_throws AssertionError save_sequences(tmp_folder, pdb_files)
-
-        # ...so we specify the chain
+        # The PDB files have multiple chain, so we specify the chains to avoid all of 
+        # them being saved
         save_sequences(tmp_folder, pdb_files, chains=["A", "A"])
         filename = joinpath(tmp_folder, "sequences.fasta")
         @test isfile(filename)
