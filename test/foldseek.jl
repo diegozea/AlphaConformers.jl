@@ -57,3 +57,13 @@ end
     # Clean up
     isdir(output) && rm(output; recursive=true)
 end
+
+@testitem "run_foldseek" begin
+    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
+
+    # Run it
+    output = run_foldseek(input_pdb, db_path=test_db)
+    
+    println(output)
+end

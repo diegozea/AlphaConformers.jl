@@ -53,9 +53,6 @@ function foldseek_search(pdb_file::AbstractString;
     end
 end
 
-
-
-
 """
     read_foldseek_search_results(file::AbstractString)
 
@@ -66,3 +63,50 @@ function read_foldseek_search_results(file::AbstractString)
     DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
 end
 
+function run_foldseek(pdb_file::AbstractString; 
+        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""))
+    # get the path to the target database
+    isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " * 
+        "the db_path keyword argument to the path of the Foldseek database.")
+    isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
+    
+    # IO paths
+    query_path = first(splitext(abspath(pdb_file))) # query path without extension
+    out_file = "$(query_path)_results.m8"
+    folder = dirname(query_path)
+    msa_file = joinpath(folder, "msa.a3m")
+    aligned_folder = joinpath(folder, "aligned_structures")
+    if !isdir(aligned_folder)
+        mkdir(aligned_folder)
+    end
+    cwd = pwd()
+
+    try 
+        mktempdir() do tmp_folder
+            cd(tmp_folder)
+
+            # createdb for the query file
+            run(`$(Foldseek_jll.foldseek()) createdb $pdb_file query_db`)
+
+            # run the search using -a
+            run(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a`)
+            
+            # convertalis to m8
+            run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $out_file`)
+            
+            # convertalis to aligned_structures
+            prefix = joinpath(aligned_folder, "aln_")
+            run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`)
+            isfile(prefix) && rm(prefix)
+
+            # run result2msa
+            run(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6`)
+            # unpack the msa
+            run(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0`)
+            isfile("msa_output/0a3m") && cp("msa_output/0a3m", msa_file)
+        end
+    finally
+        cd(cwd)
+    end
+    (out_file, aligned_folder)
+end
