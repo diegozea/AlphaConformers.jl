@@ -64,20 +64,20 @@ function read_foldseek_search_results(file::AbstractString)
 end
 
 function run_foldseek(pdb_file::AbstractString; 
-        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""))
+        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""),
+        out_folder::String = dirname(abspath(pdb_file)))
     # get the path to the target database
     isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " * 
         "the db_path keyword argument to the path of the Foldseek database.")
     isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
     
     # IO paths
-    query_path = first(splitext(abspath(pdb_file))) # query path without extension
-    out_file = "$(query_path)_results.m8"
-    folder = dirname(query_path)
-    msa_file = joinpath(folder, "msa.a3m")
-    aligned_folder = joinpath(folder, "aligned_structures")
-    if !isdir(aligned_folder)
-        mkdir(aligned_folder)
+    pdb_name = first(splitext(basename(pdb_file))) # filename without extension
+    table_file = joinpath(out_folder, "$(pdb_name)_results.m8")
+    msa_file = joinpath(out_folder, "msa.a3m")
+    aligned_structures_folder = joinpath(out_folder, "aligned_structures")
+    if !isdir(aligned_structures_folder)
+        mkdir(aligned_structures_folder)
     end
     cwd = pwd()
 
@@ -92,10 +92,10 @@ function run_foldseek(pdb_file::AbstractString;
             run(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a`)
             
             # convertalis to m8
-            run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $out_file`)
+            run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file`)
             
             # convertalis to aligned_structures
-            prefix = joinpath(aligned_folder, "aln_")
+            prefix = joinpath(aligned_structures_folder, "aln_")
             run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`)
             isfile(prefix) && rm(prefix)
 
@@ -103,10 +103,15 @@ function run_foldseek(pdb_file::AbstractString;
             run(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6`)
             # unpack the msa
             run(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0`)
+            if isfile(msa_file)
+                @warn "$msa_file already exists. It will be overwritten."
+                rm(msa_file)
+            end
             isfile("msa_output/0a3m") && cp("msa_output/0a3m", msa_file)
         end
     finally
         cd(cwd)
     end
-    (out_file, aligned_folder)
+
+    (;table_file, msa_file, aligned_structures_folder)
 end

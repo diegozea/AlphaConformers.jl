@@ -59,11 +59,29 @@ end
 end
 
 @testitem "run_foldseek" begin
+    import MIToS
+
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
 
     # Run it
     output = run_foldseek(input_pdb, db_path=test_db)
     
-    println(output)
+    # Check the output
+    @test isfile(output.table_file) && stat.(output.table_file).size > 0
+    @test isfile(output.msa_file) && stat.(output.msa_file).size > 0
+    @test isdir(output.aligned_structures_folder)
+
+    # Check that the output folder contains the expected files
+    files = readdir(output.aligned_structures_folder)
+    @test length(files) == 3
+    @test all(startswith("aln_"), files)
+
+    # Check that the MSA is correct
+    msa = MIToS.MSA.read(output.msa_file, MIToS.MSA.FASTA)
+    @test MIToS.MSA.nsequences(msa) == 4
+
+    # Clean up
+    isdir(output.aligned_structures_folder) && rm(output.aligned_structures_folder; recursive=true)
+    isfile(output.msa_file) && rm(output.msa_file)
 end
