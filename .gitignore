@@ -16,3 +16,6 @@ create_db.jl.e*
 # tests
 test/data/1EX6_B_results.m8
 test/data/.*
+
+# tmp
+.nfs*

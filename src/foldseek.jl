@@ -63,6 +63,14 @@ function read_foldseek_search_results(file::AbstractString)
     DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
 end
 
+function _create_folder(folder)
+    if isdir(folder)
+        @warn "$folder already exists. Results will be overwritten."
+        rm(folder; recursive=true)
+    end
+    mkdir(folder)
+end
+
 function run_foldseek(pdb_file::AbstractString, 
         db_path::String = get(ENV, "FOLDSEEK_DB_PATH", "");
         out_folder::String = dirname(abspath(pdb_file)))
@@ -72,7 +80,7 @@ function run_foldseek(pdb_file::AbstractString,
     
     # if there is more than one database, run the function for each one
     if occursin(',', db_path)
-        db_path_vector = String(split(db_path, ','))
+        db_path_vector = String.(split(db_path, ','))
         return run_foldseek(pdb_file, db_path_vector, out_folder=out_folder)
     end
     
@@ -82,19 +90,12 @@ function run_foldseek(pdb_file::AbstractString,
 
     # IO paths
     out_folder_db = joinpath(out_folder, "$(db_name)_results")
-    if isdir(out_folder_db)
-        @warn "$out_folder_db already exists. Results will be overwritten."
-        rm(out_folder_db; recursive=true)
-    else
-        mkdir(out_folder_db)
-    end
+    _create_folder(out_folder_db)
     pdb_name = first(splitext(basename(pdb_file))) # filename without extension
     table_file = joinpath(out_folder_db, "$(pdb_name)_results.m8")
     msa_file = joinpath(out_folder_db, "msa.a3m")
     aligned_structures_folder = joinpath(out_folder_db, "aligned_structures")
-    if !isdir(aligned_structures_folder)
-        mkdir(aligned_structures_folder)
-    end
+    _create_folder(aligned_structures_folder)
     cwd = pwd()
 
     try 
@@ -104,8 +105,9 @@ function run_foldseek(pdb_file::AbstractString,
             # createdb for the query file
             run(`$(Foldseek_jll.foldseek()) createdb $pdb_file query_db`)
 
-            # run the search using -a
-            run(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a`)
+            # run the search using -a to be able to recover the alignment
+            # --prefilter-mode 1 to use less RAM when searching the AFDB, needing ~35 Gb
+            run(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a --prefilter-mode 1`)
             
             # convertalis to m8
             run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file`)

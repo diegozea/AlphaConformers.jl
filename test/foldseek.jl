@@ -58,7 +58,7 @@ end
     isdir(output) && rm(output; recursive=true)
 end
 
-@testitem "run_foldseek" begin
+@testitem "run_foldseek: sigle db" begin
     import MIToS
 
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
@@ -66,7 +66,6 @@ end
 
     # Run it
     output_vector = run_foldseek(input_pdb, test_db)
-    
 
     # Check the output
     @test length(output_vector) == 1
@@ -87,5 +86,49 @@ end
     @test MIToS.MSA.nsequences(msa) == 4
 
     # Clean up
+    isdir(outdir) && rm(outdir; recursive=true)
+end
+
+@testitem "run_foldseek: multiple db" begin
+    import MIToS
+
+    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
+
+    # Run it
+    output = run_foldseek(input_pdb, "$test_db,$test_db")
+
+    # Check the output
+    @test length(output) == 2
+    @test output[1] == output[2]
+    outdir = dirname(output[1].table_file)
+    @test isdir(outdir)
+    @test isfile(output[2].table_file) && stat.(output[2].table_file).size > 0
+    @test isfile(output[2].msa_file) && stat.(output[2].msa_file).size > 0
+    @test isdir(output[2].aligned_structures_folder)
+
+    isdir(outdir) && rm(outdir; recursive=true)
+end
+
+
+@testitem "run_foldseek: todo" begin
+    import DataFrames
+
+    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
+
+    # Run it
+    output = run_foldseek(input_pdb, "$test_db,$test_db")
+    outdir = dirname(output[1].table_file)
+    
+    # Check the output
+    table_one = read_foldseek_search_results(output[1].table_file)
+    table_two = read_foldseek_search_results(output[2].table_file)
+    
+    println(table_one)
+    println(table_two)
+
+    println(vcat(table_one, table_two))
+
     isdir(outdir) && rm(outdir; recursive=true)
 end
