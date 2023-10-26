@@ -128,5 +128,5 @@ end
     @test only(unique(merged.file)) == output[1].table_file
 
     # Clean up
-    isdir(outdir) && rm(outdir; recursive=true)
+    # isdir(outdir) && rm(outdir; recursive=true)
 end

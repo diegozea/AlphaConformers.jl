@@ -147,5 +147,35 @@ end
 
 # create_pdb_folder & structural_clustering ---------------------------------------------- #
 
+# As structures are already aligned and saved in a local directory, we can simply 
+# measure RMSD and identify the structures by location. We do not need to create
+# a temporary folder containing edited PDB files.
+
+function _aligned_pdb_file(foldseek_results::DataFrames.DataFrame, row_number::Int)
+    row = foldseek_results[row_number, :]
+    query = row.query
+    target = row.target
+    file_name = "aln_$(query)_$(target).pdb"
+    table_file = row.file
+    table_folder = dirname(table_file)
+    aligned_structures_folder = joinpath(table_folder, "aligned_structures")
+    path = joinpath(aligned_structures_folder, file_name)
+    # the aligned structures have only the CA of the aligned chain
+    MIToS.PDB.read(path, MIToS.PDB.PDBFile)
+end
+
+function structure_distances(foldseek_results::DataFrames.DataFrame)
+    targets = foldseek_results.target
+    n_targets = length(targets) # also nrows
+    distances = zeros(Float16, n_targets, n_targets)
+    for i in 1:(n_targets-1)
+        pdb_a = _aligned_pdb_file(foldseek_results, i)
+        for j in (i+1):n_targets
+            pdb_b = _aligned_pdb_file(foldseek_results, j)
+            distances[i, j] = distances[j, i] = MIToS.PDB.rmsd(pdb_a, pdb_b)
+        end
+    end
+end
+
 
 
