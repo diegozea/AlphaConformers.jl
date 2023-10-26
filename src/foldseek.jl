@@ -135,6 +135,6 @@ end
 function run_foldseek(pdb_file::AbstractString, db_path::Vector{String};
     out_folder::String = dirname(abspath(pdb_file)))
     map(db_path) do db
-        run_foldseek(pdb_file, db, out_folder=out_folder)
+        only(run_foldseek(pdb_file, db, out_folder=out_folder))
     end
 end
