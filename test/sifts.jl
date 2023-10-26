@@ -55,8 +55,8 @@ end
     
     # 1PBE A is another protein (P00438)
     @test DataFrames.nrow(delete_query_from_target!(deepcopy(search_results),  
-        sifts_uniprot_mapping, "1PBE", "A")) == 3
+        sifts_uniprot_mapping, "1PBE", "A")) == 4
     # 4F4J and 1EX7 are known conformations of 1EX6 B (P15454)
-    @test isempty(delete_query_from_target!(deepcopy(search_results), 
-        sifts_uniprot_mapping, "1EX6", "B"))
+    @test DataFrames.nrow(delete_query_from_target!(deepcopy(search_results), 
+        sifts_uniprot_mapping, "1EX6", "B")) == 1
 end

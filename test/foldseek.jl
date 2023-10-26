@@ -20,7 +20,7 @@
 
     # Check that the results in the table are correct based on the test database 
     # tailored for this test
-    @test size(df, 1) == 3 # 3 hits: 4F4J (A & B) and 1EX7
+    @test size(df, 1) == 4 # 3 hits: 4F4J (A & B), 1EX7 and the AF structure
     @test df[1, :query] == "1EX6_B.pdb"
     @test df[1, :target] == "4F4J.pdb_A"
     @test df[1, :fident] > 0.9
@@ -51,7 +51,7 @@ end
 
     # Check that the output folder contains the expected files
     files = readdir(output)
-    @test length(files) == 3
+    @test length(files) == 4
     @test all(startswith("aln_"), files)
 
     # Clean up
@@ -78,12 +78,12 @@ end
 
     # Check that the output folder contains the expected files
     files = readdir(output.aligned_structures_folder)
-    @test length(files) == 3
+    @test length(files) == 4
     @test all(startswith("aln_"), files)
 
     # Check that the MSA is correct
     msa = MIToS.MSA.read(output.msa_file, MIToS.MSA.FASTA)
-    @test MIToS.MSA.nsequences(msa) == 4
+    @test MIToS.MSA.nsequences(msa) == 5
 
     # Clean up
     isdir(outdir) && rm(outdir; recursive=true)
