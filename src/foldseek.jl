@@ -63,19 +63,35 @@ function read_foldseek_search_results(file::AbstractString)
     DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
 end
 
-function run_foldseek(pdb_file::AbstractString; 
-        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""),
+function run_foldseek(pdb_file::AbstractString, 
+        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", "");
         out_folder::String = dirname(abspath(pdb_file)))
     # get the path to the target database
     isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " * 
         "the db_path keyword argument to the path of the Foldseek database.")
-    isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
     
+    # if there is more than one database, run the function for each one
+    if occursin(',', db_path)
+        db_path_vector = String(split(db_path, ','))
+        return run_foldseek(pdb_file, db_path_vector, out_folder=out_folder)
+    end
+    
+    # if there is only one database, continue
+    isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
+    db_name = basename(db_path)
+
     # IO paths
+    out_folder_db = joinpath(out_folder, "$(db_name)_results")
+    if isdir(out_folder_db)
+        @warn "$out_folder_db already exists. Results will be overwritten."
+        rm(out_folder_db; recursive=true)
+    else
+        mkdir(out_folder_db)
+    end
     pdb_name = first(splitext(basename(pdb_file))) # filename without extension
-    table_file = joinpath(out_folder, "$(pdb_name)_results.m8")
-    msa_file = joinpath(out_folder, "msa.a3m")
-    aligned_structures_folder = joinpath(out_folder, "aligned_structures")
+    table_file = joinpath(out_folder_db, "$(pdb_name)_results.m8")
+    msa_file = joinpath(out_folder_db, "msa.a3m")
+    aligned_structures_folder = joinpath(out_folder_db, "aligned_structures")
     if !isdir(aligned_structures_folder)
         mkdir(aligned_structures_folder)
     end
@@ -113,5 +129,12 @@ function run_foldseek(pdb_file::AbstractString;
         cd(cwd)
     end
 
-    (;table_file, msa_file, aligned_structures_folder)
+    [(;table_file, msa_file, aligned_structures_folder)]
+end
+
+function run_foldseek(pdb_file::AbstractString, db_path::Vector{String};
+    out_folder::String = dirname(abspath(pdb_file)))
+    map(db_path) do db
+        run_foldseek(pdb_file, db, out_folder=out_folder)
+    end
 end

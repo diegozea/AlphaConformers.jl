@@ -65,9 +65,14 @@ end
     test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
 
     # Run it
-    output = run_foldseek(input_pdb, db_path=test_db)
+    output_vector = run_foldseek(input_pdb, test_db)
     
+
     # Check the output
+    @test length(output_vector) == 1
+    output = output_vector[1]
+    outdir = dirname(output.table_file)
+    @test isdir(outdir)
     @test isfile(output.table_file) && stat.(output.table_file).size > 0
     @test isfile(output.msa_file) && stat.(output.msa_file).size > 0
     @test isdir(output.aligned_structures_folder)
@@ -82,6 +87,5 @@ end
     @test MIToS.MSA.nsequences(msa) == 4
 
     # Clean up
-    isdir(output.aligned_structures_folder) && rm(output.aligned_structures_folder; recursive=true)
-    isfile(output.msa_file) && rm(output.msa_file)
+    isdir(outdir) && rm(outdir; recursive=true)
 end
