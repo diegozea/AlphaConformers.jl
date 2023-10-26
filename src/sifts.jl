@@ -100,6 +100,9 @@ function delete_query_from_target!(search_results::DataFrames.DataFrame,
         query_pdb_code::String, query_chain_code::String)
     query_uniprots = get_uniprot_acc(sifts_uniprot_mapping, query_pdb_code, query_chain_code)
     for query_uniprot in query_uniprots
+        # AFDB
+        filter!(m -> !occursin("AF-$(query_uniprot)-", m.target), search_results)
+        # PDB
         query_structures = get_pdb_codes(sifts_uniprot_mapping, query_uniprot)
         for row in eachrow(query_structures)
             pdb = String(row.PDB)
@@ -118,10 +121,15 @@ function list_known_conformations(search_results::DataFrames.DataFrame,
     uniprots = Set{String}()
     new_targets = Set{String}()
     for row in eachrow(search_results)
-        pdb_code, chain_code = _get_pdb_and_chain(row.target)
-        ups = get_uniprot_acc(sifts_uniprot_mapping, pdb_code, chain_code)
-        for up in ups
-            push!(uniprots, up)
+        afdb_up = match(r"AF-(\w+)-F", row.target) # AFDB identifiers
+        if afdb_up !== nothing
+            push!(uniprots, afdb_up.captures[1])
+        else # assume PDB if it is not AFDB
+            pdb_code, chain_code = _get_pdb_and_chain(row.target)
+            ups = get_uniprot_acc(sifts_uniprot_mapping, pdb_code, chain_code)
+            for up in ups
+                push!(uniprots, up)
+            end
         end
     end
     for up in uniprots

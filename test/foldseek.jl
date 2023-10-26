@@ -111,7 +111,7 @@ end
 end
 
 
-@testitem "run_foldseek: todo" begin
+@testitem "run_foldseek: merging tables" begin
     import DataFrames
 
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
@@ -122,13 +122,11 @@ end
     outdir = dirname(output[1].table_file)
     
     # Check the output
-    table_one = read_foldseek_search_results(output[1].table_file)
-    table_two = read_foldseek_search_results(output[2].table_file)
-    
-    println(table_one)
-    println(table_two)
+    merged = merge_tables([output[1].table_file, output[2].table_file])
+    @test DataFrames.nrow(merged) == 4
+    @test DataFrames.ncol(merged) == 13
+    @test only(unique(merged.file)) == output[1].table_file
 
-    println(vcat(table_one, table_two))
-
+    # Clean up
     isdir(outdir) && rm(outdir; recursive=true)
 end

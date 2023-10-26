@@ -53,6 +53,8 @@ function foldseek_search(pdb_file::AbstractString;
     end
 end
 
+# foldseek ------------------------------------------------------------------------------- #
+
 """
     read_foldseek_search_results(file::AbstractString)
 
@@ -61,14 +63,6 @@ and proper column names.
 """
 function read_foldseek_search_results(file::AbstractString)
     DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
-end
-
-function _create_folder(folder)
-    if isdir(folder)
-        @warn "$folder already exists. Results will be overwritten."
-        rm(folder; recursive=true)
-    end
-    mkdir(folder)
 end
 
 function run_foldseek(pdb_file::AbstractString, 
@@ -90,12 +84,12 @@ function run_foldseek(pdb_file::AbstractString,
 
     # IO paths
     out_folder_db = joinpath(out_folder, "$(db_name)_results")
-    _create_folder(out_folder_db)
+    _create_empty_folder(out_folder_db)
     pdb_name = first(splitext(basename(pdb_file))) # filename without extension
     table_file = joinpath(out_folder_db, "$(pdb_name)_results.m8")
     msa_file = joinpath(out_folder_db, "msa.a3m")
     aligned_structures_folder = joinpath(out_folder_db, "aligned_structures")
-    _create_folder(aligned_structures_folder)
+    _create_empty_folder(aligned_structures_folder)
     cwd = pwd()
 
     try 
@@ -140,3 +134,18 @@ function run_foldseek(pdb_file::AbstractString, db_path::Vector{String};
         only(run_foldseek(pdb_file, db, out_folder=out_folder))
     end
 end
+
+function merge_tables(table_files::Vector{String})
+    tables = map(table_files) do file
+        table = read_foldseek_search_results(file)
+        table.file .= abspath(file)
+        table
+    end
+    merged = DataFrames.vcat(tables...)
+    DataFrames.unique!(merged, ["query", "target", "qstart", "qend", "tstart", "tend"])
+end
+
+# create_pdb_folder & structural_clustering ---------------------------------------------- #
+
+
+
