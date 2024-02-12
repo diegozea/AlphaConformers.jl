@@ -388,7 +388,7 @@ cluster_numbers = parse.(Int, last.(split.(filter!(f -> isdir(f) && occursin('_'
 stats = map(cluster_numbers) do cl
     apo_stats = cluster_stats(apo_pdb, clusters_path, cl)
     holo_stats = cluster_stats(holo_pdb, clusters_path, cl)
-    (;apo=apo_stats, holo=holo_stats)                                                                                 1 2 1.5
+    (;apo=apo_stats, holo=holo_stats)
 end
 
 min_apo = [ s.apo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
