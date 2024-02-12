@@ -2,7 +2,7 @@
 function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention=".pdb")
     # If the pdb_db path is an empty string, download the PDB file from the web
     chain = nothing
-    if isempty(pdb_db)
+    if isempty(pdb_db) # && !startswith(pdb_code, "AF") # AF DB
         # Download the PDB file from the web into a temporary file
         tmp_path = joinpath(tempdir(), pdb_code * ".pdb.gz")
         try
@@ -66,13 +66,15 @@ function create_pdb_folder(targets::Set, folder_path::String;
         #   1 chain:    pdb (e.g. 1EX7.pdb)
         #   2 chains:   pdb_chain (e.g. 4F4J.pdb_B)
         # NOTE: The presence of the 'pdb' extension depends on the Foldseek database used.
-        fields = split(String(target), '_')
-        pdb_code = first(splitext(String(fields[1]))) # remove the extension
-        @assert length(pdb_code) == 4 "The PDB code must be 4 characters long."
-        if length(fields) == 2
-            chain_code = String(fields[2])
-        else
+        # NOTE: We also need to take into account AlphaFold DB: AF-Q86UL8-F1-model_v4.pdb
+        if startswith(target, "AF") # AF DB
+            pdb_code = first(splitext(target))
             chain_code = MIToS.PDB.All
+        else # PDB DB
+            fields = split(String(target), '_')
+            pdb_code = first(splitext(String(first(fields)))) # remove the extension
+            @assert length(pdb_code) == 4 "The PDB code must be 4 characters long: $pdb_code in $target"
+            chain_code = length(fields) == 2 ? String(fields[2]) : MIToS.PDB.All
         end
         # Define the file path to the PDB within the newly created folder.
         # The file name is the same as the one in the list of targets.
