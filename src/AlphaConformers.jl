@@ -1,5 +1,6 @@
 module AlphaConformers
 
+import BioAlignments
 import MIToS
 import Foldseek_jll
 import MAFFT_jll
@@ -8,6 +9,7 @@ import CSV
 import DataFrames
 import Clustering
 import Downloads
+import OrderedCollections
 
 using TestItems
 

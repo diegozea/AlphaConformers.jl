@@ -147,31 +147,117 @@ end
 
 # create_pdb_folder & structural_clustering ---------------------------------------------- #
 
-# As structures are already aligned and saved in a local directory, we can simply 
-# measure RMSD and identify the structures by location. We do not need to create
-# a temporary folder containing edited PDB files.
-
-function _aligned_pdb_file(foldseek_results::DataFrames.DataFrame, row_number::Int)
-    row = foldseek_results[row_number, :]
-    query = row.query
-    target = row.target
-    file_name = "aln_$(query)_$(target).pdb"
-    table_file = row.file
+function _get_paths(table_file)
     table_folder = dirname(table_file)
-    aligned_structures_folder = joinpath(table_folder, "aligned_structures")
-    path = joinpath(aligned_structures_folder, file_name)
-    # the aligned structures have only the CA of the aligned chain
-    MIToS.PDB.read(path, MIToS.PDB.PDBFile)
+    (
+        table = table_file,
+        msa = joinpath(table_folder, "msa.a3m"),
+        structures = joinpath(table_folder, "aligned_structures")
+    )
 end
+
+# concatenate msas ----------------------------------------------------------------------- #
+
+function merge_msas(table::DataFrames.DataFrame)
+    out_folders = dirname.(unique(table.table_file))
+    msas = [ read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA) 
+        for folder in out_folders ]
+    # Return the MSA if there is only one
+    length(msas) == 1 && return only(msas)
+    # Otherwise, concatenate the multiple MSAs using the query sequence as reference
+    nothing
+end
+
+function _match_columns(msa_a, msa_b, ref_a, ref_b)
+    ref_a = replace(MIToS.MSA.stringsequence(msa_a, ref_a), "-" => "")
+    ref_b = replace(MIToS.MSA.stringsequence(msa_b, ref_b), "-" => "")
+    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
+        gap_open=-2, gap_extend=-1)
+    aln = BioAlignments.pairalign(BioAlignments.GlobalAlignment(), ref_a, ref_b, aln_model)
+    pos_a = 0
+    pos_b = 0
+    positions_a = Int[]
+    positions_b = Int[]
+    for (res_a, res_b) in alignment(aln)
+        if res_a != '-'
+            pos_a += 1
+            push!(positions_a, pos_a)
+        else
+            push!(positions_a, 0)
+        end
+        if res_b != '-'
+            pos_b += 1
+            push!(positions_b, pos_b)
+        else
+            push!(positions_b, 0)
+        end
+    end
+    (positions_a, positions_b)
+end
+
+function _define_seq_blocks(positions_a, positions_b)
+    blocks = Tuple{Vector{Int}, Vector{Int}}[(Int[], Int[]),]
+    previous_a = positions_a[1]
+    previous_b = positions_b[1]
+    for (a, b) in zip(positions_a, positions_b)
+        if ((a == 0 && previous_a != 0) || 
+            (b == 0 && previous_b != 0) || 
+            (a != 0 && b != 0 && (previous_a == 0 || previous_b == 0)))
+            push!(blocks, (Int[a], Int[b]))
+        else
+            push!(blocks[end][1], a)
+            push!(blocks[end][2], b)
+        end
+        previous_a, previous_b = a, b
+    end
+    blocks
+end
+
+function _define_col_blocks(msa_a, msa_b, ref_a, ref_b, seq_blocks)
+    # TODO: I need to define
+
+end
+
+
+function merge_msas(msa_a, msa_b, ref_a, ref_b)
+
+
+end
+
+
+
+
+# structure_distances -------------------------------------------------------------------- #
+
+
+function _aligned_pdb_file(query, target, aligned_structures_folder)
+    file_name = "aln_$(query)_$(target).pdb"
+    joinpath(aligned_structures_folder, file_name)
+end
+
+
+
+function get_aligned_residues(query, target, paths)
+    msa = read(paths.msa, MIToS.MSA.FASTA)
+    
+    pdb_file = _aligned_pdb_file(query, target, paths.structures)
+    res = read(pdb_file, MIToS.PDB.PDBFile)
+
+end
+
 
 function structure_distances(foldseek_results::DataFrames.DataFrame)
     targets = foldseek_results.target
     n_targets = length(targets) # also nrows
     distances = zeros(Float16, n_targets, n_targets)
     for i in 1:(n_targets-1)
-        pdb_a = _aligned_pdb_file(foldseek_results, i)
+        row_i = foldseek_results[i, :]
+        paths_i = _get_paths(row_i.table_file)
+        pdb_file_i = _aligned_pdb_file(row_i.query, row_i.target, paths_i.structures)
         for j in (i+1):n_targets
-            pdb_b = _aligned_pdb_file(foldseek_results, j)
+            row_j = foldseek_results[j, :]
+            paths_j = _get_paths(row_j.table_file)
+            pdb_file_j = _aligned_pdb_file(row_j.query, row_j.target, paths_j.structures)
             distances[i, j] = distances[j, i] = MIToS.PDB.rmsd(pdb_a, pdb_b)
         end
     end
