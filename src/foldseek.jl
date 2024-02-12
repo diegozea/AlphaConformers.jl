@@ -213,16 +213,6 @@ function _define_seq_blocks(positions_a, positions_b)
     blocks
 end
 
-function _define_col_blocks(msa_a, msa_b, ref_a, ref_b, seq_blocks)
-    # TODO: I need to define
-
-end
-
-
-function merge_msas(msa_a, msa_b, ref_a, ref_b)
-
-
-end
 
 
 

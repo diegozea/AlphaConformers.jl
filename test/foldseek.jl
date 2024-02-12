@@ -64,29 +64,28 @@ end
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
 
-    # Run it
-    output_vector = run_foldseek(input_pdb, test_db)
+    mktempdir() do tempdir
+        # Run it
+        output_vector = run_foldseek(input_pdb, test_db, out_folder=tempdir)
 
-    # Check the output
-    @test length(output_vector) == 1
-    output = output_vector[1]
-    outdir = dirname(output.table_file)
-    @test isdir(outdir)
-    @test isfile(output.table_file) && stat.(output.table_file).size > 0
-    @test isfile(output.msa_file) && stat.(output.msa_file).size > 0
-    @test isdir(output.aligned_structures_folder)
+        # Check the output
+        @test length(output_vector) == 1
+        output = output_vector[1]
+        outdir = dirname(output.table_file)
+        @test isdir(outdir)
+        @test isfile(output.table_file) && stat.(output.table_file).size > 0
+        @test isfile(output.msa_file) && stat.(output.msa_file).size > 0
+        @test isdir(output.aligned_structures_folder)
 
-    # Check that the output folder contains the expected files
-    files = readdir(output.aligned_structures_folder)
-    @test length(files) == 4
-    @test all(startswith("aln_"), files)
+        # Check that the output folder contains the expected files
+        files = readdir(output.aligned_structures_folder)
+        @test length(files) == 4
+        @test all(startswith("aln_"), files)
 
-    # Check that the MSA is correct
-    msa = MIToS.MSA.read(output.msa_file, MIToS.MSA.FASTA)
-    @test MIToS.MSA.nsequences(msa) == 5
-
-    # Clean up
-    isdir(outdir) && rm(outdir; recursive=true)
+        # Check that the MSA is correct
+        msa = MIToS.MSA.read(output.msa_file, MIToS.MSA.FASTA)
+        @test MIToS.MSA.nsequences(msa) == 5
+    end
 end
 
 @testitem "run_foldseek: multiple db" begin
@@ -95,38 +94,59 @@ end
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
 
-    # Run it
-    output = run_foldseek(input_pdb, "$test_db,$test_db")
+    @testset "same database" begin
+        # Run it
+        mktempdir() do temp_dir
+            output = run_foldseek(input_pdb, "$test_db,$test_db", out_folder=temp_dir)
 
-    # Check the output
-    @test length(output) == 2
-    @test output[1] == output[2]
-    outdir = dirname(output[1].table_file)
-    @test isdir(outdir)
-    @test isfile(output[2].table_file) && stat.(output[2].table_file).size > 0
-    @test isfile(output[2].msa_file) && stat.(output[2].msa_file).size > 0
-    @test isdir(output[2].aligned_structures_folder)
-
-    isdir(outdir) && rm(outdir; recursive=true)
+            # Check the output
+            @test length(output) == 2
+            @test output[1] == output[2]
+            outdir = dirname(output[1].table_file)
+            @test isdir(outdir)
+            @test isfile(output[2].table_file) && stat.(output[2].table_file).size > 0
+            @test isfile(output[2].msa_file) && stat.(output[2].msa_file).size > 0
+            @test isdir(output[2].aligned_structures_folder)
+        end
+    end
 end
 
 
-@testitem "run_foldseek: merging tables" begin
+@testitem "run_foldseek: merging the same database" begin
     import DataFrames
 
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
+    test_db_2 = joinpath(@__DIR__, "data", "test_db_2", "test_db_2")
 
-    # Run it
-    output = run_foldseek(input_pdb, "$test_db,$test_db")
-    outdir = dirname(output[1].table_file)
+    mktempdir() do temp_dir
+        output = run_foldseek(input_pdb, "$test_db,$test_db", out_folder=temp_dir)
+        outdir = dirname(output[1].table_file)
+
+        # Check the output
+        merged = merge_tables([output[1].table_file, output[2].table_file])
+        @test DataFrames.ncol(merged) == 13 # the file column is added
+        @test DataFrames.nrow(merged) == 4 # table files are identical, so there is no merge
+        @test only(unique(merged.file)) == output[1].table_file
+    end
+end
+
+@testitem "run_foldseek: merging different databases" begin
+    import DataFrames
     
-    # Check the output
-    merged = merge_tables([output[1].table_file, output[2].table_file])
-    @test DataFrames.nrow(merged) == 4
-    @test DataFrames.ncol(merged) == 13
-    @test only(unique(merged.file)) == output[1].table_file
+    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
+    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
+    test_db_2 = joinpath(@__DIR__, "data", "test_db_2", "test_db_2")
 
-    # Clean up
-    # isdir(outdir) && rm(outdir; recursive=true)
+    mktempdir() do temp_dir
+        output = run_foldseek(input_pdb, "$test_db,$test_db_2", out_folder=temp_dir)
+        outdir = dirname(output[1].table_file)
+
+        # Check the output
+        merged = merge_tables([output[1].table_file, output[2].table_file])
+        @test DataFrames.ncol(merged) == 13 # the file column is added
+        @test DataFrames.nrow(merged) == 6 # table files are different, so there is a merge
+        # four hits from test_db and two from test_db_2
+        @test length(unique(merged.file)) == 2
+    end
 end
