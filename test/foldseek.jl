@@ -133,6 +133,7 @@ end
 
 @testitem "run_foldseek: merging different databases" begin
     import DataFrames
+    import MIToS
     
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
@@ -143,10 +144,15 @@ end
         outdir = dirname(output[1].table_file)
 
         # Check the output
-        merged = merge_tables([output[1].table_file, output[2].table_file])
-        @test DataFrames.ncol(merged) == 13 # the file column is added
-        @test DataFrames.nrow(merged) == 6 # table files are different, so there is a merge
+        merged_table = merge_tables([output[1].table_file, output[2].table_file])
+        @test DataFrames.ncol(merged_table) == 13 # the file column is added
+        @test DataFrames.nrow(merged_table) == 6 # table files are different, so there is a merge
         # four hits from test_db and two from test_db_2
-        @test length(unique(merged.file)) == 2
+        @test length(unique(merged_table.file)) == 2
+
+        # Merge the MSAs and check the result
+        merged_msa = merge_msas(merged_table)
+        @test MIToS.MSA.nsequences(merged_msa) == 7 # 6 + query (reference sequence)
+        @test MIToS.MSA.ncolumns(merged_msa) == 186 # the length of the query sequence
     end
 end

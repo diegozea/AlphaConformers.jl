@@ -158,64 +158,54 @@ end
 
 # concatenate msas ----------------------------------------------------------------------- #
 
-function merge_msas(table::DataFrames.DataFrame)
-    out_folders = dirname.(unique(table.table_file))
-    msas = [ read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA) 
-        for folder in out_folders ]
-    # Return the MSA if there is only one
-    length(msas) == 1 && return only(msas)
-    # Otherwise, concatenate the multiple MSAs using the query sequence as reference
-    nothing
+function _get_seq_and_columns(msa, pos_ref)
+    ref = replace(MIToS.MSA.stringsequence(msa, pos_ref), "-" => "")
+    col = [ col for (col, res) in enumerate(MIToS.MSA.getsequencemapping(msa, pos_ref)) 
+        if res != 0 ]
+    (ref, col)
 end
 
-function _match_columns(msa_a, msa_b, ref_a, ref_b)
-    ref_a = replace(MIToS.MSA.stringsequence(msa_a, ref_a), "-" => "")
-    ref_b = replace(MIToS.MSA.stringsequence(msa_b, ref_b), "-" => "")
+
+function _match_columns(msa_a, msa_b, pos_ref_a, pos_ref_b)
+    ref_a, col_a = _get_seq_and_columns(msa_a, pos_ref_a)
+    ref_b, col_b = _get_seq_and_columns(msa_b, pos_ref_b)
     aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
         gap_open=-2, gap_extend=-1)
     aln = BioAlignments.pairalign(BioAlignments.GlobalAlignment(), ref_a, ref_b, aln_model)
     pos_a = 0
     pos_b = 0
-    positions_a = Int[]
-    positions_b = Int[]
-    for (res_a, res_b) in alignment(aln)
+    columns_a = Int[]
+    columns_b = Int[]
+    for (res_a, res_b) in BioAlignments.alignment(aln)
         if res_a != '-'
             pos_a += 1
-            push!(positions_a, pos_a)
-        else
-            push!(positions_a, 0)
         end
         if res_b != '-'
             pos_b += 1
-            push!(positions_b, pos_b)
-        else
-            push!(positions_b, 0)
+        end
+        if res_a != '-' && res_b != '-'
+            push!(columns_a, col_a[pos_a])
+            push!(columns_b, col_b[pos_b])
         end
     end
-    (positions_a, positions_b)
-end
-
-function _define_seq_blocks(positions_a, positions_b)
-    blocks = Tuple{Vector{Int}, Vector{Int}}[(Int[], Int[]),]
-    previous_a = positions_a[1]
-    previous_b = positions_b[1]
-    for (a, b) in zip(positions_a, positions_b)
-        if ((a == 0 && previous_a != 0) || 
-            (b == 0 && previous_b != 0) || 
-            (a != 0 && b != 0 && (previous_a == 0 || previous_b == 0)))
-            push!(blocks, (Int[a], Int[b]))
-        else
-            push!(blocks[end][1], a)
-            push!(blocks[end][2], b)
-        end
-        previous_a, previous_b = a, b
-    end
-    blocks
+    (columns_a, columns_b)
 end
 
 
-
-
+function merge_msas(table::DataFrames.DataFrame)
+    out_folders = dirname.(unique(table.file))
+    msas = [ read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true) 
+        for folder in out_folders ]
+    # Return the MSA if there is only one
+    length(msas) == 1 && return only(msas)
+    # Otherwise, concatenate the multiple MSAs using the query sequence as reference
+    msa_a = msas[1]
+    for msa_b in msas[2:end]
+        cols_a, cols_b = _match_columns(msa_a, msa_b, 1, 1)
+        msa_a = join(msa_a, msa_b[2:end, :], cols_a, cols_b; axis=2)
+    end
+    msa_a
+end
 
 # structure_distances -------------------------------------------------------------------- #
 

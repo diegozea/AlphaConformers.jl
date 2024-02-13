@@ -17,6 +17,7 @@ export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,
         run_foldseek,
         merge_tables,
+        merge_msas,
         create_pdb_folder, # pdb_folders.jl
         usalign, # usalign.jl
         structural_clustering, # clustering.jl
