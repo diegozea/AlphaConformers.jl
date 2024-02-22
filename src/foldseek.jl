@@ -250,6 +250,18 @@ merged_table = merge_tables([output[1].table_file, output[2].table_file])
 merged_msa = merge_msas(merged_table)
 structures = AlphaConformers._get_aligned_structures(merged_table)
 
+sifts_uniprot_mapping = get_uniprot_mapping()
+
+
+# list_known_conformations(merged_table[4:4, :], sifts_uniprot_mapping) # It works with AFDB
+# list_known_conformations(merged_table, sifts_uniprot_mapping)
+# AlphaConformers.add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+# AlphaConformers._get_pdb_and_chain("1EX6_B.pdb")
+# delete_query_from_target!(deepcopy(merged_table), sifts_uniprot_mapping, "1EX6", "B")
+# # all nice until here, now it comes the things we need to change in af_input.jl :
+# # create_pdb_folder
+# # structural_clustering
+
 =#
 
 
