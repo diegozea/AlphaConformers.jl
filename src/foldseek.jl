@@ -237,6 +237,22 @@ function _get_aligned_structures(foldseek_results::DataFrames.DataFrame)
     end |> OrderedCollections.OrderedDict{String, Vector{MIToS.PDB.PDBResidue}}
 end
 
+
+
+# USAGE EXAMPLE
+# =============
+#=
+
+
+using Revise, AlphaConformers, DataFrames, MIToS; input_pdb = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "1EX6_B.pdb"); test_db = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db", "test_db"); test_db_2 = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db_2", "test_db_2"); temp_dir = mktempdir()
+output = run_foldseek(input_pdb, "$test_db,$test_db_2", out_folder=temp_dir)
+merged_table = merge_tables([output[1].table_file, output[2].table_file])
+merged_msa = merge_msas(merged_table)
+structures = AlphaConformers._get_aligned_structures(merged_table)
+
+=#
+
+
 # TODO: create_alpha_fold_inputs should change to use the new Foldseek results
 # The next step is to add: 
 # 1. Add the external structures to the Foldseek results, for this, we should align the 
