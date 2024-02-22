@@ -19,3 +19,6 @@ test/data/.*
 
 # tmp
 .nfs*
+
+# SIFTS
+pdb_chain_uniprot.csv.gz
