@@ -252,6 +252,17 @@ structures = AlphaConformers._get_aligned_structures(merged_table)
 
 sifts_uniprot_mapping = get_uniprot_mapping()
 
+expanded_table = AlphaConformers.add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+
+# [ ] TODO: I should make `add_known_conformations!` to return a directory from query/target to 
+# UniProt (or the other way around). Then, I can also create the other one from that one.
+# The idea is to be able to align the known conformations to the Foldseek results using 
+# sequence alignment. I will need to match the PDB sequences to the MSA sequences, and add 
+# the aligned residues into the structures.
+
+# [ ] WARNING: What does it happen if I have a single domain, and one of the target has two 
+# identical domains? Since structures use the target name as a dictionary key, I think I 
+# will overwritte the first domain with the second one. I should think what to do in that case.
 
 # list_known_conformations(merged_table[4:4, :], sifts_uniprot_mapping) # It works with AFDB
 # list_known_conformations(merged_table, sifts_uniprot_mapping)
@@ -267,12 +278,15 @@ sifts_uniprot_mapping = get_uniprot_mapping()
 
 # TODO: create_alpha_fold_inputs should change to use the new Foldseek results
 # The next step is to add: 
-# 1. Add the external structures to the Foldseek results, for this, we should align the 
+# [ ] 1. Add the external structures to the Foldseek results, for this, we should align the 
 # conformers to the know aligned conformation; allowing for adding possible fragmented 
 # structures into the MSA and Foldseek tables.
-# 3. Use the MSA matching to calculate the RMSD and clusterize.
-# 4. Filter base on RMSD (<20) and coverage.
-# 2. Once we have all the structures, we can create the input files for AlphaFold.
+#    # This is in the TODO before this one. Finally, I have decided I can use sequence 
+#    # alignment to add the known conformations to the Foldseek results. But, I should 
+#    # keep also track of the aligned structural residues for later use.
+# [ ] 3. Use the MSA matching to calculate the RMSD and clusterize.
+# [ ] 4. Filter base on RMSD (<20) and coverage.
+# [ ] 2. Once we have all the structures, we can create the input files for AlphaFold.
 
 #=
 function structure_distances(foldseek_results::DataFrames.DataFrame)
