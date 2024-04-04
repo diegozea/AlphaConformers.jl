@@ -165,18 +165,30 @@ function _get_seq_and_columns(msa, pos_ref)
     (ref, col)
 end
 
+"""
+    get_aligned_positions(aln)
 
-function _match_columns(msa_a, msa_b, pos_ref_a, pos_ref_b)
-    ref_a, col_a = _get_seq_and_columns(msa_a, pos_ref_a)
-    ref_b, col_b = _get_seq_and_columns(msa_b, pos_ref_b)
-    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
-        gap_open=-2, gap_extend=-1)
-    aln = BioAlignments.pairalign(BioAlignments.GlobalAlignment(), ref_a, ref_b, aln_model)
+Returns the aligned positions in the two sequences of an alignment. The alignment is any
+iterable object that returns a tuple with two elements. For example a 
+`BioAlignments.PairwiseAlignment` object as the one returned by `BioAlignments.alignment` 
+or a vector of tuples where each tuples is a column of the alignment. This function return 
+a vector of tuples, each tuple containing the aligned positions in the two sequences. 
+For example:
+
+```
+julia> get_aligned_positions([('A', 'A'), ('C', '-'), ('G', 'G'), ('T', 'T')])
+3-element Vector{Tuple{Int64, Int64}}:
+ (1, 1)
+ (3, 2)
+ (4, 3)
+
+```
+"""
+function get_aligned_positions(aln)
     pos_a = 0
     pos_b = 0
-    columns_a = Int[]
-    columns_b = Int[]
-    for (res_a, res_b) in BioAlignments.alignment(aln)
+    positions = Tuple{Int, Int}[]
+    for (res_a, res_b) in aln
         if res_a != '-'
             pos_a += 1
         end
@@ -184,13 +196,24 @@ function _match_columns(msa_a, msa_b, pos_ref_a, pos_ref_b)
             pos_b += 1
         end
         if res_a != '-' && res_b != '-'
-            push!(columns_a, col_a[pos_a])
-            push!(columns_b, col_b[pos_b])
+            push!(positions, (pos_a, pos_b))
         end
     end
-    (columns_a, columns_b)
+    positions
 end
 
+function _match_columns(msa_a, msa_b, pos_ref_a, pos_ref_b)
+    ref_a, col_a = _get_seq_and_columns(msa_a, pos_ref_a)
+    ref_b, col_b = _get_seq_and_columns(msa_b, pos_ref_b)
+    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
+        gap_open=-2, gap_extend=-1)
+    aln = BioAlignments.alignment(BioAlignments.pairalign(
+        BioAlignments.GlobalAlignment(), ref_a, ref_b, aln_model))
+    positions = get_aligned_positions(aln)
+    columns_a = [col_a[pos[1]] for pos in positions]
+    columns_b = [col_b[pos[2]] for pos in positions]
+    (columns_a, columns_b)
+end
 
 function merge_msas(table::DataFrames.DataFrame)
     out_folders = dirname.(unique(table.file))
@@ -237,12 +260,132 @@ function _get_aligned_structures(foldseek_results::DataFrames.DataFrame)
     end |> OrderedCollections.OrderedDict{String, Vector{MIToS.PDB.PDBResidue}}
 end
 
+# add known conformations ---------------------------------------------------------------- #
+#
+# This functions add strcutural information from known conformations added to the Foldseek
+# results after running `add_known_conformations!`.
+#
+# First, I need a function to perform the structural alignment between the conformations
+# using MIToS.
 
+# To test I can use:
+# conformation_a = structures["4F4J.pdb_A"]; conformation_b = structures["1EX7.pdb"]
+
+function conformation_alignment(conformation_a, conformation_b)
+    # only keep residues with 'CA' atom
+    clean_a = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_a)
+    clean_b = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_b)
+    # get the sequences
+    seq_a = first(values(MIToS.PDB.modelled_sequences(clean_a)))
+    seq_b = first(values(MIToS.PDB.modelled_sequences(clean_b)))
+    # align the sequences
+    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
+        gap_open=-2, gap_extend=-1)
+    aln = BioAlignments.alignment(
+        BioAlignments.pairalign(BioAlignments.OverlapAlignment(), seq_a, seq_b, aln_model))
+    # get the aligned residues
+    matches = get_aligned_positions(aln)
+    # structural superposition of the aligned residues
+    aligned_a, aligned_b, rmsd = MIToS.PDB.superimpose(clean_a, clean_b, matches)
+    (aligned_a, aligned_b, matches, rmsd)
+end
+
+
+
+#=
+# CHATGPT proposal
+
+using MIToS.PDB
+using MIToS.MSA
+using BioAlignments
+using LinearAlgebra
+
+# Function to extract sequences from PDB structures using MIToS
+function extract_sequences_from_structures(structure1, structure2)
+    seq1 = modelled_sequences([structure1]; chain=All, model=All, group="ATOM")[1]
+    seq2 = modelled_sequences([structure2]; chain=All, model=All, group="ATOM")[1]
+    return (seq1, seq2)
+end
+
+# Align two sequences using BioAlignments
+function align_sequences(seq1, seq2)
+    aln_model = AffineGapScoreModel(match=1, mismatch=-1, gap_open=-1, gap_extend=-1)
+    aln = pairalign(GlobalAlignment(), seq1, seq2, aln_model)
+    return aln
+end
+
+# Function to extract coordinates for the aligned residues from the structures
+function get_aligned_residue_coordinates(structure, alignment, seq_index)
+    aligned_coords = []
+    seq = alignment.sequences[seq_index]
+    structure_seq = modelled_sequences([structure]; chain=All, model=All, group="ATOM")[1]
+    pos_structure = 1
+
+    for i in 1:length(seq)
+        if seq[i] != '-'
+            # Find the corresponding residue in the structure
+            residue = structure_seq[pos_structure]
+            if haskey(residue, 'CA') # Check if 'CA' atom is present in the residue
+                push!(aligned_coords, residue['CA'].coords) # Add 'CA' coordinates to the list
+            else
+                push!(aligned_coords, nothing) # Add a placeholder if 'CA' is missing
+            end
+            pos_structure += 1
+        else
+            push!(aligned_coords, nothing) # Add a placeholder for gaps in the alignment
+        end
+    end
+    return aligned_coords
+end
+
+# Performs the superimposition and calculates RMSD
+function superimpose(coords1, coords2)
+    # Filter out `nothing` values and ensure the lists are of equal length
+    valid_coords1 = filter(x -> x !== nothing, coords1)
+    valid_coords2 = filter(x -> x !== nothing, coords2)
+    if length(valid_coords1) != length(valid_coords2)
+        error("The number of valid coordinates in both structures does not match.")
+    end
+
+    # Convert to matrices for superimposition
+    matrix1 = hcat(valid_coords1...)
+    matrix2 = hcat(valid_coords2...)
+
+    # Perform superimposition using the Kabsch algorithm (placeholder for actual implementation)
+    # This is a simplification. You might need to implement or call a proper Kabsch function.
+    rmsd_value = sqrt(sum((matrix1 .- matrix2).^2) / size(matrix1, 2))
+    return matrix1, matrix2, rmsd_value
+end
+
+# Main function to superimpose structures
+function superimpose_structures(structure1, structure2)
+    # Extract sequences from structures
+    seq1, seq2 = extract_sequences_from_structures(structure1, structure2)
+
+    # Align sequences
+    alignment = align_sequences(seq1, seq2)
+
+    # Extract aligned residue coordinates for both structures
+    coords1 = get_aligned_residue_coordinates(structure1, alignment, 1)
+    coords2 = get_aligned_residue_coordinates(structure2, alignment, 2)
+
+    # Perform structural superposition and calculate RMSD
+    superimposed_coords1, superimposed_coords2, RMSD = superimpose(coords1, coords2)
+
+    return superimposed_coords1, superimposed_coords2, RMSD
+end
+
+=#
 
 # USAGE EXAMPLE
 # =============
 #=
 
+#using Revise, AlphaConformers, DataFrames, MIToS; 
+#input_pdb = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "1EX6_B.pdb"); 
+#test_db = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db", "test_db"); 
+#test_db_2 = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db_2", "test_db_2"); 
+#temp_dir = mktempdir()
 
 using Revise, AlphaConformers, DataFrames, MIToS; input_pdb = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "1EX6_B.pdb"); test_db = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db", "test_db"); test_db_2 = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db_2", "test_db_2"); temp_dir = mktempdir()
 output = run_foldseek(input_pdb, "$test_db,$test_db_2", out_folder=temp_dir)
