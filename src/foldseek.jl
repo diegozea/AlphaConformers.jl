@@ -171,9 +171,9 @@ end
 Returns the aligned positions in the two sequences of an alignment. The alignment is any
 iterable object that returns a tuple with two elements. For example a 
 `BioAlignments.PairwiseAlignment` object as the one returned by `BioAlignments.alignment` 
-or a vector of tuples where each tuples is a column of the alignment. This function return 
-a vector of tuples, each tuple containing the aligned positions in the two sequences. 
-For example:
+or a vector of tuples where each tuples is a column of the alignment. The gap should be 
+represented by the '-' character. This function return a vector of tuples, each tuple 
+containing the aligned positions in the two sequences. For example:
 
 ```
 julia> get_aligned_positions([('A', 'A'), ('C', '-'), ('G', 'G'), ('T', 'T')])
@@ -271,6 +271,42 @@ end
 # To test I can use:
 # conformation_a = structures["4F4J.pdb_A"]; conformation_b = structures["1EX7.pdb"]
 
+"""
+    coverage_and_identity(aln)
+
+It returns the alignment coverage and the percentage of identity relative to the 
+first sequence. The alignment is any iterable object that returns a tuple with two 
+elements. For example a `BioAlignments.PairwiseAlignment` object as the one returned 
+by `BioAlignments.alignment` or a vector of tuples where each tuples is a column of 
+the alignment. The gap should be represented by the '-' character.
+
+```julia
+julia> coverage_and_identity(collect(zip("AA-AAA", "A-CCAA")))
+(0.8, 0.75)
+
+```
+
+i.e., 4 out of 5 residues match in the first sequence, and among these, 3 out of 4 
+residues are identical
+"""
+function coverage_and_identity(aln)
+    total_a = 0
+    matched_a = 0
+    identities = 0
+    for (res_a, res_b) in aln
+        if res_a != '-'
+            total_a += 1
+            if res_b != '-'
+                matched_a += 1
+                if res_a == res_b
+                    identities += 1
+                end
+            end
+        end
+    end
+    (matched_a / total_a, identities / matched_a)
+end
+
 function conformation_alignment(conformation_a, conformation_b)
     # only keep residues with 'CA' atom
     clean_a = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_a)
@@ -283,99 +319,46 @@ function conformation_alignment(conformation_a, conformation_b)
         gap_open=-2, gap_extend=-1)
     aln = BioAlignments.alignment(
         BioAlignments.pairalign(BioAlignments.OverlapAlignment(), seq_a, seq_b, aln_model))
+    # get the stats
+    coverage, identity = coverage_and_identity(aln)
     # get the aligned residues
     matches = get_aligned_positions(aln)
     # structural superposition of the aligned residues
     aligned_a, aligned_b, rmsd = MIToS.PDB.superimpose(clean_a, clean_b, matches)
-    (aligned_a, aligned_b, matches, rmsd)
+    (aligned_a, aligned_b, matches, rmsd, coverage, identity)
 end
 
-
-
-#=
-# CHATGPT proposal
-
-using MIToS.PDB
-using MIToS.MSA
-using BioAlignments
-using LinearAlgebra
-
-# Function to extract sequences from PDB structures using MIToS
-function extract_sequences_from_structures(structure1, structure2)
-    seq1 = modelled_sequences([structure1]; chain=All, model=All, group="ATOM")[1]
-    seq2 = modelled_sequences([structure2]; chain=All, model=All, group="ATOM")[1]
-    return (seq1, seq2)
+function _read_pdb(pdb_file, chain)
+    MIToS.PDB.read(pdb_file, MIToS.PDB.PDBFile, 
+        chain=chain, model="1", onlyheavy=true, occupancyfilter=true)
 end
 
-# Align two sequences using BioAlignments
-function align_sequences(seq1, seq2)
-    aln_model = AffineGapScoreModel(match=1, mismatch=-1, gap_open=-1, gap_extend=-1)
-    aln = pairalign(GlobalAlignment(), seq1, seq2, aln_model)
-    return aln
-end
-
-# Function to extract coordinates for the aligned residues from the structures
-function get_aligned_residue_coordinates(structure, alignment, seq_index)
-    aligned_coords = []
-    seq = alignment.sequences[seq_index]
-    structure_seq = modelled_sequences([structure]; chain=All, model=All, group="ATOM")[1]
-    pos_structure = 1
-
-    for i in 1:length(seq)
-        if seq[i] != '-'
-            # Find the corresponding residue in the structure
-            residue = structure_seq[pos_structure]
-            if haskey(residue, 'CA') # Check if 'CA' atom is present in the residue
-                push!(aligned_coords, residue['CA'].coords) # Add 'CA' coordinates to the list
-            else
-                push!(aligned_coords, nothing) # Add a placeholder if 'CA' is missing
-            end
-            pos_structure += 1
-        else
-            push!(aligned_coords, nothing) # Add a placeholder for gaps in the alignment
+# adds the best match to the structures dictionary
+function find_best_match!(
+    structures::OrderedCollections.OrderedDict{String, Vector{MIToS.PDB.PDBResidue}}, 
+    target::String, 
+    target2uniprot::Dict{String, String}, 
+    uniprot2targets::Dict{String, Vector{String}},
+    pdb_folder::Union{String, Nothing} = nothing)
+    # get the PDB code and chain from the target name
+    pdb, chain = AlphaConformers._get_pdb_and_chain(target)
+    # read the PDB file
+    conformation_b = if pdb_folder === nothing
+        mktempdir() do tmp_folder
+            pdb_file = joinpath(tmp_folder, "$pdb.pdb")
+            downloadpdb(pdb; format = MIToS.PDB.PDBFile, filename = pdb_file)
+            _read_pdb(pdb_file, chain)
         end
+    else
+        _read_pdb(joinpath(pdb_folder, uppercase(pdb) * ".pdb"), chain)
     end
-    return aligned_coords
+    # TODO: Use conformation_alignment to find the matches. identity > 98%, 
+    # highest coverage, RMSD < threshold
+
+
+
 end
 
-# Performs the superimposition and calculates RMSD
-function superimpose(coords1, coords2)
-    # Filter out `nothing` values and ensure the lists are of equal length
-    valid_coords1 = filter(x -> x !== nothing, coords1)
-    valid_coords2 = filter(x -> x !== nothing, coords2)
-    if length(valid_coords1) != length(valid_coords2)
-        error("The number of valid coordinates in both structures does not match.")
-    end
-
-    # Convert to matrices for superimposition
-    matrix1 = hcat(valid_coords1...)
-    matrix2 = hcat(valid_coords2...)
-
-    # Perform superimposition using the Kabsch algorithm (placeholder for actual implementation)
-    # This is a simplification. You might need to implement or call a proper Kabsch function.
-    rmsd_value = sqrt(sum((matrix1 .- matrix2).^2) / size(matrix1, 2))
-    return matrix1, matrix2, rmsd_value
-end
-
-# Main function to superimpose structures
-function superimpose_structures(structure1, structure2)
-    # Extract sequences from structures
-    seq1, seq2 = extract_sequences_from_structures(structure1, structure2)
-
-    # Align sequences
-    alignment = align_sequences(seq1, seq2)
-
-    # Extract aligned residue coordinates for both structures
-    coords1 = get_aligned_residue_coordinates(structure1, alignment, 1)
-    coords2 = get_aligned_residue_coordinates(structure2, alignment, 2)
-
-    # Perform structural superposition and calculate RMSD
-    superimposed_coords1, superimposed_coords2, RMSD = superimpose(coords1, coords2)
-
-    return superimposed_coords1, superimposed_coords2, RMSD
-end
-
-=#
 
 # USAGE EXAMPLE
 # =============
@@ -395,7 +378,12 @@ structures = AlphaConformers._get_aligned_structures(merged_table)
 
 sifts_uniprot_mapping = get_uniprot_mapping()
 
-expanded_table = AlphaConformers.add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+target2uniprot, expanded_table = AlphaConformers.add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+
+uniprot2targets = AlphaConformers.get_uniprot2targets(target2uniprot, expanded_table)
+
+
+
 
 # [ ] TODO: I should make `add_known_conformations!` to return a directory from query/target to 
 # UniProt (or the other way around). Then, I can also create the other one from that one.

@@ -43,12 +43,14 @@ end
     sifts_uniprot_mapping = get_uniprot_mapping()
 
     # Test the list_known_conformations function
-    pdb_chains = list_known_conformations(search_results, sifts_uniprot_mapping)
+    target2uniprot, pdb_chains = list_known_conformations(search_results, sifts_uniprot_mapping)
     for item in pdb_chains
         @test !in(item, search_results.target)
+        @test haskey(target2uniprot, item)
     end
     for pdb_chain in ["1EX6.pdb_B", "1EX6.pdb_A", "1GKY.pdb_A"]
         @test in(pdb_chain, pdb_chains)
+        @test haskey(target2uniprot, pdb_chain)
     end
 
     # Test the delete_query_from_target! function

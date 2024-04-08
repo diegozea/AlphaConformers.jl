@@ -151,54 +151,59 @@ end
 
 """
     uniprots_from_results(search_results::DataFrames.DataFrame,
-                          sifts_uniprot_mapping::DataFrames.DataFrame)::Set{String}
+                          sifts_uniprot_mapping::DataFrames.DataFrame)
 
-Extracts UniProt accession numbers from the `search_results` DataFrame based on the
-protein targets' identifiers. It supports both AFDB and PDB formats for the identifiers.
+It returns a Dict from the protein targets' identifiers on the `search_results` DataFrame
+to UniProt accession numbers. It supports both AFDB and PDB formats for the identifiers.
 For PDB entries, it translates PDB codes and chains to UniProt accessions using the
 `sifts_uniprot_mapping` DataFrame—obtainable from SIFTS DB using the `get_uniprot_mapping`
-function. Returns a set of unique UniProt accession numbers present in the `search_results`.
+function.
 """
 function uniprots_from_results(search_results::DataFrames.DataFrame,
-    sifts_uniprot_mapping::DataFrames.DataFrame)::Set{String}
-    uniprots = Set{String}()
+    sifts_uniprot_mapping::DataFrames.DataFrame)
+    target2uniprot = Dict{String, String}()
     for row in eachrow(search_results)
-        afdb_up = match(r"AF-(\w+)-F", row.target) # AFDB identifiers
+        target = row.target
+        afdb_up = match(r"AF-(\w+)-F", target) # AFDB identifiers
         if afdb_up !== nothing
-            push!(uniprots, afdb_up.captures[1])
+            push!(target2uniprot, target => afdb_up.captures[1])
         else # assume PDB if it is not AFDB
-            pdb_code, chain_code = _get_pdb_and_chain(row.target)
+            pdb_code, chain_code = _get_pdb_and_chain(target)
             ups = get_uniprot_acc(sifts_uniprot_mapping, pdb_code, chain_code)
             for up in ups
-                push!(uniprots, up)
+                push!(target2uniprot,  target => up)
             end
         end
     end
-    uniprots
+    target2uniprot
 end
 
-
 """
-    known_uniprot_structures(uniprots::Set{String},
-                             sifts_uniprot_mapping::DataFrames.DataFrame,
-                             search_results::DataFrames.DataFrame)::Set{String}
+    known_uniprot_structures!(target2uniprot::Dict{String,String},
+                              sifts_uniprot_mapping::DataFrames.DataFrame,
+                              search_results::DataFrames.DataFrame)::Set{String}
 
 Identifies PDB codes and chains associated with a given set of UniProt accession numbers
-(`uniprots`) that are not already included in `search_results`. This function checks for
-new known structures by consulting the `sifts_uniprot_mapping` DataFrame. Returns a set
-of new PDB targets (formatted as "PDB.pdb_CHAIN") for inclusion in the search results.
+(the unique values in `target2uniprot`) that are not already included in `search_results`. 
+This function checks for new known structures by consulting the 
+`sifts_uniprot_mapping` DataFrame. Returns a set of new PDB targets 
+(formatted as "PDB.pdb_CHAIN") for inclusion in the search results. It also updates the
+`target2uniprot` dictionary with the new targets.
 """
-function known_uniprot_structures(uniprots::Set{String},
+function known_uniprot_structures!(target2uniprot::Dict{String,String},
     sifts_uniprot_mapping::DataFrames.DataFrame,
     search_results::DataFrames.DataFrame)::Set{String}
     new_targets = Set{String}()
+    uniprots = unique(values(target2uniprot))
     for up in uniprots
         pdbs = get_pdb_codes(sifts_uniprot_mapping, up)
         for row in eachrow(pdbs)
             pdb = String(row.PDB)
             chain = String(row.CHAIN)
             if !any(target -> _is_chain(String(target), pdb, chain), search_results.target)
-                push!(new_targets, "$(pdb).pdb_$(chain)") # Using the FoldSeek target format
+                target_name = "$(pdb).pdb_$(chain)" # Using the FoldSeek target format
+                push!(new_targets, target_name)
+                push!(target2uniprot, target_name => up)
             end
         end
     end
@@ -211,8 +216,9 @@ end
     list_known_conformations(search_results::DataFrames.DataFrame,
                              sifts_uniprot_mapping::DataFrames.DataFrame)
 
-Compiles a list of known conformations of the proteins listed in the `search_results`. It 
-returns a set of PDB codes and chains that are not currently included in the results.
+Compiles a list of known conformations of the proteins listed in the `search_results`. It
+returns a tuple with a Dict from the protein targets' identifiers to UniProt accession and
+a set of PDB codes and chains that are not currently included in the results.
 
 !!! info
     This function first extracts UniProt accession numbers from `search_results`, 
@@ -221,8 +227,10 @@ returns a set of PDB codes and chains that are not currently included in the res
 """
 function list_known_conformations(search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame)
-    uniprots = uniprots_from_results(search_results, sifts_uniprot_mapping)
-    known_uniprot_structures(uniprots, sifts_uniprot_mapping, search_results)
+    target2uniprot = uniprots_from_results(search_results, sifts_uniprot_mapping)
+    new_targets = known_uniprot_structures!(
+        target2uniprot, sifts_uniprot_mapping,  search_results)
+    target2uniprot, new_targets
 end
 
 """
@@ -231,11 +239,41 @@ end
 
 Expands `search_results` in place by adding new protein conformations identified as
 related to the proteins in `search_results`. It utilizes `list_known_conformations`
-to find these new conformations and appends them to the `search_results`.
+to find these new conformations and appends them to the `search_results`. It return 
+a tuple with a Dict from the protein targets' identifiers to UniProt accession and the
+updated `search_results` table.
 """
 function add_known_conformations!(search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame)
-    new_targets = list_known_conformations(search_results, sifts_uniprot_mapping)
+    target2uniprot, new_targets = list_known_conformations(search_results, sifts_uniprot_mapping)
     to_add = DataFrames.DataFrame(target=collect(new_targets))
     DataFrames.append!(search_results, to_add, cols=:union)
+    target2uniprot, search_results
+end
+
+
+"""
+    get_uniprot2targets(target2uniprot::Dict{String,String}, 
+                        search_results::DataFrames.DataFrame)
+
+Given a `target2uniprot` dictionary mapping target structures to UniProt accessions,
+this function returns a dictionary mapping UniProt accessions to a list of target 
+structures. Note that only target structures from the original search results are
+considered.
+"""
+function get_uniprot2targets(target2uniprot::Dict{String,String}, 
+    search_results::DataFrames.DataFrame)
+    original_targets = Set{String}(row.target for 
+        row in eachrow(search_results) if !ismissing(row.evalue))
+    uniprot2targets = Dict{String, Vector{String}}()
+    for (target, uniprot) in target2uniprot
+        if target in original_targets
+            if haskey(uniprot2targets, uniprot)
+                push!(uniprot2targets[uniprot], target)
+            else
+                uniprot2targets[uniprot] = [target]
+            end
+        end
+    end
+    uniprot2targets
 end
