@@ -1,8 +1,8 @@
 # Functions to run Foldseek inside the pipeline
 
-const _M8_COL_NAMES = ["query", "target", "fident", "alnlen", "mismatch", "gapopen", 
+const _M8_COL_NAMES = ["query", "target", "fident", "alnlen", "mismatch", "gapopen",
     "qstart", "qend", "tstart", "tend", "evalue", "bits"]
-    
+
 """
     foldseek_search(pdb_file::AbstractString; db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""), format_mode::Int = 0)
 
@@ -24,11 +24,11 @@ query structure.
 
 The function operates in a temporary directory that is automatically cleaned up afterwards.
 """
-function foldseek_search(pdb_file::AbstractString; 
-        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""),
-        format_mode::Int = 0)
-    isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " * 
-        "the db_path keyword argument to the path of the Foldseek database.")
+function foldseek_search(pdb_file::AbstractString;
+    db_path::String=get(ENV, "FOLDSEEK_DB_PATH", ""),
+    format_mode::Int=0)
+    isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " *
+                              "the db_path keyword argument to the path of the Foldseek database.")
     isfile(db_path) || error("The path to the Foldseek database is not a file.")
     mktempdir() do tmp_folder
         # path without extension
@@ -65,19 +65,19 @@ function read_foldseek_search_results(file::AbstractString)
     DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
 end
 
-function run_foldseek(pdb_file::AbstractString, 
-        db_path::String = get(ENV, "FOLDSEEK_DB_PATH", "");
-        out_folder::String = dirname(abspath(pdb_file)))
+function run_foldseek(pdb_file::AbstractString,
+    db_path::String=get(ENV, "FOLDSEEK_DB_PATH", "");
+    out_folder::String=dirname(abspath(pdb_file)))
     # get the path to the target database
-    isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " * 
-        "the db_path keyword argument to the path of the Foldseek database.")
-    
+    isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " *
+                              "the db_path keyword argument to the path of the Foldseek database.")
+
     # if there is more than one database, run the function for each one
     if occursin(',', db_path)
         db_path_vector = String.(split(db_path, ','))
         return run_foldseek(pdb_file, db_path_vector, out_folder=out_folder)
     end
-    
+
     # if there is only one database, continue
     isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
     db_name = basename(db_path)
@@ -92,7 +92,7 @@ function run_foldseek(pdb_file::AbstractString,
     _create_empty_folder(aligned_structures_folder)
     cwd = pwd()
 
-    try 
+    try
         mktempdir() do tmp_folder
             cd(tmp_folder)
 
@@ -102,10 +102,10 @@ function run_foldseek(pdb_file::AbstractString,
             # run the search using -a to be able to recover the alignment
             # --prefilter-mode 1 to use less RAM when searching the AFDB, needing ~35 Gb
             run(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a --prefilter-mode 1`)
-            
+
             # convertalis to m8
             run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file`)
-            
+
             # convertalis to aligned_structures
             prefix = joinpath(aligned_structures_folder, "aln_")
             run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`)
@@ -125,11 +125,11 @@ function run_foldseek(pdb_file::AbstractString,
         cd(cwd)
     end
 
-    [(;table_file, msa_file, aligned_structures_folder)]
+    [(; table_file, msa_file, aligned_structures_folder)]
 end
 
 function run_foldseek(pdb_file::AbstractString, db_path::Vector{String};
-    out_folder::String = dirname(abspath(pdb_file)))
+    out_folder::String=dirname(abspath(pdb_file)))
     map(db_path) do db
         only(run_foldseek(pdb_file, db, out_folder=out_folder))
     end
@@ -150,9 +150,9 @@ end
 function _get_paths(table_file)
     table_folder = dirname(table_file)
     (;
-        table = table_file,
-        msa = joinpath(table_folder, "msa.a3m"),
-        structures = joinpath(table_folder, "aligned_structures")
+        table=table_file,
+        msa=joinpath(table_folder, "msa.a3m"),
+        structures=joinpath(table_folder, "aligned_structures")
     )
 end
 
@@ -160,8 +160,8 @@ end
 
 function _get_seq_and_columns(msa, pos_ref)
     ref = replace(MIToS.MSA.stringsequence(msa, pos_ref), "-" => "")
-    col = [ col for (col, res) in enumerate(MIToS.MSA.getsequencemapping(msa, pos_ref)) 
-        if res != 0 ]
+    col = [col for (col, res) in enumerate(MIToS.MSA.getsequencemapping(msa, pos_ref))
+           if res != 0]
     (ref, col)
 end
 
@@ -187,7 +187,7 @@ julia> get_aligned_positions([('A', 'A'), ('C', '-'), ('G', 'G'), ('T', 'T')])
 function get_aligned_positions(aln)
     pos_a = 0
     pos_b = 0
-    positions = Tuple{Int, Int}[]
+    positions = Tuple{Int,Int}[]
     for (res_a, res_b) in aln
         if res_a != '-'
             pos_a += 1
@@ -205,7 +205,7 @@ end
 function _match_columns(msa_a, msa_b, pos_ref_a, pos_ref_b)
     ref_a, col_a = _get_seq_and_columns(msa_a, pos_ref_a)
     ref_b, col_b = _get_seq_and_columns(msa_b, pos_ref_b)
-    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
+    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4,
         gap_open=-2, gap_extend=-1)
     aln = BioAlignments.alignment(BioAlignments.pairalign(
         BioAlignments.GlobalAlignment(), ref_a, ref_b, aln_model))
@@ -217,8 +217,8 @@ end
 
 function merge_msas(table::DataFrames.DataFrame)
     out_folders = dirname.(unique(table.file))
-    msas = [ read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true) 
-        for folder in out_folders ]
+    msas = [read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
+            for folder in out_folders]
     # Return the MSA if there is only one
     length(msas) == 1 && return only(msas)
     # Otherwise, concatenate the multiple MSAs using the query sequence as reference
@@ -229,8 +229,8 @@ function merge_msas(table::DataFrames.DataFrame)
     end
     # Clean the sequence names by deleting the MSA number at the beginning that 
     # was added by the join function and the sequence data Foldseek adds at the end.
-    cleaned_names = String[ replace(first(split(name)), r"^[1-9]+_" => "") 
-        for name in MIToS.MSA.sequencename_iterator(msa_a)]
+    cleaned_names = String[replace(first(split(name)), r"^[1-9]+_" => "")
+                           for name in MIToS.MSA.sequencename_iterator(msa_a)]
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
 end
 
@@ -255,9 +255,9 @@ end
 function _get_aligned_structures(foldseek_results::DataFrames.DataFrame)
     map(eachrow(foldseek_results)) do row
         paths = _get_paths(row.file)
-        row.target => _get_aligned_residues(row.query, row.target, paths.structures, 
+        row.target => _get_aligned_residues(row.query, row.target, paths.structures,
             row.tstart, row.tend)
-    end |> OrderedCollections.OrderedDict{String, Vector{MIToS.PDB.PDBResidue}}
+    end |> OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}}
 end
 
 # add known conformations ---------------------------------------------------------------- #
@@ -315,7 +315,7 @@ function conformation_alignment(conformation_a, conformation_b)
     seq_a = first(values(MIToS.PDB.modelled_sequences(clean_a)))
     seq_b = first(values(MIToS.PDB.modelled_sequences(clean_b)))
     # align the sequences
-    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, 
+    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4,
         gap_open=-2, gap_extend=-1)
     aln = BioAlignments.alignment(
         BioAlignments.pairalign(BioAlignments.OverlapAlignment(), seq_a, seq_b, aln_model))
@@ -329,36 +329,59 @@ function conformation_alignment(conformation_a, conformation_b)
 end
 
 function _read_pdb(pdb_file, chain)
-    MIToS.PDB.read(pdb_file, MIToS.PDB.PDBFile, 
+    MIToS.PDB.read(pdb_file, MIToS.PDB.PDBFile,
         chain=chain, model="1", onlyheavy=true, occupancyfilter=true)
 end
 
 # adds the best match to the structures dictionary
 function find_best_match!(
-    structures::OrderedCollections.OrderedDict{String, Vector{MIToS.PDB.PDBResidue}}, 
-    target::String, 
-    target2uniprot::Dict{String, String}, 
-    uniprot2targets::Dict{String, Vector{String}},
-    pdb_folder::Union{String, Nothing} = nothing)
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    rmsds::Dict{Tuple{String,String},Float64},
+    target::String,
+    target2uniprot::Dict{String,String},
+    uniprot2targets::Dict{String,Vector{String}};
+    pdb_folder::Union{String,Nothing}=nothing,
+    min_coverage::Float64=0.8,
+    min_identity::Float64=0.98)
+
     # get the PDB code and chain from the target name
     pdb, chain = AlphaConformers._get_pdb_and_chain(target)
     # read the PDB file
     conformation_b = if pdb_folder === nothing
         mktempdir() do tmp_folder
-            pdb_file = joinpath(tmp_folder, "$pdb.pdb")
-            downloadpdb(pdb; format = MIToS.PDB.PDBFile, filename = pdb_file)
+            pdb_file = joinpath(tmp_folder, "$pdb.pdb.gz")
+            MIToS.PDB.downloadpdb(pdb; format=MIToS.PDB.PDBFile, filename=pdb_file)
             _read_pdb(pdb_file, chain)
         end
     else
         _read_pdb(joinpath(pdb_folder, uppercase(pdb) * ".pdb"), chain)
     end
-    # TODO: Use conformation_alignment to find the matches. identity > 98%, 
-    # highest coverage, RMSD < threshold
-
-
-
+    # get the structures that comes from the same UniProt entry
+    targets = uniprot2targets[target2uniprot[target]]
+    # perform all the structural alignments
+    alignments = map(targets) do target_a
+        conformation_a = structures[target_a]
+        sorted_targets = sort([target, target_a])
+        key = (sorted_targets[1], sorted_targets[2])
+        aln = conformation_alignment(conformation_a, conformation_b)
+        key => aln
+    end |> OrderedCollections.OrderedDict
+    # store the RMSDs
+    for (key, aln) in alignments
+        rmsds[key] = aln[4]
+    end
+    # get the best match
+    df = DataFrames.DataFrame(values(alignments), ["aligned_a", "aligned_b", "matches", 
+        "rmsd", "coverage", "identity"])
+    df[!, "keys"] .= keys(alignments)
+    filter!(row -> row.coverage > min_coverage && row.identity > min_identity, df)
+    if isempty(df)
+        nothing
+    else
+        sort!(df, ["identity", "coverage", "rmsd"], rev=[true, true, false])
+        first(df) # return a DataFrameRow containing the best match
+    end    
 end
-
 
 # USAGE EXAMPLE
 # =============
@@ -381,6 +404,10 @@ sifts_uniprot_mapping = get_uniprot_mapping()
 target2uniprot, expanded_table = AlphaConformers.add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
 
 uniprot2targets = AlphaConformers.get_uniprot2targets(target2uniprot, expanded_table)
+
+rmsds = Dict{Tuple{String,String},Float64}()
+
+best_match = AlphaConformers.find_best_match!(structures, rmsds, "5MPZ.pdb_A", target2uniprot, uniprot2targets)
 
 
 
