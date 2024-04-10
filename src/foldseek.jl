@@ -341,9 +341,8 @@ function find_best_match!(
     target2uniprot::Dict{String,String},
     uniprot2targets::Dict{String,Vector{String}};
     pdb_folder::Union{String,Nothing}=nothing,
-    min_coverage::Float64=0.8,
-    min_identity::Float64=0.98)
-
+    min_coverage::Float64=0.75,
+    min_identity::Float64=0.95)
     # get the PDB code and chain from the target name
     pdb, chain = AlphaConformers._get_pdb_and_chain(target)
     # read the PDB file
@@ -366,26 +365,59 @@ function find_best_match!(
         aln = conformation_alignment(conformation_a, conformation_b)
         key => aln
     end |> OrderedCollections.OrderedDict
-    # store the RMSDs
-    for (key, aln) in alignments
-        rmsds[key] = aln[4]
-    end
     # get the best match
-    df = DataFrames.DataFrame(values(alignments), ["aligned_a", "aligned_b", "matches", 
+    df = DataFrames.DataFrame(values(alignments), ["aligned_a", "aligned_b", "matches",
         "rmsd", "coverage", "identity"])
     df[!, "keys"] .= keys(alignments)
     filter!(row -> row.coverage > min_coverage && row.identity > min_identity, df)
-    if isempty(df)
-        nothing
-    else
+    if !isempty(df)
+        # if there is a match, store the rmsd values
+        for (key, aln) in alignments
+            rmsds[key] = aln[4]
+        end
+        # select the best match
         sort!(df, ["identity", "coverage", "rmsd"], rev=[true, true, false])
-        first(df) # return a DataFrameRow containing the best match
-    end    
+        best_alignment = first(df) # return a DataFrameRow containing the best match
+        # store the best match in the structures dictionary
+        aligned_positions = [m[2] for m in best_alignment.matches]
+        structures[target] = best_alignment.aligned_b[aligned_positions]
+        # return the best match
+        best_alignment
+    else
+        nothing
+    end
 end
+
+function process_known_conformations!(
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    expanded_table::DataFrames.DataFrame,
+    target2uniprot::Dict{String,String},
+    uniprot2targets::Dict{String,Vector{String}})
+    rmsds = Dict{Tuple{String,String},Float64}()
+    for row in eachrow(expanded_table)
+        if ismissing(row.query)
+            target = row.target
+            best_match = find_best_match!(structures, rmsds, target,
+                target2uniprot, uniprot2targets)
+            if best_match !== nothing
+                row.query = only([q for q in best_match.keys if q != target])
+            end
+        end
+    end
+    filter!(row -> !ismissing(row.query), expanded_table)
+    rmsds
+end
+
+
 
 # USAGE EXAMPLE
 # =============
 #=
+
+
+# ("6ES5.pdb_B", "8FXN.pdb") => NaN
+# ("6ES7.pdb_B", "8FXN.pdb") => 0.0
+
 
 #using Revise, AlphaConformers, DataFrames, MIToS; 
 #input_pdb = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "1EX6_B.pdb"); 
@@ -405,12 +437,13 @@ target2uniprot, expanded_table = AlphaConformers.add_known_conformations!(deepco
 
 uniprot2targets = AlphaConformers.get_uniprot2targets(target2uniprot, expanded_table)
 
-rmsds = Dict{Tuple{String,String},Float64}()
+rmsds = AlphaConformers.process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets)
 
-best_match = AlphaConformers.find_best_match!(structures, rmsds, "5MPZ.pdb_A", target2uniprot, uniprot2targets)
+# rmsds = Dict{Tuple{String,String},Float64}()
+# best_match = AlphaConformers.find_best_match!(structures, rmsds, "5MPZ.pdb_A", target2uniprot, uniprot2targets)
 
 
-
+# [ ] TODO : Filter Foldseek results based on E-values.
 
 # [ ] TODO: I should make `add_known_conformations!` to return a directory from query/target to 
 # UniProt (or the other way around). Then, I can also create the other one from that one.
