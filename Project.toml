@@ -13,12 +13,13 @@ Foldseek_jll = "f5adda9a-30aa-5201-a847-bcd4e31b8420"
 MAFFT_jll = "72a4bdf2-be5e-5c84-b157-f1dc2927f791"
 MIToS = "51bafb47-8a16-5ded-8b04-24ef4eede0b5"
 OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
+PairwiseListMatrices = "f9da4da7-9382-5435-b973-175f5d8dfb32"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 USalign_jll = "927da072-87df-5aff-817c-c070e1bdca98"
 
 [compat]
-julia = "1"
 MIToS = "2.15"
+julia = "1"
 
 [extras]
 Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"

@@ -10,6 +10,7 @@ import DataFrames
 import Clustering
 import Downloads
 import OrderedCollections
+import PairwiseListMatrices
 
 using TestItems
 

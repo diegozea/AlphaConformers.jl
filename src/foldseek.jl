@@ -307,7 +307,10 @@ function coverage_and_identity(aln)
     (matched_a / total_a, identities / matched_a)
 end
 
-function conformation_alignment(conformation_a, conformation_b)
+function structural_alignment(conformation_a, conformation_b,
+    aln_type=BioAlignments.OverlapAlignment(),
+    aln_model=BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, gap_open=-2,
+        gap_extend=-1))
     # only keep residues with 'CA' atom
     clean_a = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_a)
     clean_b = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_b)
@@ -315,10 +318,7 @@ function conformation_alignment(conformation_a, conformation_b)
     seq_a = first(values(MIToS.PDB.modelled_sequences(clean_a)))
     seq_b = first(values(MIToS.PDB.modelled_sequences(clean_b)))
     # align the sequences
-    aln_model = BioAlignments.AffineGapScoreModel(match=6, mismatch=-4,
-        gap_open=-2, gap_extend=-1)
-    aln = BioAlignments.alignment(
-        BioAlignments.pairalign(BioAlignments.OverlapAlignment(), seq_a, seq_b, aln_model))
+    aln = BioAlignments.alignment(BioAlignments.pairalign(aln_type, seq_a, seq_b, aln_model))
     # get the stats
     coverage, identity = coverage_and_identity(aln)
     # get the aligned residues
@@ -362,7 +362,7 @@ function find_best_match!(
         conformation_a = structures[target_a]
         sorted_targets = sort([target, target_a])
         key = (sorted_targets[1], sorted_targets[2])
-        aln = conformation_alignment(conformation_a, conformation_b)
+        aln = structural_alignment(conformation_a, conformation_b)
         key => aln
     end |> OrderedCollections.OrderedDict
     # get the best match
@@ -392,13 +392,14 @@ function process_known_conformations!(
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
     expanded_table::DataFrames.DataFrame,
     target2uniprot::Dict{String,String},
-    uniprot2targets::Dict{String,Vector{String}})
+    uniprot2targets::Dict{String,Vector{String}};
+    pdb_folder::Union{String,Nothing}=nothing,)
     rmsds = Dict{Tuple{String,String},Float64}()
     for row in eachrow(expanded_table)
         if ismissing(row.query)
             target = row.target
             best_match = find_best_match!(structures, rmsds, target,
-                target2uniprot, uniprot2targets)
+                target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
             if best_match !== nothing
                 row.query = only([q for q in best_match.keys if q != target])
             end
@@ -408,15 +409,55 @@ function process_known_conformations!(
     rmsds
 end
 
+function fill_rmsds!(rmsds::Dict{Tuple{String,String},Float64},
+    table::DataFrames.DataFrame,
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
+    n = DataFrames.nrow(table)
+    for i in 1:(n-1)
+        for j in (i+1):n
+            row_i = table[i, :]
+            row_j = table[j, :]
+            sorted_ids = sort([row_i.target, row_j.target])
+            key = (sorted_ids[1], sorted_ids[2])
+            if haskey(rmsds, key)
+                continue
+            end
+            struct_a = structures[row_i.target]
+            struct_b = structures[row_j.target]
+            aln = structural_alignment(struct_a, struct_b,
+                BioAlignments.GlobalAlignment(),
+                BioAlignments.AffineGapScoreModel(BioAlignments.BLOSUM62,
+                    gap_open=-10, gap_extend=-1))
+            rmsds[key] = aln[4]
+        end
+    end
+    rmsds
+end
+
+function get_rmsd_matrix(rmsds::Dict{Tuple{String,String},Float64})
+    target_a = String[]
+    target_b = String[]
+    rmsd = Float64[]
+    for (key, value) in rmsds
+        push!(target_a, key[1])
+        push!(target_b, key[2])
+        push!(rmsd, value)
+    end
+    df = DataFrames.DataFrame(; target_a, target_b, rmsd)
+    sort!(df, [:target_a, :target_b])
+    PairwiseListMatrices.from_table(df, false, diagonalvalue=0.0)
+end
+
+function cluster_structures(rmsds::Dict{Tuple{String,String},Float64})
+    rmsd_mat = get_rmsd_matrix(rmsds)
+    Clustering.hclust(rmsd_mat, linkage=:complete, branchorder=:optimal)
+    clustering_result
+end
 
 
 # USAGE EXAMPLE
 # =============
 #=
-
-
-# ("6ES5.pdb_B", "8FXN.pdb") => NaN
-# ("6ES7.pdb_B", "8FXN.pdb") => 0.0
 
 
 #using Revise, AlphaConformers, DataFrames, MIToS; 
@@ -439,8 +480,12 @@ uniprot2targets = AlphaConformers.get_uniprot2targets(target2uniprot, expanded_t
 
 rmsds = AlphaConformers.process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets)
 
-# rmsds = Dict{Tuple{String,String},Float64}()
-# best_match = AlphaConformers.find_best_match!(structures, rmsds, "5MPZ.pdb_A", target2uniprot, uniprot2targets)
+AlphaConformers.fill_rmsds!(rmsds, expanded_table, structures)
+
+clustering_result = AlphaConformers.cluster_structures(rmsds)
+
+clusters = Clustering.cutree(clustering_result, h=1.0)
+
 
 
 # [ ] TODO : Filter Foldseek results based on E-values.
