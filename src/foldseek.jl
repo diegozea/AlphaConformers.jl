@@ -450,8 +450,99 @@ end
 
 function cluster_structures(rmsds::Dict{Tuple{String,String},Float64})
     rmsd_mat = get_rmsd_matrix(rmsds)
-    Clustering.hclust(rmsd_mat, linkage=:complete, branchorder=:optimal)
-    clustering_result
+    unsorted_names = names(rmsd_mat, 1)
+    clustering_result = Clustering.hclust(rmsd_mat, linkage=:complete, branchorder=:optimal)
+    structure_names = unsorted_names[clustering_result.order]
+    structure_names, clustering_result
+end
+
+function get_target2sequence(expanded_table, msa)
+    seqnames = Set{String}(MIToS.MSA.sequencename_iterator(msa))
+    target2sequence = Dict{String,String}()
+    for row in eachrow(expanded_table)
+        seqname = ismissing(row.evalue) ? row.query : row.target
+        if seqname in seqnames
+            target2sequence[row.target] = seqname
+        else
+            @warn "The sequence $seqname is not in the MSA."
+        end
+    end
+    target2sequence
+end
+
+function get_cluster2targets(targets, clusters)
+    cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
+    cluster_numbers = unique(clusters)
+    for cluster in cluster_numbers
+        cluster2targets[cluster] = targets[clusters.==cluster]
+    end
+    cluster2targets
+end
+
+function get_cluster2seqnames(cluster2targets, target2sequence)
+    cluster2seqnames = OrderedCollections.OrderedDict{Int,Vector{String}}()
+    for (cluster, targets) in cluster2targets
+        cluster2seqnames[cluster] = unique(target2sequence[target] for target in targets
+                                           if haskey(target2sequence, target))
+    end
+    cluster2seqnames
+end
+
+function get_cluster2msa(msa, cluster2seqnames)
+    query_name = first(MIToS.MSA.sequencename_iterator(msa))
+    cluster2msa = OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment}()
+    for (cluster, seqnames) in cluster2seqnames
+        seqnames = [query_name; seqnames]
+        cluster2msa[cluster] = msa[seqnames, :]
+    end
+    cluster2msa
+end
+
+function get_cluster2structures(structures, cluster2targets)
+    cluster2structures = OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}}()
+    for (cluster, targets) in cluster2targets
+        cluster2structures[cluster] = Dict{String,Vector{MIToS.PDB.PDBResidue}}(
+            target => structures[target] for target in targets)
+    end
+    cluster2structures
+end
+
+function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
+    expanded_table::DataFrames.DataFrame,
+    msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
+    target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
+    targets, clustering_result = cluster_structures(rmsds)
+    large_clusters = Clustering.cutree(clustering_result, h=1.0)
+    small_clusters = Clustering.cutree(clustering_result, h=0.5)
+    large_cluster2targets = AlphaConformers.get_cluster2targets(targets, large_clusters)
+    small_cluster2targets = AlphaConformers.get_cluster2targets(targets, small_clusters)
+    large_cl2seq = AlphaConformers.get_cluster2seqnames(large_cluster2targets, target2sequence)
+    small_cl2seq = AlphaConformers.get_cluster2seqnames(small_cluster2targets, target2sequence)
+    large_cl2msa = AlphaConformers.get_cluster2msa(msa, large_cl2seq)
+    small_cl2pdb = AlphaConformers.get_cluster2structures(structures, small_cluster2targets)
+    large_small_pairs = zip(large_clusters, small_clusters) |> unique |> sort
+    (large_small_pairs, large_cl2msa, small_cl2pdb)
+end
+
+function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
+    large_cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
+    small_cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
+    out_folder::String=mktempdir())
+    for (large, small) in large_small_pairs
+        # MSA
+        cluster_folder = mkdir(joinpath(out_folder, "cluster_$(large)_$(small)"))
+        msa_file = joinpath(cluster_folder, "msa.fasta")
+        write(msa_file, large_cl2msa[large], MIToS.MSA.FASTA)
+        # Structures
+        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates"))
+        for (target, structure) in small_cl2pdb[small]
+            pdb_file = joinpath(cluster_template_folder,
+                replace(target, ".pdb" => "") * ".pdb")
+            write(pdb_file, structure, MIToS.PDB.PDBFile)
+        end
+    end
+    out_folder
 end
 
 
@@ -482,11 +573,13 @@ rmsds = AlphaConformers.process_known_conformations!(structures, expanded_table,
 
 AlphaConformers.fill_rmsds!(rmsds, expanded_table, structures)
 
-clustering_result = AlphaConformers.cluster_structures(rmsds)
+structure_names, clustering_result = AlphaConformers.cluster_structures(rmsds)
 
 clusters = Clustering.cutree(clustering_result, h=1.0)
 
+large_small_pairs, large_cl2msa, small_cl2pdb = AlphaConformers.create_template_clusters(rmsds, expanded_table, merged_msa, structures)
 
+out_folder = AlphaConformers.create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb)
 
 # [ ] TODO : Filter Foldseek results based on E-values.
 
