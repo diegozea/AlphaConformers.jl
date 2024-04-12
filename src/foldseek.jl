@@ -120,6 +120,8 @@ function run_foldseek(pdb_file::AbstractString,
                 rm(msa_file)
             end
             isfile("msa_output/0a3m") && cp("msa_output/0a3m", msa_file)
+            # TODO: Fix on MIToS
+            run(pipeline(`sed '/^>/!s/[a-z]//g' $msa_file`, stdout=msa_file))
         end
     finally
         cd(cwd)
@@ -532,7 +534,7 @@ function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
     for (large, small) in large_small_pairs
         # MSA
         cluster_folder = mkdir(joinpath(out_folder, "cluster_$(large)_$(small)"))
-        msa_file = joinpath(cluster_folder, "msa.fasta")
+        msa_file = joinpath(cluster_folder, "sequences.a3m")
         write(msa_file, large_cl2msa[large], MIToS.MSA.FASTA)
         # Structures
         cluster_template_folder = mkdir(joinpath(cluster_folder, "templates"))
@@ -543,6 +545,22 @@ function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
         end
     end
     out_folder
+end
+
+function alphaconformers(input_pdb, pdb_db, alphafold_db, out_folder)
+    output = run_foldseek(input_pdb, "$pdb_db,$alphafold_db", out_folder=out_folder)
+    merged_table = merge_tables([output[1].table_file, output[2].table_file])
+    merged_msa = merge_msas(merged_table)
+    structures = _get_aligned_structures(merged_table)
+    sifts_uniprot_mapping = get_uniprot_mapping()
+    target2uniprot, expanded_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+    uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
+    rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets)
+    fill_rmsds!(rmsds, expanded_table, structures)
+    structure_names, clustering_result = cluster_structures(rmsds)
+    clusters = Clustering.cutree(clustering_result, h=1.0)
+    large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
+    create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
 end
 
 
@@ -558,6 +576,13 @@ end
 #temp_dir = mktempdir()
 
 using Revise, AlphaConformers, DataFrames, MIToS; input_pdb = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "1EX6_B.pdb"); test_db = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db", "test_db"); test_db_2 = joinpath("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/AlphaConformers/test", "data", "test_db_2", "test_db_2"); temp_dir = mktempdir()
+
+AlphaConformers.alphaconformers(input_pdb, test_db, test_db_2, temp_dir)
+
+AlphaConformers.run_alphafold(temp_dir, colabfold_path="/opt/alphafold/runcolabfold.py")
+
+
+
 output = run_foldseek(input_pdb, "$test_db,$test_db_2", out_folder=temp_dir)
 merged_table = merge_tables([output[1].table_file, output[2].table_file])
 merged_msa = merge_msas(merged_table)

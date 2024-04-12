@@ -24,7 +24,9 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
             @info "Running AlphaFold for $(abspath(folder))"
             if isdir("templates")
                 if !isempty(readdir("templates"))
-                    run(`$colabfold_path sequences.a3m af --use-templates 1 --msa-input --custom-template-path templates/ --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`)
+                    af_command = `$colabfold_path sequences.a3m af --use-templates 1 --msa-input --custom-template-path templates/ --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
+                    @info "Running AlphaFold command: $af_command"
+                    run(af_command)
                 else
                     @warn "No templates found in $(abspath("templates"))"
                 end
