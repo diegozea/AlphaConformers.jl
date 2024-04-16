@@ -11,6 +11,9 @@ import Clustering
 import Downloads
 import OrderedCollections
 import PairwiseListMatrices
+import Distributed
+import ProgressMeter
+import Combinatorics
 
 using TestItems
 
