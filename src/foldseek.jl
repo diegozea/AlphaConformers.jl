@@ -557,16 +557,32 @@ function get_cluster2seqnames(cluster2targets, target2sequence)
     cluster2seqnames
 end
 
+function _check_names_in_msa(names, msa)
+    found_names = Set{String}()
+    for seqname in MIToS.MSA.sequencename_iterator(msa)
+        if seqname in names
+            push!(found_names, seqname)
+        end
+    end
+    missing_names = setdiff(Set(names), found_names)
+    if !isempty(missing_names)
+        @info "The first 5 sequences in the MSA are: $(first(MIToS.MSA.sequencename_iterator(msa), 5))"
+        @warn "The following sequences are not in the MSA: $(collect(missing_names))"
+    end
+    isempty(missing_names)
+end
+
 function get_cluster2msa(msa, cluster2seqnames)
     query_name = first(MIToS.MSA.sequencename_iterator(msa))
     cluster2msa = OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment}()
     for (cluster, seqnames) in cluster2seqnames
-        try
-            seqnames = [query_name; seqnames]
-            cluster2msa[cluster] = msa[seqnames, :]
-        catch err
-            @warn "Error: $cluster $seqnames $err"
+        seqnames = copy(seqnames)
+        pushfirst!(seqnames, query_name)
+        if ! _check_names_in_msa(seqnames, msa)
+            @warn "The cluster $cluster will be skipped."
+            continue
         end
+        cluster2msa[cluster] = msa[seqnames, :]
     end
     cluster2msa
 end
@@ -644,7 +660,6 @@ function alphaconformers(input_pdb, pdb_db, alphafold_db, pdb_folder, out_folder
     large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
     create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
 end
-
 
 # USAGE EXAMPLE
 # =============
