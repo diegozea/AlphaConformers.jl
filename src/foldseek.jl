@@ -465,8 +465,14 @@ function fill_rmsds!(rmsds::Dict{Tuple{String,String},Float64},
     table::DataFrames.DataFrame,
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
     n = DataFrames.nrow(table)
-    ij_pairs = collect(Combinatorics.combinations(1:n, 2))
-    ProgressMeter.@showprogress Distributed.@distributed for (i, j) in ij_pairs
+    ij_pairs = Tuple{Int, Int}[]
+    for i in 1:(n-1)
+        for j in i+1:n
+            push!(ij_pairs, (i, j))
+        end
+    end
+    # ProgressMeter.@showprogress Distributed.@distributed for (i, j) in ij_pairs
+    for (i, j) in ij_pairs
         row_i = table[i, :]
         row_j = table[j, :]
         sorted_ids = sort([row_i.target, row_j.target])
@@ -555,8 +561,12 @@ function get_cluster2msa(msa, cluster2seqnames)
     query_name = first(MIToS.MSA.sequencename_iterator(msa))
     cluster2msa = OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment}()
     for (cluster, seqnames) in cluster2seqnames
-        seqnames = [query_name; seqnames]
-        cluster2msa[cluster] = msa[seqnames, :]
+        try
+            seqnames = [query_name; seqnames]
+            cluster2msa[cluster] = msa[seqnames, :]
+        catch err
+            @warn "Error: $cluster $seqnames $err"
+        end
     end
     cluster2msa
 end
