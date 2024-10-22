@@ -572,12 +572,18 @@ function _check_names_in_msa(names, msa)
     isempty(missing_names)
 end
 
+function _rename_msa!(msa)
+    names = MIToS.MSA.sequencenames(msa)
+    MIToS.MSA.rename_sequences!(msa, new_names)
+end
+
 function get_cluster2msa(msa, cluster2seqnames)
     query_name = first(MIToS.MSA.sequencename_iterator(msa))
     cluster2msa = OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment}()
     for (cluster, seqnames) in cluster2seqnames
         seqnames = copy(seqnames)
         pushfirst!(seqnames, query_name)
+        _rename_msa!(msa)
         if ! _check_names_in_msa(seqnames, msa)
             @warn "The cluster $cluster will be skipped."
             continue
@@ -615,7 +621,7 @@ function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
     large_cluster2targets = AlphaConformers.get_cluster2targets(targets, large_clusters)
     small_cluster2targets = AlphaConformers.get_cluster2targets(targets, small_clusters)
     large_cl2seq = AlphaConformers.get_cluster2seqnames(large_cluster2targets, target2sequence)
-    small_cl2seq = AlphaConformers.get_cluster2seqnames(small_cluster2targets, target2sequence)
+    # small_cl2seq = AlphaConformers.get_cluster2seqnames(small_cluster2targets, target2sequence)
     large_cl2msa = AlphaConformers.get_cluster2msa(msa, large_cl2seq)
     small_cl2pdb = AlphaConformers.get_cluster2structures(structures, small_cluster2targets)
     large_small_pairs = zip(large_clusters, small_clusters) |> unique |> sort
