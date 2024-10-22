@@ -587,7 +587,7 @@ function get_cluster2msa(msa, cluster2seqnames)
         catch err
             @error "Error ($err) getting the MSA for cluster $cluster"
             @info "seqnames: $seqnames"
-            @info "msa names: $(sequencenames(msa))"
+            @info "msa names: $(MIToS.MSA.sequencenames(msa))"
             rethrow(err)
         end
     end
