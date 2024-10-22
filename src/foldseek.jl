@@ -573,7 +573,7 @@ function _check_names_in_msa(names, msa)
 end
 
 function _rename_msa!(msa)
-    names = MIToS.MSA.sequencenames(msa)
+    new_names = MIToS.MSA.sequencenames(msa)
     MIToS.MSA.rename_sequences!(msa, new_names)
 end
 
