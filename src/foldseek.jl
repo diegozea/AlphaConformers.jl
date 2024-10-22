@@ -582,7 +582,14 @@ function get_cluster2msa(msa, cluster2seqnames)
             @warn "The cluster $cluster will be skipped."
             continue
         end
-        cluster2msa[cluster] = msa[seqnames, :]
+        try
+            cluster2msa[cluster] = msa[seqnames, :]
+        catch err
+            @error "Error ($err) getting the MSA for cluster $cluster"
+            @info "seqnames: $seqnames"
+            @info "msa: $msa"
+            rethrow(err)
+        end
     end
     cluster2msa
 end
