@@ -237,6 +237,14 @@ function merge_msas(table::DataFrames.DataFrame)
     out_folders = dirname.(unique(table.file))
     msas = [read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
             for folder in out_folders]
+    # Select only the used sequences, using bits and fident to indentify the matches
+    starts = Set(join([ row.target, row.bits, row.fident], "\t") for row in eachrow(table))
+    for i in eachindex(msas)
+        msa = msas[i]
+        selected = [ join(first(split(name, "\t"), 3), "\t") in starts for name in sequencenames(msa)[2:end] ]
+        pushfirst!(selected, true)
+        msas[i] = msa[selected, :]
+    end
     # Return the MSA if there is only one
     length(msas) == 1 && return only(msas)
     # Otherwise, concatenate the multiple MSAs using the query sequence as reference
@@ -249,6 +257,7 @@ function merge_msas(table::DataFrames.DataFrame)
     # was added by the join function and the sequence data Foldseek adds at the end.
     cleaned_names = String[replace(first(split(name)), r"^[1-9]+_" => "")
                            for name in MIToS.MSA.sequencename_iterator(msa_a)]
+    @assert length(cleaned_names) == length(unique(cleaned_names))
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
 end
 
