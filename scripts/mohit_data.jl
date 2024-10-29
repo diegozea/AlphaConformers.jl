@@ -53,10 +53,15 @@ const EVALUE_CUTOFF = 1e-5  # Adjust the e-value cutoff if needed
 
 # Set up the output directory
 output_dir = joinpath(PATH, "first_run")
+
+###### TMP DISABLE
+#=
 if isdir(output_dir)
     rm(output_dir; recursive=true, force=true)
 end
 mkdir(output_dir)
+=# 
+
 
 # Step 1: Run Foldseek
 @info "Running Foldseek"
@@ -85,9 +90,17 @@ println("Merged table after filtering:", merged_table)
 merged_msa = AlphaConformers.merge_msas(merged_table)
 println("Merged MSA:", merged_msa)
 
+
 # Step 5: Get the aligned structures
 @info "Getting the aligned structures"
 structures = AlphaConformers._get_aligned_structures(merged_table)
+
+##### tmp
+#=
+using JLD2
+jldsave("saved_data.jld2"; merged_table, merged_msa, structures, output_dir)
+=#
+
 
 # Step 6: Add known conformations
 @info "Adding known conformations"

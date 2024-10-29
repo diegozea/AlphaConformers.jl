@@ -233,16 +233,48 @@ function _match_columns(msa_a, msa_b, pos_ref_a, pos_ref_b)
     (columns_a, columns_b)
 end
 
+function _seq_name_to_key(sequence_name)
+    fields = first(split(sequence_name, "\t"), 3)
+    (fields[1], parse(Int, fields[2]), parse(Float64, fields[3]))
+end
+
+function _find_duplicates(lst)
+    seen = Set()
+    duplicates = Set()
+    for x in lst
+        if x in seen
+            push!(duplicates, x)
+        else
+            push!(seen, x)
+        end
+    end
+    return duplicates
+end
+
 function merge_msas(table::DataFrames.DataFrame)
     out_folders = dirname.(unique(table.file))
     msas = [read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
             for folder in out_folders]
-    # Select only the used sequences, using bits and fident to indentify the matches
-    starts = Set(join([ row.target, row.bits, row.fident], "\t") for row in eachrow(table))
+    # Select only the matched sequences by using bits and fident to identify the matches.
+    # Apply this filter only when there are duplicated names to prevent losing elements 
+    # due to numerical differences in comparisons.
+    starts = Set((row.target, row.bits, row.fident) for row in eachrow(table))
+    targets = Set(row.target for row in eachrow(table))
     for i in eachindex(msas)
         msa = msas[i]
-        selected = [ join(first(split(name, "\t"), 3), "\t") in starts for name in sequencenames(msa)[2:end] ]
-        pushfirst!(selected, true)
+        seqnames = MIToS.MSA.sequencenames(msa)[2:end]
+        msa_targets = [first(split(seqname, "\t")) for seqname in seqnames]
+        duplicated_msa_targets = _find_duplicates(msa_targets)
+        # Create a selection vector, starting with `true` to keep the first sequence
+        selected = Bool[]
+        push!(selected, true)
+        for seqname in seqnames
+            if seqname in duplicated_msa_targets
+                push!(selected, _seq_name_to_key(seqname) in starts)
+            else
+                push!(selected, first(split(seqname, "\t")) in targets)
+            end
+        end     
         msas[i] = msa[selected, :]
     end
     # Return the MSA if there is only one
