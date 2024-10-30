@@ -8,7 +8,6 @@
 #PBS -j oe
 =#
 
-#=
 using Revise
 using CSV, DataFrames
 using AlphaConformers
@@ -34,7 +33,7 @@ const REF_PDB = joinpath(PATH, "P51993_35_359.pdb")
 
 AlphaConformers.alphaconformers(REF_PDB, FOLDSEEK_DB, ALPHAFOLD_DB, PDB_FOLDER, output_dir)
 AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
-=#
+#=
 
 using Revise
 using CSV, DataFrames
@@ -90,17 +89,9 @@ println("Merged table after filtering:", merged_table)
 merged_msa = AlphaConformers.merge_msas(merged_table)
 println("Merged MSA:", merged_msa)
 
-
 # Step 5: Get the aligned structures
 @info "Getting the aligned structures"
 structures = AlphaConformers._get_aligned_structures(merged_table)
-
-##### tmp
-#=
-using JLD2
-jldsave("saved_data.jld2"; merged_table, merged_msa, structures, output_dir)
-=#
-
 
 # Step 6: Add known conformations
 @info "Adding known conformations"
@@ -126,6 +117,14 @@ rmsds = AlphaConformers.process_known_conformations!(
 # Fill RMSDs in the expanded table
 AlphaConformers.fill_rmsds!(rmsds, expanded_table, structures)
 
+##### tmp
+#=
+using JLD2
+jldsave("saved_data.jld2"; merged_table, merged_msa, structures, output_dir, 
+sifts_uniprot_mapping, target2uniprot, expanded_table, uniprot2targets, 
+rmsds)
+=#
+
 # Step 9: Cluster structures
 @info "Clustering structures"
 large_small_pairs, large_cl2msa, small_cl2pdb = AlphaConformers.create_template_clusters(
@@ -143,3 +142,4 @@ AlphaConformers.create_folder_structure(
     small_cl2pdb,
     out_folder=output_dir
 )
+=#
