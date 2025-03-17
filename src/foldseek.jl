@@ -252,6 +252,7 @@ function _find_duplicates(lst)
 end
 
 function merge_msas(table::DataFrames.DataFrame)
+    println("table ",size(table))
     out_folders = dirname.(unique(table.file))
     msas = [read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
             for folder in out_folders]
@@ -260,31 +261,71 @@ function merge_msas(table::DataFrames.DataFrame)
     # due to numerical differences in comparisons.
     starts = Set((row.target, row.bits, row.fident) for row in eachrow(table))
     targets = Set(row.target for row in eachrow(table))
+    println("starts ",first(starts,5))
+    println("targets ",first(targets,5))
+    println("shape msas ",size(msas))
     for i in eachindex(msas)
+        println("index",i)
         msa = msas[i]
+        println(" msa ",size(msa))
         seqnames = MIToS.MSA.sequencenames(msa)[2:end]
+        println("shape seqnames ",length(seqnames))
+        if abs(length(seqnames) - size(msa, 1)) != 1
+            @info "Avertissement : le nombre de noms de séquences ne correspond pas au nombre de lignes de msa !"
+            while length(seqnames) < (size(msa, 1)-1)
+                push!(seqnames, "Unnamed_" * string(length(seqnames) + 1))
+            end
+        end
+        println("shape selected ",length(seqnames)) 
+        println("Nombre unique d'IDs :", length(unique(seqnames))) 
+        println(last(seqnames,10)) 
+        println("shape msa ", size(msa))
         msa_targets = [first(split(seqname, "\t")) for seqname in seqnames]
+        println("msa_target ",size(msa_targets))
         duplicated_msa_targets = _find_duplicates(msa_targets)
         # Create a selection vector, starting with `true` to keep the first sequence
         selected = Bool[]
         push!(selected, true)
         for seqname in seqnames
-            if seqname in duplicated_msa_targets
+            if occursin("Unnamed", seqname)
+                println(seqname)
+                push!(selected,false)
+            elseif seqname in duplicated_msa_targets
                 push!(selected, _seq_name_to_key(seqname) in starts)
             else
                 push!(selected, first(split(seqname, "\t")) in targets)
             end
-        end     
-        msas[i] = msa[selected, :]
+        end  
+        println("shape selected ",length(selected))   
+        println("shape msa ", size(msa))
+        println("Type de selected : ", eltype(msa))  # Vérifie que c'est bien un Vector{Bool}
+        println("Nombre de true dans selected : ", count(selected))  # Vérifie combien de séquences sont sélectionnéess
+        try 
+            msas2[i] = msa[selected, :]
+        catch e 
+            msas2 = []  # Liste vide pour stocker les lignes sélectionnées
+            for (i, row) in enumerate(msa)
+                println("i = ", i, " | Taille actuelle de msa : ", size(msa, 1))
+            end
+            for (i, row) in enumerate(msa)
+                println(i)
+                if selected[i]  # Vérifie si selected[i] est vrai
+                    push!(msas2, row)  # Ajoute la ligne correspondante à msas2
+                end
+            end
+            println(msas2)
+        end
     end
+    println("shape msas ",length(msas2))
     # Return the MSA if there is only one
-    length(msas) == 1 && return only(msas)
+    length(msas2) == 1 && return only(msas2)
     # Otherwise, concatenate the multiple MSAs using the query sequence as reference
-    msa_a = msas[1]
-    for msa_b in msas[2:end]
+    msa_a = msas2[1]
+    for msa_b in msas2[2:end]
         cols_a, cols_b = _match_columns(msa_a, msa_b, 1, 1)
         msa_a = MIToS.MSA.join(msa_a, msa_b[2:end, :], cols_a, cols_b; axis=2)
     end
+    println("msa_a new ",first(msa_a,2))
     # Clean the sequence names by deleting the MSA number at the beginning that 
     # was added by the join function and the sequence data Foldseek adds at the end.
     cleaned_names = String[replace(first(split(name)), r"^[1-9]+_" => "")
@@ -695,8 +736,10 @@ function alphaconformers(input_pdb, pdb_db, alphafold_db, pdb_folder, out_folder
     @info "Running Foldseek"
     output = run_foldseek(input_pdb, "$pdb_db,$alphafold_db", out_folder=out_folder)
     merged_table = merge_tables([output[1].table_file, output[2].table_file])
+    println(first(merged_table,10))
     filter!(row -> row.evalue < evalue_cutoff, merged_table)
     merged_msa = merge_msas(merged_table)
+    println(first(merge_msas,10))
     
     @info "Getting the aligned structures"
     structures = _get_aligned_structures(merged_table)

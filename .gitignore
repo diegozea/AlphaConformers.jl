@@ -17,6 +17,10 @@ create_db.jl.e*
 test/data/1EX6_B_results.m8
 test/data/.*
 
+data/
+scripts/*.jl.o*
+*.csv
+
 # tmp
 .nfs*
 
