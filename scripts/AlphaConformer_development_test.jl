@@ -22,7 +22,7 @@ using AlphaConformers
 const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data"
 cd(PATH)
 
-const PDB_FOLDER = nothing
+const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
 
 const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 
@@ -114,7 +114,7 @@ println(size(info_pdb))
 #Run AlphaConformers with apo form in template 
 global index=0
 for row in eachrow(info_pdb)
-    if index == 1
+    if index == 2
         apo_pdb=row.PDB_apo
         apo_chain=row.CHAIN_apo
         println(apo_pdb)

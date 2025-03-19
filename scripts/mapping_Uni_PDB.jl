@@ -116,7 +116,7 @@ function get_pdb_information(sift_join_file::DataFrame)
         #Remplis le DF
         push!(df_pdb_reso_resi,(code_pdb,String(row.CHAIN),row.RES_BEG,row.RES_END,row.PFAM_NB,row.CATH_NB,res_info,method_info,date_info,String(uni_acc))) 
     end 
-    return df_pdb_reso_resi
+    return df_pdb_reso_res
 end
 
 #Recuperer les ligands 
@@ -150,22 +150,25 @@ function get_sift_mapping(row::DataFrameRow,folder_temporary_path::String)
     #Chemin où est enregistrer le fichier xml 
     siftsfile=joinpath(folder_temporary_path,row.PDB*".xml.gz")
     if !isfile(siftsfile) #Verifier que fichier n'est pas déja télécharger 
-        println("Le fichier n'existe pas. Téléchargement du fichier XML...")
+        println("The file doesn't exist. Downloading the file XML...")
         siftsfile = downloadsifts(uppercase(pdb),filename=joinpath(folder_temporary_path,row.PDB*".xml.gz" ))
         #Si le fichier n'a pas pu etre télécharger 
-        if siftsfile == nothing
-            pdbcode=row.PDB
+        pdbcode=row.PDB
+        if siftsfile == nothing 
             try 
+                sleep(60)
                 filename=joinpath(folder_temporary_path,lowercase(pdbcode)*".xml.gz" )
                 siftsfile=download_file(string("https://ftp.ebi.ac.uk/pub/databases/msd/sifts/xml/", 
                 lowercase(pdbcode), ".xml.gz"), filename)
             catch e
-                println("❌ Erreur lors du téléchargement de $pdbcode : ", e)
+                println("❌ Error when downloading $pdbcode with 2nd link: ", e)
             end
             if siftsfile == nothing
                 return nothing
             end
-            println("✅ Trouver $pdbcode avec 2eme lien")
+            println("✅ Found $pdbcode with the 2nd link")
+        else 
+            println("✅ Found $pdbcode ")  
         end
     end
     #Do the mapping 
@@ -197,8 +200,14 @@ function get_uniprot_mapping_residues(row::DataFrameRow,folder_temporary_path::S
     # Recupere les residues PDB 
     pdbfile=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )
     if !isfile(pdbfile) #Verifier que fichier n'est pas déja télécharger 
-        println("Le fichier n'existe pas. Téléchargement du fichier PDB...")
-        pdbfile = MIToS.PDB.downloadpdb(uppercase(row.PDB), format = PDBFile,filename=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )) # Sinon ne reconnais pas le package --> weird   
+        println("The file doesn't exist. Downloading the PDB ...")
+        pdb=row.PDB
+        try 
+            pdbfile = MIToS.PDB.downloadpdb(uppercase(row.PDB), format = PDBFile,filename=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )) # Sinon ne reconnais pas le package --> weird   
+        catch e 
+            println("❌ Error when downloading the PDB file $pdb",e)
+            return nothing
+        end   
     end
     residues_1ivo = read(pdbfile, PDBFile)
     chain_residues_pdb = MIToS.PDB.residuesdict(residues_1ivo, "1", String(row.CHAIN), "ATOM") #Retourne dictionnaire avec position => residues details 
@@ -234,21 +243,24 @@ function  count_mutation_pdb_uni(df_uniprot::DataFrame,folder_temporary_path::St
         pdb=row.PDB
         # Recupere le fichier SIFT
         siftsfile = downloadsifts(uppercase(pdb),filename=joinpath(folder_temporary_path,row.PDB*".xml.gz" ))
+        pdbcode=row.PDB
         if siftsfile == nothing
-            pdbcode=row.PDB
             try 
+                sleep(60) #Sleep to make sure we don't try to many time 
                 filename=joinpath(folder_temporary_path,lowercase(pdbcode)*".xml.gz" )
                 siftsfile=download_file(string("https://ftp.ebi.ac.uk/pub/databases/msd/sifts/xml/", 
                 lowercase(pdbcode), ".xml.gz"), filename)
             catch e
-                println("❌ Erreur lors du téléchargement de $pdbcode : ", e)
+                println("❌ Error when downloading $pdbcode with the 2nd link: ", e)
             end
             if siftsfile == nothing
                 return df_uniprot #Pour les fichiers qui n'ont pas réussi à etre installé 
             end
-            println("✅ Trouver $pdbcode avec 2eme lien")
-            
+            println("✅ Found $pdbcode with 2nd link")
+        else 
+            println("✅ Found $pdbcode ")  
         end
+
         residue_data = read(siftsfile, SIFTSXML)
         #Boucle pour chaque residues
         for i in 1:length(residue_data)
@@ -287,6 +299,7 @@ function calculate_RMSD_uniprot(df_uniprot::DataFrame,folder_temporary_path::Str
     files = df_uniprot.PDB .* "_" .* df_uniprot.CHAIN  # Liste des fichiers
     n = length(files)  # Nombre de fichiers
     rmsd_list = []
+    coverage_list[]
     for i in 1:n
         for j in (i+1):n  # Évite les doublons 
             #file1,file2=files[i],files[j]
@@ -296,17 +309,24 @@ function calculate_RMSD_uniprot(df_uniprot::DataFrame,folder_temporary_path::Str
                 rmsd = missing
             else
                 common_keys = Set(keys(dict1)) ∩ Set(keys(dict2))
-                positions = SortedSet(parse.(Int,common_keys))  # Récupère les positions communes (même clé dans tous les fichiers)
-                # Extraction des résidus pour chaque fichier sous forme de liste ordonnée
-                residues1 = [dict1[string(pos)] for pos in positions] 
-                residues2 = [dict2[string(pos)] for pos in positions]
-                try  
-                    # Superposition et calcul du RMSD
-                    superimposed_1, superimposed_2,rmsd = superimpose(residues1, residues2) # Le 2e élément est la RMSD
-                catch e 
-                    println("❌ Erreur lors de la superposition des structures ", e)
-                    rmsd = missing
-                end 
+                push!(coverage_list,common_keys)
+                if length(common_keys)==0
+                    rmsd=missing
+                else 
+
+                    positions = SortedSet(parse.(Int,common_keys))  # Récupère les positions communes (même clé dans tous les fichiers)
+                    # Extraction des résidus pour chaque fichier sous forme de liste ordonnée
+                    residues1 = [dict1[string(pos)] for pos in positions] 
+                    residues2 = [dict2[string(pos)] for pos in positions]
+                    try  
+                        # Superposition et calcul du RMSD
+                        superimposed_1, superimposed_2,rmsd = superimpose(residues1, residues2) # Le 2e élément est la RMSD
+                    catch e 
+                        println(common_keys)
+                        println("❌ Erreur lors de la superposition des structures ", e)
+                        rmsd = missing
+                    end 
+                end
             end
             #p=plot(superimposed_1, label="1", alpha=0.5)
             #plot!(superimposed_2, label="2", alpha=0.5)
@@ -314,6 +334,9 @@ function calculate_RMSD_uniprot(df_uniprot::DataFrame,folder_temporary_path::Str
             push!(rmsd_list, rmsd)  # Stocke la valeur
         end
     end
+    plm=PairwiseListMatrix(coverage_list,false,100.0)
+    nplm=setlabels(plm,files)
+    println(nplm)
     return rmsd_list,files
 end
 
@@ -375,12 +398,12 @@ function clustering_each_uniprot_acc(df_final::DataFrame)
         if i!=0 # Regarde pas pour la premiere itération 
             is_present= uniprot in df_completed.UNIPROT # Regarde si Uniprot est déja dans le DF pour ne pas faire plusieurs fois même calcul 
         end
-        if !is_present  || i==0 # Si uniprot pas present dans le DF où si c'est la premiere itération 
-            
+        #if !is_present  || i==0 # Si uniprot pas present dans le DF où si c'est la premiere itération 
+        if uniprot =="A0A024B7W1"    
             #Creation d'un dossier vide
             df_completed=mktempdir() do temp_dir
                 df_uniprot = filter(row -> row.UNIPROT == uniprot, df_final)# Pour ce centrer par uniprot 
-                #println(first(df_uniprot,10))
+                #println(df_uniprot)
 
                 # Verifier les differences entre Uniprot et PDB
                 df_uniprot=count_mutation_pdb_uni(df_uniprot,temp_dir)
