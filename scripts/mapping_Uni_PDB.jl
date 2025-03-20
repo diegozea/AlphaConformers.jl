@@ -204,6 +204,10 @@ function get_uniprot_mapping_residues(row::DataFrameRow,folder_temporary_path::S
         pdb=row.PDB
         try 
             pdbfile = MIToS.PDB.downloadpdb(uppercase(row.PDB), format = PDBFile,filename=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )) # Sinon ne reconnais pas le package --> weird   
+            println(pdbfile)
+            if pdbfile==nothing
+                return nothing
+            end
         catch e 
             println("❌ Error when downloading the PDB file $pdb",e)
             return nothing
@@ -299,7 +303,7 @@ function calculate_RMSD_uniprot(df_uniprot::DataFrame,folder_temporary_path::Str
     files = df_uniprot.PDB .* "_" .* df_uniprot.CHAIN  # Liste des fichiers
     n = length(files)  # Nombre de fichiers
     rmsd_list = []
-    coverage_list[]
+    coverage_list=[]
     for i in 1:n
         for j in (i+1):n  # Évite les doublons 
             #file1,file2=files[i],files[j]
@@ -545,7 +549,6 @@ println(size(df_final))
 
 CSV.write("pdb_information_details.csv", df_final)
 println("END !") 
-
 """
 # get back the final df 
 file_path_df_final="pdb_information_details_1000.csv"
@@ -571,5 +574,6 @@ frequency = count(x -> !ismissing(x) && x == most_frequent_value, check_cluster.
 println("Elle apparaît ", frequency, " fois.")
 println(size(check_cluster))
 println("Elle separe correctement : ",(frequency/size(check_cluster)[1])*100)
+
 
 println("END !")
