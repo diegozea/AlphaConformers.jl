@@ -32,37 +32,37 @@ using LinearAlgebra
 using PairwiseListMatrices
 using StatsBase
 
-#Lie les 3 csv ensembles
+#Link the 3 csv together
 """
 Create one file with all of the information form PFAM CATH and UNIPROT from SIFT databases 
 
-Take in input the three file il a DataFrame format and output one DataFrame
+Take in input the three file in a DataFrame format and output one DataFrame
 """
 function join_information(sift_pfam_mapping::DataFrame,sift_cath_mapping::DataFrame,sift_uniprot_mapping::DataFrame)
 
-    # 1 Extraire RES_BEG et RES_END depuis sift_uniprot_mapping
+    # 1 Extract RES_BEG and RES_END from sift_uniprot_mapping
     uniprot_res = select(sift_uniprot_mapping, [:PDB, :CHAIN, :RES_BEG, :RES_END, :SP_PRIMARY])
-    # 2 Compter le nombre de PFAM_ID par (PDB, CHAIN, SP_PRIMARY)
+    # 2 Count the number of PFAM_IDs per (PDB, CHAIN, SP_PRIMARY)
     pfam_counts = combine(groupby(sift_pfam_mapping, [:PDB, :CHAIN, :SP_PRIMARY])) do subdf
         (PFAM_NB = size(subdf, 1),)
     end
-    # 3 Compter le nombre de CATH_ID par (PDB, CHAIN, SP_PRIMARY)
+    # 3 Count the number of CATH_IDs per (PDB, CHAIN, SP_PRIMARY)
     cath_counts = combine(groupby(sift_cath_mapping, [:PDB, :CHAIN, :SP_PRIMARY])) do subdf
         (CATH_NB = size(subdf, 1),)
     end
-    # 4 Joindre les deux tables pour créer le DataFrame final
+    # 4 Join the two tables to create the final DataFrame
     sift_join_file = outerjoin(uniprot_res, pfam_counts, on=[:PDB, :CHAIN, :SP_PRIMARY])
     sift_join_file = outerjoin(sift_join_file, cath_counts, on=[:PDB, :CHAIN, :SP_PRIMARY],)
-    # 5 Remplacer les valeurs `missing` par 0 (au cas où un PDB n'a pas de PFAM ou CATH)
+    # 5 Replace `missing` values ​​with 0 (in case a PDB has no PFAM or CATH)
     sift_join_file.PFAM_NB .= coalesce.(sift_join_file.PFAM_NB, 0)
     sift_join_file.CATH_NB .= coalesce.(sift_join_file.CATH_NB, 0)
-    # 6 Trier par SP_PRIMARY
+    # 6 Sort by SP_PRIMARY
     sift_join_file = sort(sift_join_file, :SP_PRIMARY)
 
     return sift_join_file 
 end 
 
-#Recupere information du header utile
+#Retrieve useful header information
 """
 Use the function getpdbdescription to have the details about the pdb file 
 
@@ -71,9 +71,9 @@ We will have the code pdb, the release date, the method of extraction and the re
 (can be missing if the method is NMR)
 """
 function get_header_pdb(code_pdb::String)
-    header_info=getpdbdescription(code_pdb) # Retourne un DICT
-    #Extraire les informations
-    ## Récupérer la date de publication
+    header_info=getpdbdescription(code_pdb) # Returns a DICT
+    #Extract the information
+    ## Retrieve the publication date
     date_info_p = get(header_info, "rcsb_accession_info", Dict())
     date_info_d = get(date_info_p, "initial_release_date", nothing)
     if date_info_d !== nothing
@@ -82,10 +82,10 @@ function get_header_pdb(code_pdb::String)
     else
         return nothing
     end
-    ## Récupérer la méthode
+    ## Retrieve method
     exp_info = get(header_info, "rcsb_entry_info", Dict())
     method_info = get(exp_info, "experimental_method", nothing)
-    ## Récupérer la résolution
+    ## Retrieve the resolution
     res_info_p = get(exp_info, "resolution_combined", nothing)
     #Prepare the output
     if res_info_p !== nothing && !isempty(res_info_p)
@@ -96,7 +96,7 @@ function get_header_pdb(code_pdb::String)
     end
 end
 
-#Enregistre information dans un DF
+#Save information in a DF
 """
 From the Dataframe with all the information of Pfam CATH and Uniprot we had the information form the header 
 We use the function get_header_pdb
@@ -104,22 +104,21 @@ We use the function get_header_pdb
 Take in input the Dataframe from join_information and output a Dataframe with the header information added 
 """
 function get_pdb_information(sift_join_file::DataFrame)
-    #Creer DF vide
-    df_pdb_reso_resi = DataFrame(PDB = String[], CHAIN = String[], RES_BEG=Union{Int64,Missing}[], RES_END=Union{Int64,Missing}[],PFAM_NB=Int64[],CATH_NB=Int64[], RESOLUTION = Union{Float64, Missing}[], METHOD = String[],DATE_RELEASE=SubString{String}[],UNIPROT=String[]) # Prendre en compte si resolution manquante
-    i=0   
-    #Pour chaque fichier pdb      
+    #Create empty DF
+    df_pdb_reso_resi = DataFrame(PDB = String[], CHAIN = String[], RES_BEG=Union{Int64,Missing}[], RES_END=Union{Int64,Missing}[],PFAM_NB=Int64[],CATH_NB=Int64[], RESOLUTION = Union{Float64, Missing}[], METHOD = String[],DATE_RELEASE=SubString{String}[],UNIPROT=String[]) # Take into account if missing resolution   
+    #For each pdb file   
     for row in eachrow(sift_join_file)  
-        # Recupere code uniprot associé 
+        # Retrieve associated uniprot code
         uni_acc=row.SP_PRIMARY
-        #Recuperer information du header 
+        #Retrieve header information 
         code_pdb, date_info, method_info, res_info = get_header_pdb(String(row.PDB))
-        #Remplis le DF
+        #Fill out the DF
         push!(df_pdb_reso_resi,(code_pdb,String(row.CHAIN),row.RES_BEG,row.RES_END,row.PFAM_NB,row.CATH_NB,res_info,method_info,date_info,String(uni_acc))) 
     end 
     return df_pdb_reso_res
 end
 
-#Recuperer les ligands 
+#Recover the ligands
 """
 Get the type of ligand that can bound with each pdb, if no ligand we put missing
 
@@ -127,35 +126,35 @@ Take in input the DataFrame from BioLip and the DataFrame created with get_pdb_i
 the ligand (We are looking the type not the quantities) 
 """
 function get_ligand_information(df_biolip_5_first_columns::DataFrame,df_pdb_reso_resi::DataFrame)
-    # Recupere une ligne pour chaque pdb --> group les ligands 
+    # Get a line for each pdb --> group the ligands
     df_ligands = combine(groupby(df_biolip_5_first_columns, [:PDB, :CHAIN]), 
                      :LIGAND => (x -> join(unique(x), ", ")) => :LIGANDS)
-    # Fusionner avec le DF principal
+    # Merge with the main DF
     df_final = leftjoin(df_pdb_reso_resi, df_ligands, on=[:PDB, :CHAIN])
-    # Remplacer les valeurs manquantes par "missing"
+    # Replace missing values ​​with "missing"
     df_final.LIGANDS .= coalesce.(df_final.LIGANDS, missing)
     return df_final
 end 
 
-#Recuperer le lien entre les indices Uniprot et PDB
+#Retrieve the link between Uniprot and PDB index
 """
 Do the correspondance between Uniprot and PDB index. Use SIFTS mapping so we need to download the .xml file.
 We handle the error if the file couldn't be install 
 
-Take in input a row for the DataFrame get_ligand_information and the path to a folder to save temporary file
+Take in input a row form the DataFrame get_ligand_information and the path to a folder to save temporary file
 output a dictionnaire with the mapping Uniprot => PDB
 """
 function get_sift_mapping(row::DataFrameRow,folder_temporary_path::String)
     pdb=row.PDB
-    #Chemin où est enregistrer le fichier xml 
-    siftsfile=joinpath(folder_temporary_path,row.PDB*".xml.gz")
-    if !isfile(siftsfile) #Verifier que fichier n'est pas déja télécharger 
+    #Path where the xml file is saved 
+    siftsfile=joinpath(folder_temporary_path,row.PDB*".xml.gz") #Use the temporary folder
+    if !isfile(siftsfile) #Check that the file is not already downloaded
         println("The file doesn't exist. Downloading the file XML...")
         siftsfile = downloadsifts(uppercase(pdb),filename=joinpath(folder_temporary_path,row.PDB*".xml.gz" ))
-        #Si le fichier n'a pas pu etre télécharger 
+        #If the file could not be downloaded
         pdbcode=row.PDB
         if siftsfile == nothing 
-            try 
+            try #Try with an other link
                 sleep(60)
                 filename=joinpath(folder_temporary_path,lowercase(pdbcode)*".xml.gz" )
                 siftsfile=download_file(string("https://ftp.ebi.ac.uk/pub/databases/msd/sifts/xml/", 
@@ -163,7 +162,7 @@ function get_sift_mapping(row::DataFrameRow,folder_temporary_path::String)
             catch e
                 println("❌ Error when downloading $pdbcode with 2nd link: ", e)
             end
-            if siftsfile == nothing
+            if siftsfile == nothing # If xml still couldn't be download don't do the mapping
                 return nothing
             end
             println("✅ Found $pdbcode with the 2nd link")
@@ -172,19 +171,19 @@ function get_sift_mapping(row::DataFrameRow,folder_temporary_path::String)
         end
     end
     #Do the mapping 
-    siftsmap = siftsmapping(  # Retourne un Dictionnaire avec coordonnée Uniprot => cordonnée PDB 
+    siftsmap = siftsmapping(  # Returns a Dictionary with Uniprot coordinate => PDB coordinate
         siftsfile,
         dbUniProt,
         String(row.UNIPROT),
         dbPDB,
         String(pdb), # SIFTS stores PDB identifiers in lowercase
-        chain = String(row.CHAIN), # In this example we are only using the chain A of the PDB
+        chain = String(row.CHAIN),
         missings = false,
     ) # Residues without coordinates aren't used in the mapping
-    return siftsmap
+    return siftsmap #Output the mapping UNIPROT => PDB
 end
 
-#Faire le lien entre les indices Uniprots et les résidues
+#Relating Uniprots indices to residuals
 """
 Make the link between the Uniprot index and the residues. Use the fonction get_sift_mapping and MIToS.PDB.downloadpdb
 
@@ -192,44 +191,50 @@ Take in input one row form the DataFrame get_ligand_information and the path to 
 output a dictionnaire with the mapping Uniprot => Residues
 """
 function get_uniprot_mapping_residues(row::DataFrameRow,folder_temporary_path::String)
-    # Recupere le mapping entre Uniprot => PDB
+    # Retrieve the mapping between Uniprot => PDB
     mapping=get_sift_mapping(row,folder_temporary_path) #OrderedDict Uniprot => PDB
-    if mapping == nothing
-        return nothing # Si le fichier n'a pas pu etre télécharger 
+    if mapping == nothing # If the xml file couldn't be download
+        return nothing # don't do the mapping 
     end
-    # Recupere les residues PDB 
-    pdbfile=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )
-    if !isfile(pdbfile) #Verifier que fichier n'est pas déja télécharger 
+    # Recover PDB residues
+    pdbfile=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" ) # Use the temporary file
+    if !isfile(pdbfile) #Check that the file is not already downloaded
         println("The file doesn't exist. Downloading the PDB ...")
         pdb=row.PDB
         try 
-            pdbfile = MIToS.PDB.downloadpdb(uppercase(row.PDB), format = PDBFile,filename=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )) # Sinon ne reconnais pas le package --> weird   
-            println(pdbfile)
-            if pdbfile==nothing
-                return nothing
+            pdbfile_path = MIToS.PDB.downloadpdb(uppercase(row.PDB), format = PDBFile,filename=joinpath(folder_temporary_path,uppercase(row.PDB)*".pdb.gz" )) # Sinon ne reconnais pas le package --> weird   
+            println(pdbfile_path)
+            if isfile(pdbfile) && pdbfile_path==nothing #If the file couldn't be download but create a file with the error
+                rm(pdbfile) #Delete the file that have the html error 
+                return nothing#don't do the mapping 
+            elseif pdbfile_path==nothing # If the file couldn't be download
+                return nothing #don't do the mapping 
             end
         catch e 
             println("❌ Error when downloading the PDB file $pdb",e)
+            
             return nothing
         end   
     end
+    #Create the mapping
     residues_1ivo = read(pdbfile, PDBFile)
-    chain_residues_pdb = MIToS.PDB.residuesdict(residues_1ivo, "1", String(row.CHAIN), "ATOM") #Retourne dictionnaire avec position => residues details 
-    #Pour tous les residues trouver l'index Uniprot
+    chain_residues_pdb = MIToS.PDB.residuesdict(residues_1ivo, "1", String(row.CHAIN), "ATOM") #Returns dictionary with position => residues details 
+    #For all residues find the Uniprot index
     residues_uniprot = OrderedDict()
     for id_uni in keys(mapping)
         try 
-            id_pdb=mapping[string(id_uni)] #Doit etre un string pour les comparer 
+            id_pdb=mapping[string(id_uni)] #Must be a string to compare them 
             residue=chain_residues_pdb[id_pdb]
             residues_uniprot[string(id_uni)]=residue # Output Ordred Dict Uniprot => Residue 
         catch e 
             pdb=row.PDB
-            println("❌ Key $id_uni not found for $pdb")
+            println("❌ Key $id_uni not found for $pdb") #If some residue aren't represent in the pdb we ignore them 
         end 
     end
     return residues_uniprot
 end
 
+#Register the number of mutation and missing residues
 """
 Compare the residues form PDB and Uniprot to identify the number of mutation and the missing residues
 
@@ -237,62 +242,62 @@ Take in input the DataFrame from get_ligand_information and the path to a folder
 Output the Dataframe with two new colonnes MUTATION and MISSING_RESIDUES
 """
 function  count_mutation_pdb_uni(df_uniprot::DataFrame,folder_temporary_path::String)
-    #Ajoute colonne avec mutation 
+    #Add column with mutation
     df_uniprot.MUTATION .= 0 
-    #Ajoute colonne avec residue manquant
+    #Add column with missing residue
     df_uniprot.MISSING_RESIDUES .= 0
-    # Pour chaque fichier pdb 
+    #For each pdb file
     for row in eachrow(df_uniprot)
         mut=0
         pdb=row.PDB
-        # Recupere le fichier SIFT
+        #Recover the SIFT file
         siftsfile = downloadsifts(uppercase(pdb),filename=joinpath(folder_temporary_path,row.PDB*".xml.gz" ))
         pdbcode=row.PDB
-        if siftsfile == nothing
+        if siftsfile == nothing # If the xml couldn't be download
             try 
                 sleep(60) #Sleep to make sure we don't try to many time 
-                filename=joinpath(folder_temporary_path,lowercase(pdbcode)*".xml.gz" )
+                filename=joinpath(folder_temporary_path,lowercase(pdbcode)*".xml.gz" ) 
                 siftsfile=download_file(string("https://ftp.ebi.ac.uk/pub/databases/msd/sifts/xml/", 
-                lowercase(pdbcode), ".xml.gz"), filename)
+                lowercase(pdbcode), ".xml.gz"), filename) #Try with an other link
             catch e
                 println("❌ Error when downloading $pdbcode with the 2nd link: ", e)
             end
-            if siftsfile == nothing
-                return df_uniprot #Pour les fichiers qui n'ont pas réussi à etre installé 
+            if siftsfile == nothing #For files that failed to install
+                return df_uniprot #Don't count the mutation and missing residues 
             end
             println("✅ Found $pdbcode with 2nd link")
         else 
             println("✅ Found $pdbcode ")  
         end
-
+        #Do the comparaison 
         residue_data = read(siftsfile, SIFTSXML)
-        #Boucle pour chaque residues
+        #For each residues
         for i in 1:length(residue_data)
-            #Recupere les informations
+            #get the information
             residues=read(siftsfile, SIFTSXML)[i]
             res_uni=get(residues, dbUniProt, :name, "missing")
             id_uni=get(residues, dbUniProt, :id, "missing")
             res_pdb=get(residues, dbPDB, :name, "")
-            chain_pdb=get(residues, dbPDB, :chain, "")
-            #Verifie que l'on est sur la bonne chain et bon Uniprot
-            #Si pas dans uniprot on ignore
+            chain_pdb=get(residues, dbPDB, :chain, "") #Check that we are on the right channel and good Uniprot
+            #If not in uniprot we ignore
             if row.CHAIN==chain_pdb && row.UNIPROT==id_uni
-                res_pdb_n=three2residue(res_pdb) # Retourne un MIToS.MSA.Residue
-                if res_uni != string(res_pdb_n) # Si pas même residue alors mutation
+                res_pdb_n=three2residue(res_pdb) # Returns a MIToS.MSA.Residue
+                if res_uni != string(res_pdb_n) # If not same residue then mutation
                     mut=mut+1
                 end
             end  
         end
-        #Ajoute valeur dans df 
+        #Add value in df
         row.MUTATION = mut
-        #Compte le nombre de missing residues 
+        #Count the number of missing residues
         sifts_1ivo = read(siftsfile, SIFTSXML, chain = String(row.CHAIN))
-        mis=count([res.missing for res in sifts_1ivo]) # Retourne un vecteur booleen donc compte le nombre de 1
+        mis=count([res.missing for res in sifts_1ivo]) # Returns a boolean vector so counts the number of 1s
         row.MISSING_RESIDUES=mis
     end
     return df_uniprot
 end
 
+#Compute the RMSD between each pdb 
 """
 Compare for each uniprot accession number the pdb file associate with structure alignment 
 
@@ -300,50 +305,53 @@ Take in input the DataFrame from count_mutation_pdb_uni and the path to a folder
 Output a Vector with the RMSD between each PDB --> its the half of the Correlation matrix
 """
 function calculate_RMSD_uniprot(df_uniprot::DataFrame,folder_temporary_path::String)
-    files = df_uniprot.PDB .* "_" .* df_uniprot.CHAIN  # Liste des fichiers
-    n = length(files)  # Nombre de fichiers
+    files = df_uniprot.PDB .* "_" .* df_uniprot.CHAIN  # List of files
+    n = length(files)  # Number of files
     rmsd_list = []
     coverage_list=[]
     for i in 1:n
-        for j in (i+1):n  # Évite les doublons 
-            #file1,file2=files[i],files[j]
-            dict1=get_uniprot_mapping_residues(df_uniprot[i,:],folder_temporary_path)
+        for j in (i+1):n  # Avoid duplicates
+            #Get the mapping Uniprot => Residues for both file
+            dict1=get_uniprot_mapping_residues(df_uniprot[i,:],folder_temporary_path) 
             dict2 = get_uniprot_mapping_residues(df_uniprot[j,:],folder_temporary_path)
-            if dict1 == nothing  || dict2 == nothing
-                rmsd = missing
+            if dict1 == nothing  || dict2 == nothing # Check if the mapping was possible
+                push!(coverage_list,0.0)
+                rmsd = missing # we will not annalyse those pdb 
             else
-                common_keys = Set(keys(dict1)) ∩ Set(keys(dict2))
-                push!(coverage_list,common_keys)
-                if length(common_keys)==0
-                    rmsd=missing
+                common_keys = Set(keys(dict1)) ∩ Set(keys(dict2)) # get the common key between the 2 pdb 
+                #Calcul the pourcentage of coverage 
+                pourcentage_coverage = length(common_keys) / max(length(dict1), length(dict2))
+                push!(coverage_list,pourcentage_coverage)
+                if pourcentage_coverage==0.0 # If no coverage 
+                    rmsd=missing # we will not annalyse those pdb 
                 else 
 
-                    positions = SortedSet(parse.(Int,common_keys))  # Récupère les positions communes (même clé dans tous les fichiers)
-                    # Extraction des résidus pour chaque fichier sous forme de liste ordonnée
+                    positions = SortedSet(parse.(Int,common_keys))  # Retrieves common positions (same key in all files)
+                    # Extracting residues for each file as an ordered list
                     residues1 = [dict1[string(pos)] for pos in positions] 
                     residues2 = [dict2[string(pos)] for pos in positions]
                     try  
-                        # Superposition et calcul du RMSD
-                        superimposed_1, superimposed_2,rmsd = superimpose(residues1, residues2) # Le 2e élément est la RMSD
+                        # Superposition and calculation of RMSD
+                        _, _,rmsd = superimpose(residues1, residues2)
                     catch e 
                         println(common_keys)
-                        println("❌ Erreur lors de la superposition des structures ", e)
-                        rmsd = missing
+                        println("❌ Error while superimposing structures ", e)
+                        rmsd = missing # we will not annalyse those pdb 
                     end 
                 end
             end
-            #p=plot(superimposed_1, label="1", alpha=0.5)
-            #plot!(superimposed_2, label="2", alpha=0.5)
-            #savefig(p,file1*file2*"2.png")
-            push!(rmsd_list, rmsd)  # Stocke la valeur
+            push!(rmsd_list, rmsd)  # same the rmsd
         end
     end
-    plm=PairwiseListMatrix(coverage_list,false,100.0)
-    nplm=setlabels(plm,files)
-    println(nplm)
-    return rmsd_list,files
+    # Create the matrix of coverage
+    plm=PairwiseListMatrix(coverage_list,false,1.0)
+    println(length(plm))
+    #nplm=setlabels(plm,files)
+    println(plm)
+    return rmsd_list,files # Output the file with all the rmsd and the file name
 end
 
+#Create the cluster for each uniprot accession number
 """
 Create the cluster for different CutOff : 1.5 2 and 4
 
@@ -351,39 +359,40 @@ Take in input the Vector with the RMSD from calculate_RMSD_uniprot
 Output a Dataframe with the cluster number for each CutOff
 """
 function cah(rmsd_list,files)
-    #Creer la matrice symétrique
+    #Create the symmetric matrix
     plm=PairwiseListMatrix(rmsd_list,false,0.0)
     nplm=setlabels(plm,files)
-    # Supprimer les lignes et colonnes qui contiennent encore des `missing`
+    # Delete rows and columns that contain `missing` --> where we couldn't analyse them
     rows_with_missing = findall(row -> any(ismissing, row), eachrow(nplm))
     df_rmsd_2 = nplm[setdiff(1:end, rows_with_missing), setdiff(1:end, rows_with_missing)]
 
-    mat = Matrix{Float64}(df_rmsd_2) # Conversion en Matrice
-    clustering_result = hclust(mat;linkage=:average)#Faire le clustering
+    mat = Matrix{Float64}(df_rmsd_2) # Conversion to Matrix
+    clustering_result = hclust(mat;linkage=:average)#Do the clustering
 
-    #Découper les cluster en fonction de different cutoff
-    cutoffs = [1.5, 2.0, 4.0] # Liste des différents cutoffs à tester
+    #Cut the clusters according to different cutoffs
+    cutoffs = [1.5, 2.0, 4.0] # List of different cutoffs to test
 
-    #Creation du DF output
+    #Creation of the output DF
     pdb_values = [split(file, "_")[1] for file in files]
     chain_values = [split(file, "_")[2] for file in files]
     final_df = DataFrame("PDB" => pdb_values,"CHAIN"=>chain_values)
 
-    for cutoff in cutoffs  # Découper les clusters à différents niveaux de cutoff
+    for cutoff in cutoffs  # Cut clusters at different cutoff levels
         cluster_assignments = cutree(clustering_result, h=cutoff)
-        #Enregistre les résultats
+        #Save the result
         df_clusters = DataFrame()
         file_i = files[setdiff(1:end, rows_with_missing)]
         df_clusters.PDB = [split(f, "_")[1] for f in file_i]  
         df_clusters.CHAIN = [split(f, "_")[2] for f in file_i] 
-        df_clusters[!, Symbol("Cluster_$cutoff")] = cluster_assignments  # Ajout des clusters
+        df_clusters[!, Symbol("Cluster_$cutoff")] = cluster_assignments  # Add the cluster to the DF
 
-        # Faire un `left join` pour inclure les PDB qui n'ont pas pu etre analyser 
+        # Do a `left join` to include PDBs that could not be parsed
         final_df = leftjoin(final_df, df_clusters, on=on=[:PDB,:CHAIN])
     end
     return final_df
 end
 
+# Get all the information of each pdb 
 """
 For each uniprot accession we are adding information about the number of mutation and the missing residues, we calculate the RMSD 
 between every pdb form the pdb accesion to compare there stucture and than cluster them in cluster base on there similarity
@@ -392,36 +401,31 @@ Take in input the DataFrame from get_ligand_information
 Output the DataFrame with new columns MUTATION MISSING_RESIDUES Cluster_1.5 Cluster_2.0 Cluster_4.0
 """
 function clustering_each_uniprot_acc(df_final::DataFrame)
-    df_completed=DataFrame(UNIPROT=String[],MUTATION=Int64[]) #Pour pouvoir checker lors de la premiere itération
+    df_completed=DataFrame(UNIPROT=String[],MUTATION=Int64[]) #To be able to check during the first iteration
     i=0
-    #Regarde pour chaque uniprot acc 
+    #Look for each uniprot acc
     for row in eachrow(df_final)
         uniprot=row.UNIPROT
         println(uniprot)
         is_present = true
-        if i!=0 # Regarde pas pour la premiere itération 
-            is_present= uniprot in df_completed.UNIPROT # Regarde si Uniprot est déja dans le DF pour ne pas faire plusieurs fois même calcul 
+        if i!=0 # Don't look for the first iteration
+            is_present= uniprot in df_completed.UNIPROT # Check if Uniprot is already in the DF so as not to do the same calculation several times.
         end
-        #if !is_present  || i==0 # Si uniprot pas present dans le DF où si c'est la premiere itération 
-        if uniprot =="A0A024B7W1"    
-            #Creation d'un dossier vide
+        if !is_present  || i==0 # If uniprot not present in the DF or if it is the first iteration
+            #Create a tempirary file
             df_completed=mktempdir() do temp_dir
-                df_uniprot = filter(row -> row.UNIPROT == uniprot, df_final)# Pour ce centrer par uniprot 
-                #println(df_uniprot)
+                df_uniprot = filter(row -> row.UNIPROT == uniprot, df_final)# To focus on each uniprot
 
-                # Verifier les differences entre Uniprot et PDB
+                # Check the differences between Uniprot and PDB
                 df_uniprot=count_mutation_pdb_uni(df_uniprot,temp_dir)
-                #println(first(df_uniprot,10))
 
-                #Calcul RMSD entre chaque fichier pdb 
+                #RMSD calculation between each pdb file
                 rmsd_list,files=calculate_RMSD_uniprot(df_uniprot,temp_dir)
-                #println(df_rmsd)
 
-                #Creer les clusters
+                #Create the clusters
                 df_cluster=cah(rmsd_list,files)
-                #println(df_cluster)
 
-                #Regroupe les resultats dans un DF
+                #Group the results into a DF
                 select!(df_uniprot, Not(["RES_END", "RES_BEG"]))
                 df_result = leftjoin(df_uniprot, df_cluster, on=[:PDB,:CHAIN])
                 println(df_result)
@@ -430,7 +434,6 @@ function clustering_each_uniprot_acc(df_final::DataFrame)
                 else 
                     df_completed=vcat(df_completed, df_result)
                 end
-                #println(first(df_completed,10))
                 return df_completed
             end
         end
@@ -439,40 +442,42 @@ function clustering_each_uniprot_acc(df_final::DataFrame)
     return df_completed
 end
 
+#Compare the Clustering 
 """
-Function to analyse the different cutoff from th cluster and chose the more releatable one 
+Function to analyse the different cutoff from the cluster and chose the more releatable one 
 
 Take in input the DataFrame from clustering_each_uniprot_acc
 Output a DataFrame to know for each Uniprot accession if we have the apo and holo form and for with cluster there where different
 """
 function check_apo_holo_cluster(df_completed::DataFrame)
-    check_cluster=DataFrame(UNIPROT=String[],HOLO_APO=Bool[],BEST_CUTOFF=Union{Float64,Missing}[])
+    check_cluster=DataFrame(UNIPROT=String[],HOLO_APO=Bool[],BEST_CUTOFF=Union{Float64,Missing}[]) # Create an empty DF
+
     for row in eachrow(df_completed)
-        uniprot=row.UNIPROT
-        #println(uniprot)
-        #Verifie qu'on a pas déja fait 
+        uniprot=row.UNIPROT # Check for every uniprot accession 
+        #Check that we haven't already done this
         is_present= uniprot in check_cluster.UNIPROT
         if !is_present
-            df_uniprot = select(filter(row -> row.UNIPROT == uniprot, df_completed), ["PDB", "LIGANDS", "Cluster_1.5", "Cluster_2.0","Cluster_4.0"])# Pour ce centrer par uniprot et garder que information qui nous interesse 
-            #println(df_uniprot)
+            df_uniprot = select(filter(row -> row.UNIPROT == uniprot, df_completed), ["PDB", "LIGANDS", "Cluster_1.5", "Cluster_2.0","Cluster_4.0"])# To focus on the uniprot 
+            
+            #Look if we have both conformation for this uniprot
             is_apo = any(ismissing, df_uniprot.LIGANDS)
             if is_apo 
-                # Filtrer les fichiers avec et sans ligands
+                # Filter files with and without ligands
                 with_ligands = filter(row -> !ismissing(row.LIGANDS), df_uniprot)
                 without_ligands = filter(row -> ismissing(row.LIGANDS), df_uniprot)
                 result = 9
-                # Comparer les clusters pour chaque cutoff
+                # Compare clusters for each cutoff
                 for cutoff in [1.5, 2.0, 4.0]
-                    # Récupérer les clusters pour chaque cutoff
+                    # Retrieve clusters for each cutoff
                     cluster_col = Symbol("Cluster_$(cutoff)")
-                    #println(cluster_col)
-                    # Comparer les fichiers sans ligands et avec ligands
+
+                    # Compare files without ligands and with ligands
                     for file_with_ligands in eachrow(with_ligands)
                         for file_without_ligands in eachrow(without_ligands)
                             if !ismissing(file_with_ligands[cluster_col]) && 
                                 !ismissing(file_without_ligands[cluster_col]) && 
                                 file_with_ligands[cluster_col] != file_without_ligands[cluster_col]
-                                # Si les fichiers sont dans des clusters différents, prendre la valeur la plus petite
+                                # If the files are in different clusters, take the smaller value
                                 if  cutoff<result
                                     result = cutoff
                                 end
@@ -487,9 +492,13 @@ function check_apo_holo_cluster(df_completed::DataFrame)
             end 
         end
     end
-    return check_cluster
+    return check_cluster #Output the result 
 end
-### MAIN ####
+
+###########################################################################################################################################
+########################################################## MAIN ############################################################################
+#############################################################################################################################################
+
 
 println("START ! ")
 
@@ -550,6 +559,7 @@ println(size(df_final))
 CSV.write("pdb_information_details.csv", df_final)
 println("END !") 
 """
+
 # get back the final df 
 file_path_df_final="pdb_information_details_1000.csv"
 df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
@@ -558,22 +568,23 @@ println(first(df_final,20))
 println(size(df_final))
 
 
-#Clustering entre même proteine 
+#Clustering
 df_completed=clustering_each_uniprot_acc(df_final)
 println(first(df_completed,20))
 println(size(df_completed))
 
+# Save the result
 CSV.write("pdb_information_details_final_1000.csv", df_completed)
-#Verifie que holo et apo form sont dans des clusters differents
+
+# Compare the cluster
 check_cluster=check_apo_holo_cluster(df_completed)
 println(first(check_cluster,20))
-value_counts = countmap(check_cluster.BEST_CUTOFF)  # Compte les occurrences
+value_counts = countmap(check_cluster.BEST_CUTOFF)  # Count the occurrences
 most_frequent_value = argmax(value_counts) 
-println("Le cutoff qui separe le mieux la forme apo et holo est : ", most_frequent_value)
+println("The cutoff that best separates the apo and holo form is : ", most_frequent_value)
 frequency = count(x -> !ismissing(x) && x == most_frequent_value, check_cluster.BEST_CUTOFF)
-println("Elle apparaît ", frequency, " fois.")
+println("She appears ", frequency, " time.")
 println(size(check_cluster))
-println("Elle separe correctement : ",(frequency/size(check_cluster)[1])*100)
-
+println("It separates properly : ",(frequency/size(check_cluster)[1])*100)
 
 println("END !")

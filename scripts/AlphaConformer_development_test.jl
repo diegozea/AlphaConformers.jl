@@ -53,6 +53,7 @@ const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
 const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 
 const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
+#const ALPHAFOLD_DB = nothing
 
 const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
 
@@ -130,7 +131,7 @@ println(size(info_pdb))
 #Run AlphaConformers with apo form in template 
 global index=0
 for row in eachrow(info_pdb)
-    if index == 7
+    if index == 4
         apo_pdb=row.PDB_apo
         apo_chain=row.CHAIN_apo
         apo_model=row.INDEX_apo
