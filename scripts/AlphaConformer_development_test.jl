@@ -57,6 +57,7 @@ const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
 
 const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
 
+db=[FOLDSEEK_DB]
 # download the dataset 
 file_path_df_final="/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"
 df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
@@ -145,8 +146,8 @@ for row in eachrow(info_pdb)
         end
         mkdir(output_dir)
         println(output_dir)
-        AlphaConformers.alphaconformers(REF_PDB, FOLDSEEK_DB, ALPHAFOLD_DB, PDB_FOLDER, output_dir)
-        #AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
+        AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db)
+        AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
     end
     global index=index+1
 end
