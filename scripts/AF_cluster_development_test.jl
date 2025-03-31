@@ -12,7 +12,7 @@
 function AF_cluster()
     ### Create the folder to save the result
     folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-    cluster_dir=folder_path*"1AKZ_AF_CLUSTER"
+    cluster_dir=folder_path*"1AKZ_AF_CLUSTER_template"
     if !isdir(cluster_dir)
         mkdir(cluster_dir)
     end
@@ -36,19 +36,15 @@ function AF_cluster()
     ### Run AF2
 
     output_dir=cluster_dir*"/output"
-
+    template=cluster_dir*"/template"
     COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
-    af_command = `$COLABFOLD_PATH $msas $output_dir --msa-input`
+    af_command = `$COLABFOLD_PATH $msas $output_dir --use-templates 1 --msa-input --custom-template-path $template --overwrite-existing-results`
     @info "Running AlphaFold command: $af_command"
     run(af_command)
 end
 
-# Analyse output of AF-cluster
-using MIToS.PDB
-using DataFrames, CSV
-using Plots
-using AlphaConformers
-using Glob
+AF_cluster()
+"""
 
 #Calculate the RMSD 
 function compare_model(model_files::Vector,holo_pdb::String,apo_pdb::String,folder_path::String,folder_model::String)
@@ -165,3 +161,4 @@ scatter(results.RMSD_Holo, results.RMSD_Apo,
     color=colors, label=cluster_labels)
 
 savefig(folder_path * "/1AKZ_AF_CLUSTER/rmsd_scatter_1AKZ.png")  # Sauvegarde du plot
+"""

@@ -131,7 +131,7 @@ println(size(info_pdb))
 #Run AlphaConformers with apo form in template 
 global index=0
 for row in eachrow(info_pdb)
-    if index == 4
+    if index == 0
         apo_pdb=row.PDB_apo
         apo_chain=row.CHAIN_apo
         apo_model=row.INDEX_apo
@@ -146,7 +146,7 @@ for row in eachrow(info_pdb)
         mkdir(output_dir)
         println(output_dir)
         AlphaConformers.alphaconformers(REF_PDB, FOLDSEEK_DB, ALPHAFOLD_DB, PDB_FOLDER, output_dir)
-        AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
+        #AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
     end
     global index=index+1
 end
