@@ -140,7 +140,7 @@ for row in eachrow(info_pdb)
         println(apo_pdb)
         REF_PDB = joinpath(PATH, apo_pdb*"_"*apo_chain*"_"*string(apo_model)*".pdb.gz")
         println(REF_PDB)
-        output_dir = joinpath(PATH, apo_pdb)
+        output_dir = joinpath(PATH, apo_pdb*"_No_AFDB")
         if isdir(output_dir)
             rm(output_dir; recursive=true, force=true)
         end

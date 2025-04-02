@@ -85,5 +85,5 @@ function analyse_output(query::String,folder_path::String)
 end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-query="1FMF"
+query="1AKZ"
 analyse_output(query,folder_path)
