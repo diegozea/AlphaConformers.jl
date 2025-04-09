@@ -331,7 +331,7 @@ function cah(rmsd_list,files,keep_indices)
     clustering_result = hclust(mat;linkage=:average)#Do the clustering
 
     #Cut the clusters according to different cutoffs
-    cutoffs = [0.5, 0.75, 1, 1.25, 1.5] # List of different cutoffs to test
+    cutoffs = [0.5, 0.75, 1, 1.25, 1.5,2] # List of different cutoffs to test
 
     #Creation of the output DF
     pdb_values = [split(file, "_")[1] for file in files]
@@ -415,7 +415,7 @@ function check_apo_holo_cluster(df_completed::DataFrame)
         #Check that we haven't already done this
         is_present= uniprot in check_cluster.UNIPROT
         if !is_present
-            df_uniprot = select(filter(row -> row.UNIPROT == uniprot, df_completed), ["PDB", "LIGANDS", "Cluster_0.5",  "Cluster_0.75",  "Cluster_1.0",  "Cluster_1.25",  "Cluster_1.5"])# To focus on the uniprot 
+            df_uniprot = select(filter(row -> row.UNIPROT == uniprot, df_completed), ["PDB", "LIGANDS", "Cluster_0.5",  "Cluster_0.75",  "Cluster_1.0",  "Cluster_1.25",  "Cluster_1.5","Cluster_2"])# To focus on the uniprot 
             
             #Look if we have both conformation for this uniprot
             is_apo = any(ismissing, df_uniprot.LIGANDS)

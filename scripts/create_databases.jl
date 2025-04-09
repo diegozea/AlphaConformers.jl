@@ -15,7 +15,9 @@ using DataFrames, CSV
 using Dates
 using MIToS.PDB
 using AlphaConformers
-using MIToS.PDB
+using BioStructures
+using DataStructures
+using Statistics
 
 
 function foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
@@ -32,7 +34,8 @@ function foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
             is_apo = is_apo = any(ismissing, df_uniprot.LIGANDS) && any(!ismissing, df_uniprot.LIGANDS)
             if is_apo 
                 df_uniprot_res = filter(row -> ismissing(row.RESOLUTION) || row.RESOLUTION < 2.5, df_uniprot) #Pour recuperer fichier avec bonne résolution
-                df_uniprot_res_date = filter(row -> row.DATE_RELEASE >= Date(2018-04-30), df_uniprot_res) #get pdb release after the training of AF2
+                df_uniprot_res_date = filter(row -> row.DATE_RELEASE >= Date("2015-04-30", "yyyy-mm-dd"), df_uniprot_res) #get pdb release after the training of AF2
+                println(df_uniprot_res_date)
                 if !isempty(df_uniprot_res_date) #check that we still have row
                     is_apo = is_apo = any(ismissing, df_uniprot_res_date.LIGANDS) && any(!ismissing, df_uniprot_res_date.LIGANDS)
                     if is_apo #Check that we still have apo and holo conformation 
@@ -46,7 +49,7 @@ function foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
                             if isfile(pdbfilepath_holo) 
                                 #Get the right chain only
                                 residues_1ivo_holo = read(pdbfilepath_holo, PDBFile)
-                                chain_residues_pdb_holo = MIToS.PDB.residuesdict(residues_1ivo_holo, "1", String(row_holo.CHAIN), "ATOM") #Returns dictionary with position => residues details 
+                                chain_residues_pdb_holo = residuesdict(residues_1ivo_holo, "1", String(row_holo.CHAIN), "ATOM") #Returns dictionary with position => residues details 
                                 rmsd_list = []
                                 for row_apo in eachrow(apo)
                                     pdb_apo=row_apo.PDB
@@ -54,7 +57,7 @@ function foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
                                     if isfile(pdbfilepath_apo) 
                                         #Get the right chain only
                                         residues_1ivo_apo = read(pdbfilepath_apo, PDBFile)
-                                        chain_residues_pdb_apo = MIToS.PDB.residuesdict(residues_1ivo_apo, "1", String(row_apo.CHAIN), "ATOM") #Returns dictionary with position => residues details 
+                                        chain_residues_pdb_apo = residuesdict(residues_1ivo_apo, "1", String(row_apo.CHAIN), "ATOM") #Returns dictionary with position => residues details 
                                         
                                         #get the alignment 
                                         common_keys = Set(keys(chain_residues_pdb_holo)) ∩ Set(keys(chain_residues_pdb_apo))
@@ -62,15 +65,16 @@ function foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
                                         # Extracting residues for each file as an ordered list
                                         residues_holo = [chain_residues_pdb_holo[string(pos)] for pos in positions] 
                                         residues_apo = [chain_residues_pdb_apo[string(pos)] for pos in positions]
+                                        rmsd_val=missing
                                         try  
                                             # Superposition and calculation of RMSD
-                                            _, _,rmsd = superimpose(residues_holo, residues_apo)
+                                            _, _,rmsd_val = superimpose(residues_holo, residues_apo)
                                         catch e 
                                             @show common_keys
                                             @warn "❌ Error while superimposing structures "
-                                            rmsd = missing # we will not annalyse those pdb 
+                                            # we will not annalyse those pdb 
                                         end 
-                                        push!(rmsd_list, rmsd)
+                                        push!(rmsd_list, rmsd_val)
                                     else 
                                         @warn "The PDB file of $pdb_apo doesn't exist"
                                         index_to_remove = findall(row -> row.PDB == pdb_apo, df_uniprot_res_date)
@@ -91,12 +95,16 @@ function foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
                         if is_apo 
                             for row in eachrow(df_uniprot_res_date)
                                 pdb_file=row.PDB
+                                println(pdb_file)
                                 pdbfilepath=joinpath(pdb_folder,uppercase(pdb_file)*".pdb" ) # Use the temporary file
                                 if isfile(pdbfilepath) #Check that the file is not already downloaded
+                                    @info "Run Foldseek"
                                     out_file=AlphaConformers.foldseek_search(pdbfilepath,db_path=FOLDSEEK_DB)
                                     df_result=AlphaConformers.read_foldseek_search_results(out_file)
                                     #Filter the evalue to keep the one < 1e-3
-                                    df_result_evalue = filter(row.evalue < 1e-3, df_result)
+                                    println(first(df_result,5))
+                                    df_result_evalue = filter(row -> row.evalue < 1e-3, df_result)
+                                    println(first(df_result_evalue,5))
                                     push!(database,(uniprot,pdb_file,size(df_result_evalue)[1]))
                                 else 
                                     @warn "The PDB file of $pdb_file doesn't exist"
