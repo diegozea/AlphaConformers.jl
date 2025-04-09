@@ -8,60 +8,72 @@
 #PBS -j oe
 =#
 import Pkg
+Pkg.activate("/home/julie.daniel/.julia/environments/v1.11")
 Pkg.add("Glob")
+Pkg.add("DataFrames")
 using Glob
 using DataFrames, CSV
 using Plots
 using MIToS.PDB
 using AlphaConformers
 
-function AF_cluster(query)
+function AF_cluster(query,create_file)
     ### Create the folder to save the result
     folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
     cluster_dir=folder_path*query*"_AF_CLUSTER_template"
-    if !isdir(cluster_dir)
-        mkdir(cluster_dir)
-    end
+    if create_file
+        if !isdir(cluster_dir)
+            mkdir(cluster_dir)
+        end
 
-    msa=joinpath(cluster_dir, "msa.a3m")
-    if !isfile(msa)
-        msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
-        cp(msa_origin, msa)
-    end
+        msa=joinpath(cluster_dir, "msa.a3m")
+        if !isfile(msa)
+            msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
+            cp(msa_origin, msa)
+        end
 
-    PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
-    cd(PATH)
+        PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
+        cd(PATH)
 
-    ### Create the cluster 
-    run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
-    msas=joinpath(cluster_dir, "msas")
-    if !isdir(msas)
-        cp("msas", msas)
-    end
+        ### Create the cluster 
+        run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
+        msas=joinpath(cluster_dir, "msas")
+        if !isdir(msas)
+            cp("msas", msas)
+        end
 
-    ### Run AF2
+        ### Run AF2
+        #joinpath
+        output_dir=joinpath(cluster_dir,"output")
+        template=cluster_dir*"/template/"
+        isdir(template) || mkdir(template)
 
-    output_dir=cluster_dir*"/output"
-    template=cluster_dir*"/template"
-    isdir(template) || mkdir(template)
+        ## Move the template from AlphaConformer
+        cluster_dirs = filter(isdir, glob("cluster*", folder_path*query))
+        for cluster in cluster_dirs
+            files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
+            for file in files
+                cp(file, joinpath(template, basename(file)), force=true)
+            end
+        end
+        println("✅ Copie terminée !")
+        files = glob("*", template)
 
-    ## Move the template from AlphaConformer
-    cluster_dirs = filter(isdir, glob("cluster*", folder_path*query))
-    for cluster in cluster_dirs
-        files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
         for file in files
-            cp(file, joinpath(template, basename(file)), force=true)
+            if !occursin(r"^[a-zA-Z0-9]{4}\.(pdb|cif)$", basename(file))
+                rm(file)  # Supprime le fichier
+            end
         end
-    end
-    println("✅ Copie terminée !")
-    files = glob("*", template)
-
-    for file in files
-        if !occursin(r"^[a-zA-Z0-9]{4}\.(pdb|cif)$", basename(file))
-            rm(file)  # Supprime le fichier
+        println("✅ Nettoyage terminé !")
+    else 
+        if !isdir(cluster_dir)
+            println("ERROR : the folder $cluster_dir doesn't exist ")
+            return nothing
         end
+        msas=joinpath(cluster_dir, "msas")
+        output_dir=joinpath(cluster_dir,"output")
+        template=cluster_dir*"/template/"
     end
-    println("✅ Nettoyage terminé !")
 
     COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
     #af_command = `$COLABFOLD_PATH $msas $output_dir --msa-input`
@@ -181,11 +193,11 @@ end
 ################### MAIN #######################
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-query="1GQN"
-
+query="1AKZ"
+create_file=false
 ## Alpha-Cluster
-#AF_cluster(query)
-
+AF_cluster(query,create_file)
+"""
 #Visulaize the result 
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
@@ -201,3 +213,4 @@ template=true
 folder_model=folder_path*query*"_AF_CLUSTER_template/output/predictions/"
 
 visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+"""

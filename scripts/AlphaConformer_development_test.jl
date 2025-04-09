@@ -147,7 +147,7 @@ for row in eachrow(info_pdb)
         mkdir(output_dir)
         println(output_dir)
         AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db)
-        AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
+        #AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
     end
     global index=index+1
 end

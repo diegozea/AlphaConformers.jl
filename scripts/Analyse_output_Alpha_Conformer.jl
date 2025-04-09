@@ -62,7 +62,7 @@ function analyse_output(query::String,folder_path::String)
     holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
 
     # Construire le chemin du dossier modèle
-    folder_model=folder_path*query*"/"
+    folder_model=folder_path*query*"_No_AFDB/"
     println("Apo PDB Path: ", apo_pdb)
     println("Holo PDB Path: ", holo_pdb)
     println("Folder Model: ", folder_model)
