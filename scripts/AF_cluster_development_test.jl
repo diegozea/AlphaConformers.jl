@@ -20,13 +20,13 @@ using AlphaConformers
 function AF_cluster(query,create_file)
     ### Create the folder to save the result
     folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-    cluster_dir=folder_path*query*"_AF_CLUSTER_template"
+    folder_dir=folder_path*query*"_AF_CLUSTER_template"
     if create_file
-        if !isdir(cluster_dir)
-            mkdir(cluster_dir)
+        if !isdir(folder_dir)
+            mkdir(folder_dir)
         end
 
-        msa=joinpath(cluster_dir, "msa.a3m")
+        msa=joinpath(folder_dir, "msa.a3m")
         if !isfile(msa)
             msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
             cp(msa_origin, msa)
@@ -37,49 +37,67 @@ function AF_cluster(query,create_file)
 
         ### Create the cluster 
         run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
-        msas=joinpath(cluster_dir, "msas")
+        msas=joinpath(folder_dir, "msas")
         if !isdir(msas)
             cp("msas", msas)
         end
 
         ### Run AF2
         #joinpath
-        output_dir=joinpath(cluster_dir,"output")
-        template=cluster_dir*"/template/"
-        isdir(template) || mkdir(template)
-
-        ## Move the template from AlphaConformer
-        cluster_dirs = filter(isdir, glob("cluster*", folder_path*query))
+        output_dir=joinpath(folder_dir,"output")
+        isdir(output_dir) || mkdir(output_dir)
+        cluster_dirs = filter(isfile, glob("*a3m", msas))
         for cluster in cluster_dirs
-            files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
-            for file in files
-                cp(file, joinpath(template, basename(file)), force=true)
-            end
-        end
-        println("✅ Copie terminée !")
-        files = glob("*", template)
+            output_dir_step=joinpath(output_dir,basename(cluster))
+            isdir(output_dir_step) || mkdir(output_dir_step)
+            println(output_dir_step)
+            cp(joinpath(msas, basename(cluster)),joinpath(output_dir_step, basename(cluster)), force=true)
+            output_dir_step_af=joinpath(output_dir_step,"af")
+            isdir(output_dir_step_af) || mkdir(output_dir_step_af)
+            template=joinpath(output_dir_step,"template")
+            isdir(template) || mkdir(template)
 
-        for file in files
-            if !occursin(r"^[a-zA-Z0-9]{4}\.(pdb|cif)$", basename(file))
-                rm(file)  # Supprime le fichier
+            ## Move the template from AlphaConformer
+            cluster_dirs_AC = filter(isdir, glob("cluster*", folder_path*query))
+            i=0
+            for cluster in cluster_dirs_AC
+                files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
+                for file in files
+                    cp(file, joinpath(template, basename(file)), force=true)
+                    i=i+1
+                end
+                if i== 10
+                    break
+                end
             end
+            println("✅ Copie terminée !")
+            files = glob("*", template)
+
+            for file in files
+                if !occursin(r"^[a-zA-Z0-9]{4}\.(pdb|cif)$", basename(file))
+                    rm(file)  # Supprime le fichier
+                end
+            end
+            println("✅ Nettoyage terminé !")
         end
-        println("✅ Nettoyage terminé !")
     else 
-        if !isdir(cluster_dir)
-            println("ERROR : the folder $cluster_dir doesn't exist ")
+        if !isdir(folder_dir)
+            println("ERROR : the folder $folder_dir doesn't exist ")
             return nothing
         end
-        msas=joinpath(cluster_dir, "msas")
-        output_dir=joinpath(cluster_dir,"output")
-        template=cluster_dir*"/template/"
+        output_dir=joinpath(folder_dir,"output")
     end
-
-    COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
-    #af_command = `$COLABFOLD_PATH $msas $output_dir --msa-input`
-    af_command = `$COLABFOLD_PATH $msas $output_dir --use-templates 1 --msa-input --custom-template-path $template --overwrite-existing-results`
-    @info "Running AlphaFold command: $af_command"
-    run(af_command)
+    cluster_dirs = filter(isdir, glob("*a3m", output_dir))
+    for cluster in cluster_dirs
+        COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
+        template=cluster*"/template/"
+        output=joinpath(cluster,"af")
+        msa=joinpath(cluster, basename(cluster))
+        #af_command = `$COLABFOLD_PATH $msas $output_dir --msa-input`
+        af_command = `$COLABFOLD_PATH $msa $output --use-templates 1 --msa-input --custom-template-path $template --overwrite-existing-results`
+        @info "Running AlphaFold command: $af_command"
+        run(af_command)
+    end
 end
 
 #Calculate the RMSD 
@@ -194,7 +212,7 @@ end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 query="1AKZ"
-create_file=false
+create_file=true
 ## Alpha-Cluster
 AF_cluster(query,create_file)
 """

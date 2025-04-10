@@ -14,8 +14,9 @@ using MIToS.PDB
 using MIToS.SIFTS
 using DataFrames
 import CSV
-
-output_directory = abspath("/alpha/database/pdb", "sift_files")
+sift_directory = abspath("/alpha/database", "sift")
+isdir(sift_directory) || mkdir(sift_directory)
+output_directory = abspath(sift_directory, "sift_files")
 isdir(output_directory) || mkdir(output_directory)
 
 output_directory_pdb = abspath("/alpha/database/pdb", "pdb_files")
@@ -46,7 +47,7 @@ for row in eachrow(df_final)
             catch e
                 @warn "❌ Error when downloading $pdb with 2nd link: "
             end
-            if siftsfile == nothing # If xml still couldn't be download rigth it in a txt
+            if siftsfile == nothing # If xml still couldn't be download write it in a txt
                 push!(sift_not_download,pdb)
             end
             @info "✅ Found $pdb with the 2nd link"
