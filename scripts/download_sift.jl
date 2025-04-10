@@ -34,25 +34,27 @@ for row in eachrow(df_final)
     pdb=row.PDB
     #Check if xml file exist 
     siftsfile=joinpath(output_directory,pdb*".xml.gz")
+
     if !isfile(siftsfile) #if it is not already downloaded
         @info "The file doesn't exist. Downloading the file XML..."
-        siftsfile = downloadsifts(uppercase(pdb),filename=joinpath(output_directory,pdb*".xml.gz" ))
-        #If the file could not be downloaded
-        if siftsfile == nothing 
-            try #Try with an other link
-                sleep(60)
-                filename=joinpath(output_directory,lowercase(pdb)*".xml.gz" )
-                siftsfile=download_file(string("https://ftp.ebi.ac.uk/pub/databases/msd/sifts/xml/", 
-                lowercase(pdb), ".xml.gz"), filename)
-            catch e
-                @warn "❌ Error when downloading $pdb with 2nd link: "
-            end
-            if siftsfile == nothing # If xml still couldn't be download write it in a txt
+
+        # Prépare la commande rsync
+        remote_path = "rsync://ftp.ebi.ac.uk/pub/databases/msd/sifts/xml/$pdb.xml.gz"
+        local_path = output_directory
+
+        try
+            run(`rsync -av $remote_path $local_path`)
+            if isfile(siftsfile)
+                @info "✅ Successfully downloaded $pdb.xml.gz using rsync"
+            else
+                push!(sift_not_download, pdb)
+                @warn "❌ File not found after rsync: $pdb.xml.gz"
                 push!(sift_not_download,pdb)
             end
-            @info "✅ Found $pdb with the 2nd link"
-        else 
-            @info "✅ Found $pdb " 
+        catch e
+            push!(sift_not_download, pdb)
+            @warn "❌ Error during rsync for $pdb: $e"
+            push!(sift_not_download,pdb)
         end
     end
 
