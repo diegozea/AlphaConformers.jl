@@ -172,7 +172,7 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     # Trouver tous les dossiers qui commencent par "cluster"
     cluster_dirs = filter(f -> occursin(r"^EX_(?!U100)", basename(f)), glob("EX_U10*",folder_model))
     for cluster in cluster_dirs
-        models_path = joinpath(cluster, "models")  # 📂 Chemin des modèles
+        models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
         println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
@@ -183,22 +183,22 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     println(length(model_files))
     println(typeof(model_files))
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U10.csv", results)
+    CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U10.csv", results)
 
     #Visualisation of the result 
     scatter(results.RMSD_Holo, results.RMSD_Apo,
         xlabel="Holo", ylabel="Apo",
-        title="Compare model with Apo and Holo form for $query with AF-CLUSTER U10",
+        title="$query with AF-CLUSTER U10",
         marker=:circle, legend=false,
         xlims=(0, 7), ylims=(0, 7))
 
-    savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
+    savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
 
     model_files = String[]
     # Trouver tous les dossiers qui commencent par "cluster"
     cluster_dirs = filter(isdir, glob("EX_U100*", folder_model))
     for cluster in cluster_dirs
-        models_path = joinpath(cluster, "models")  # 📂 Chemin des modèles
+        models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
         println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
@@ -209,23 +209,23 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     println(length(model_files))
     println(typeof(model_files))
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U100.csv", results)
+    CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U100.csv", results)
 
     #Visualisation of the result 
     scatter(results.RMSD_Holo, results.RMSD_Apo,
         xlabel="Holo", ylabel="Apo",
-        title="Compare model with Apo and Holo form for $query with AF-CLUSTER U100",
+        title=" $query with AF-CLUSTER U100",
         marker=:circle, legend=false,
         xlims=(0, 7), ylims=(0, 7))
 
-    savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
+    savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
 
     model_files = String[]
     cluster_labels = String[]  # Stocke le cluster d'origine pour chaque fichier
     cluster_dirs = filter(f -> occursin(r"^EX_(?!U)", basename(f)), glob("EX_*", folder_model))
 
     for cluster in cluster_dirs
-        models_path = joinpath(cluster, "models")  # 📂 Chemin des modèles
+        models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models" # 📂 Chemin des modèles
         println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
@@ -239,7 +239,7 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
 
     # Comparaison des modèles et récupération des résultats
     results = compare_model(model_files, holo_pdb, apo_pdb, folder_path, folder_model)
-    CSV.write(folder_path * "/"*query*"_AF_CLUSTER/rmsd_results_"*query*".csv", results)
+    CSV.write(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*".csv", results)
 
     # Attribution d'une couleur unique par cluster
     unique_clusters = unique(cluster_labels)
@@ -249,33 +249,40 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     # Visualisation du résultat avec couleurs spécifiques
     scatter(results.RMSD_Holo, results.RMSD_Apo,
         xlabel="Holo", ylabel="Apo",
-        title="Compare model with Apo and Holo form for $query with AF-CLUSTER",
+        title=" $query with AF-CLUSTER",
         marker=:circle, legend=true,
         xlims=(0, 7), ylims=(0, 7),
         color=colors, label=cluster_labels)
 
-    savefig(folder_path * "/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    savefig(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
 end
 ################### MAIN #######################
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-query="1AKZ"
-create_file=false
-## Alpha-Cluster
-AF_cluster(query,create_file)
-
-#Visulaize the result 
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
-filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
-println(filtered_rows)
-row = first(filtered_rows, 1)  # Prend la première ligne
+create_file=true
+for row in eachrow(df_info)
+    query=row.PDB_apo
+    if query !="1AKZ"
+        ## AF-Cluster
+        if create_file
+            AF_cluster(query,create_file)
+        else 
+            filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
+            println(filtered_rows)
+            row = first(filtered_rows, 1)  # Prend la première ligne
 
-apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
-holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
-#1AKZ,A,1,1SSP,E,1
-template=true
+            apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
+            holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
+            #1AKZ,A,1,1SSP,E,1
+            template=true
 
-folder_model=folder_path*query*"_AF_CLUSTER_template/output/predictions/"
+            folder_model=folder_path*query*"_AF_CLUSTER_template/output/"
 
-visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+            visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+        end
+    end
+end
+
+
