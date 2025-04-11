@@ -62,11 +62,63 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
     end
 end
 """
-Run AF-Cluster to create the MSA and order the file to use run_alphafold()
+Run AF-Cluster to create the MSA and run the colabfold
 Take in input the name of the query and a boolean to know if the folder is alrready there 
 """
 #Create the folder and Run colabfold
 function AF_cluster(query,create_file)
+    ### Create the folder to save the result
+    folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
+    folder_dir=folder_path*query*"_AF_CLUSTER"
+    if create_file
+        if !isdir(folder_dir)
+            mkdir(folder_dir)
+        end
+
+        #take the msa use in AlphaConformers
+        msa=joinpath(folder_dir, "msa.a3m")
+        if !isfile(msa)
+            msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
+            cp(msa_origin, msa)
+        end
+
+        PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
+        cd(PATH)
+
+        ### Create the cluster with AF-cluster
+        run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
+        msas=joinpath(folder_dir, "msas")
+        if !isdir(msas)
+            cp("msas", msas)
+        end
+
+        ### Order the folder 
+        #Create the output folder
+        output_dir=folder_dir*"/output"
+        isdir(output_dir) || mkdir(output_dir)
+    else 
+        #if we don't create the file make sure the folder exist
+        if !isdir(folder_dir)
+            println("ERROR : the folder $folder_dir doesn't exist ")
+            return nothing
+        end
+        output_dir=joinpath(folder_dir,"output")
+        msas=joinpath(folder_dir, "msas")
+
+    end
+    ##Run AF2
+    COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
+    af_command = `$COLABFOLD_PATH $msas $output_dir --msa-input`
+    @info "Running AlphaFold command: $af_command"
+    run(af_command)
+    
+end
+"""
+Run AF-Cluster to create the MSA and order the file to use run_alphafold()
+Take in input the name of the query and a boolean to know if the folder is alrready there 
+"""
+#Create the folder and Run colabfold
+function AF_cluster_template(query,create_file)
     ### Create the folder to save the result
     folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
     folder_dir=folder_path*query*"_AF_CLUSTER_template"
@@ -169,8 +221,12 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     # Trouver tous les dossiers qui commencent par "cluster"
     cluster_dirs = filter(f -> occursin(r"^EX_(?!U100)", basename(f)), glob("EX_U10*",folder_model))
     for cluster in cluster_dirs
-        models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
-        println(models_path)
+        if template 
+            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
+        else 
+            models_path = joinpath(cluster, "models")
+        end
+            println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
             append!(model_files, matching_pdb)
@@ -180,7 +236,11 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     println(length(model_files))
     println(typeof(model_files))
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U10.csv", results)
+    if template 
+        CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U10.csv", results)
+    else 
+        CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U10.csv", results)
+    end
 
     #Visualisation of the result 
     scatter(results.RMSD_Holo, results.RMSD_Apo,
@@ -188,14 +248,20 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         title="$query with AF-CLUSTER U10",
         marker=:circle, legend=false,
         xlims=(0, 7), ylims=(0, 7))
-
-    savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
-
-    model_files = String[]
+    if template 
+        savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
+    else 
+        savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
+    end
+        model_files = String[]
     # Trouver tous les dossiers qui commencent par "cluster"
     cluster_dirs = filter(isdir, glob("EX_U100*", folder_model))
     for cluster in cluster_dirs
-        models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
+        if template 
+            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
+        else 
+            models_path = joinpath(cluster, "models")
+        end
         println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
@@ -206,23 +272,32 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     println(length(model_files))
     println(typeof(model_files))
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U100.csv", results)
-
+    if template 
+        CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U100.csv", results)
+    else 
+        CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U100.csv", results)
+    end
     #Visualisation of the result 
     scatter(results.RMSD_Holo, results.RMSD_Apo,
         xlabel="Holo", ylabel="Apo",
         title=" $query with AF-CLUSTER U100",
         marker=:circle, legend=false,
         xlims=(0, 7), ylims=(0, 7))
-
-    savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
-
+    if template 
+        savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
+    else 
+        savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
+    end
     model_files = String[]
     cluster_labels = String[]  # Stocke le cluster d'origine pour chaque fichier
     cluster_dirs = filter(f -> occursin(r"^EX_(?!U)", basename(f)), glob("EX_*", folder_model))
 
     for cluster in cluster_dirs
-        models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models" # 📂 Chemin des modèles
+        if template 
+            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
+        else 
+            models_path = joinpath(cluster, "models")
+        end
         println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
@@ -236,8 +311,11 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
 
     # Comparaison des modèles et récupération des résultats
     results = compare_model(model_files, holo_pdb, apo_pdb, folder_path, folder_model)
-    CSV.write(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*".csv", results)
-
+    if template 
+        CSV.write(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*".csv", results)
+    else 
+        CSV.write(folder_path * "/"*query*"_AF_CLUSTER/rmsd_results_"*query*".csv", results)
+    end
     # Attribution d'une couleur unique par cluster
     unique_clusters = unique(cluster_labels)
     color_map = Dict(cluster => getindex(distinguishable_colors(length(unique_clusters)), i) for (i, cluster) in enumerate(unique_clusters))
@@ -250,8 +328,11 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         marker=:circle, legend=true,
         xlims=(0, 7), ylims=(0, 7),
         color=colors, label=cluster_labels)
-
-    savefig(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    if template 
+        savefig(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    else 
+        savefig(folder_path * "/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    end
 end
 ################### MAIN #######################
 
@@ -259,10 +340,13 @@ folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
 create_file=true
+template=true
 for row in eachrow(df_info)
     query=row.PDB_apo
     ## AF-Cluster
-    if create_file
+    if create_file && template
+        AF_cluster_template(query,create_file)
+    elseif !template && create_file
         AF_cluster(query,create_file)
     else 
         filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
@@ -272,12 +356,9 @@ for row in eachrow(df_info)
         apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
         holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
         #1AKZ,A,1,1SSP,E,1
-        template=true
 
         folder_model=folder_path*query*"_AF_CLUSTER_template/output/"
 
         visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     end
 end
-
-
