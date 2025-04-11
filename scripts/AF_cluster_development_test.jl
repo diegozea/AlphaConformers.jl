@@ -17,6 +17,55 @@ using Plots
 using MIToS.PDB
 using AlphaConformers
 
+"""
+    run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
+
+This function runs AlphaFold 2 (colabfold_batch) for each cluster in the 
+`clusters_folder`. The `colabfold_path` argument is the path to the colabfold_batch program.
+Alternatively, you can set the COLABFOLD_PATH environment variable.
+"""
+#Function that Run colabfold for every folder 
+function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
+    if isempty(colabfold_path)
+        throw(ErrorException("The path to ColabFold is not defined, please set the COLABFOLD_PATH environment variable or the colabfold_path keyword argument."))
+    end
+    cluster_folders = filter!(
+        dir -> occursin("EX_", dir), #For the output of AF-Cluster
+        readdir(clusters_folder, join=true))
+    if isempty(cluster_folders)
+        throw(ErrorException("No EX_* folders were found in $clusters_folder"))
+    end
+    # remember the current working directory
+    current_dir = pwd()
+    try
+        # run AlphaFold for each cluster
+        for folder in cluster_folders
+            cd(folder)
+            msa=basename(folder)
+            println(msa)
+            @info "Running AlphaFold for $(abspath(folder))"
+            if isdir("template")
+                if !isempty(readdir("template"))
+                    af_command = `$colabfold_path $msa af --use-templates 1 --msa-input --custom-template-path template/ --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
+                    @info "Running AlphaFold command: $af_command"
+                    run(af_command)
+                else
+                    @warn "No templates found in $(abspath("template"))"
+                end
+            else
+                @warn "There is no templates folder in $(abspath(folder))"
+            end
+        end
+    finally
+        # return to the original working directory
+        cd(current_dir)
+    end
+end
+"""
+Run AF-Cluster to create the MSA and order the file to use run_alphafold()
+Take in input the name of the query and a boolean to know if the folder is alrready there 
+"""
+#Create the folder and Run colabfold
 function AF_cluster(query,create_file)
     ### Create the folder to save the result
     folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
@@ -26,6 +75,7 @@ function AF_cluster(query,create_file)
             mkdir(folder_dir)
         end
 
+        #take the msa use in AlphaConformers
         msa=joinpath(folder_dir, "msa.a3m")
         if !isfile(msa)
             msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
@@ -35,69 +85,67 @@ function AF_cluster(query,create_file)
         PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
         cd(PATH)
 
-        ### Create the cluster 
+        ### Create the cluster with AF-cluster
         run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
         msas=joinpath(folder_dir, "msas")
         if !isdir(msas)
             cp("msas", msas)
         end
 
-        ### Run AF2
-        #joinpath
+        ### Order the folder 
+        #Create the output folder
         output_dir=joinpath(folder_dir,"output")
         isdir(output_dir) || mkdir(output_dir)
         cluster_dirs = filter(isfile, glob("*a3m", msas))
+
+        ## Get the template from AlphaConformer
+        template_file=[]
+        cluster_dirs_AC = filter(isdir, glob("cluster*", folder_path*query))
+        for cluster in cluster_dirs_AC
+            files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
+            for file in files
+                if occursin(r"^[a-zA-Z0-9]{4}\.(pdb|cif)$", basename(file))
+                    push!(template_file,file)
+                end
+            end
+            if length(template_file)>10 #take only 10 templates 
+                break
+            end
+        end
+        #For every msa created by AF-Cluster 
         for cluster in cluster_dirs
+            ##Create the folder as in AlphaConformers
+            #Create the folder for each msa 
             output_dir_step=joinpath(output_dir,basename(cluster))
             isdir(output_dir_step) || mkdir(output_dir_step)
             println(output_dir_step)
+            #paste the .a3m file in the folder 
             cp(joinpath(msas, basename(cluster)),joinpath(output_dir_step, basename(cluster)), force=true)
+            #Create the folder af to take the output of colabfold
             output_dir_step_af=joinpath(output_dir_step,"af")
             isdir(output_dir_step_af) || mkdir(output_dir_step_af)
+            #Create the folder to save the template
             template=joinpath(output_dir_step,"template")
             isdir(template) || mkdir(template)
-
-            ## Move the template from AlphaConformer
-            cluster_dirs_AC = filter(isdir, glob("cluster*", folder_path*query))
-            i=0
-            for cluster in cluster_dirs_AC
-                files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
-                for file in files
-                    cp(file, joinpath(template, basename(file)), force=true)
-                    i=i+1
-                end
-                if i== 10
-                    break
-                end
+            #paste the template find in AlphaConformer 
+            for file in template_file
+                cp(file, joinpath(template, basename(file)), force=true) #in upper case 
+                cp(file, joinpath(template, lowercase(basename(file))), force=true) #in lower case 
             end
             println("✅ Copie terminée !")
-            files = glob("*", template)
-
-            for file in files
-                if !occursin(r"^[a-zA-Z0-9]{4}\.(pdb|cif)$", basename(file))
-                    rm(file)  # Supprime le fichier
-                end
-            end
-            println("✅ Nettoyage terminé !")
         end
     else 
+        #if we don't create the file make sure the folder exist
         if !isdir(folder_dir)
             println("ERROR : the folder $folder_dir doesn't exist ")
             return nothing
         end
         output_dir=joinpath(folder_dir,"output")
     end
-    cluster_dirs = filter(isdir, glob("*a3m", output_dir))
-    for cluster in cluster_dirs
-        COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
-        template=cluster*"/template/"
-        output=joinpath(cluster,"af")
-        msa=joinpath(cluster, basename(cluster))
-        #af_command = `$COLABFOLD_PATH $msas $output_dir --msa-input`
-        af_command = `$COLABFOLD_PATH $msa $output --use-templates 1 --msa-input --custom-template-path $template --overwrite-existing-results`
-        @info "Running AlphaFold command: $af_command"
-        run(af_command)
-    end
+    ## Run AF2
+    COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
+    run_alphafold(output_dir,colabfold_path=COLABFOLD_PATH)
+    
 end
 
 #Calculate the RMSD 
@@ -212,10 +260,10 @@ end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 query="1AKZ"
-create_file=true
+create_file=false
 ## Alpha-Cluster
 AF_cluster(query,create_file)
-"""
+
 #Visulaize the result 
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
@@ -231,4 +279,3 @@ template=true
 folder_model=folder_path*query*"_AF_CLUSTER_template/output/predictions/"
 
 visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
-"""
