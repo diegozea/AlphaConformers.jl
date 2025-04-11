@@ -73,6 +73,9 @@ function AF_cluster(query,create_file)
     if create_file
         if !isdir(folder_dir)
             mkdir(folder_dir)
+        else 
+            rm(expanduser(folder_dir); force=true, recursive=true)
+            mkdir(folder_dir)
         end
 
         #take the msa use in AlphaConformers
@@ -95,10 +98,9 @@ function AF_cluster(query,create_file)
         ### Order the folder 
         #Create the output folder
         output_dir=folder_dir*"/output"
-        isdir(output_dir) || mkdir(output_dir)
     else 
         #if we don't create the file make sure the folder exist
-        if !isdir(folder_dir)
+        if isdir(folder_dir)
             println("ERROR : the folder $folder_dir doesn't exist ")
             return nothing
         end
@@ -124,6 +126,9 @@ function AF_cluster_template(query,create_file)
     folder_dir=folder_path*query*"_AF_CLUSTER_template"
     if create_file
         if !isdir(folder_dir)
+            mkdir(folder_dir)
+        else 
+            rm(expanduser(folder_dir); force=true, recursive=true)
             mkdir(folder_dir)
         end
 
@@ -161,6 +166,7 @@ function AF_cluster_template(query,create_file)
                 end
             end
         end
+        println(length(template_file))
         #For every msa created by AF-Cluster 
         for cluster in cluster_dirs
             ##Create the folder as in AlphaConformers
@@ -339,26 +345,42 @@ end
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
-create_file=true
+create_file=false
 template=true
 for row in eachrow(df_info)
     query=row.PDB_apo
     ## AF-Cluster
-    if create_file && template
-        AF_cluster_template(query,create_file)
-    elseif !template && create_file
+    if template
+        Alpha_conformer_result_path=joinpath(folder_path,query)
+        cluster_dirs_AC = filter(isdir, glob("cluster*", Alpha_conformer_result_path))
+        println(length(cluster_dirs_AC))
+        if length(cluster_dirs_AC)!=0
+            AF_cluster_template(query,create_file)
+        else 
+            println("We don't have template for $query")
+        end
+    elseif !template
         AF_cluster(query,create_file)
-    else 
+    else
+        if template 
+            folder_model=folder_path*query*"_AF_CLUSTER_template"
+            if isdir(folder_model)
+                folder_model=folder_path*query*"_AF_CLUSTER_template/output/"   
+            else 
+                println("We don't have the output of AF2 for $query")
+                break
+            end
+        else 
+            folder_model=folder_path*query*"_AF_CLUSTER/output/"   
+        end
         filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
         println(filtered_rows)
         row = first(filtered_rows, 1)  # Prend la première ligne
 
         apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
         holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
-        #1AKZ,A,1,1SSP,E,1
-
-        folder_model=folder_path*query*"_AF_CLUSTER_template/output/"
-
+    
         visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+
     end
 end
