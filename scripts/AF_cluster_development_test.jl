@@ -108,9 +108,6 @@ function AF_cluster(query,create_file)
                     push!(template_file,file)
                 end
             end
-            if length(template_file)>10 #take only 10 templates 
-                break
-            end
         end
         #For every msa created by AF-Cluster 
         for cluster in cluster_dirs
@@ -264,24 +261,22 @@ println(df_info)
 create_file=true
 for row in eachrow(df_info)
     query=row.PDB_apo
-    if query !="1AKZ"
-        ## AF-Cluster
-        if create_file
-            AF_cluster(query,create_file)
-        else 
-            filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
-            println(filtered_rows)
-            row = first(filtered_rows, 1)  # Prend la première ligne
+    ## AF-Cluster
+    if create_file
+        AF_cluster(query,create_file)
+    else 
+        filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
+        println(filtered_rows)
+        row = first(filtered_rows, 1)  # Prend la première ligne
 
-            apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
-            holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
-            #1AKZ,A,1,1SSP,E,1
-            template=true
+        apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
+        holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
+        #1AKZ,A,1,1SSP,E,1
+        template=true
 
-            folder_model=folder_path*query*"_AF_CLUSTER_template/output/"
+        folder_model=folder_path*query*"_AF_CLUSTER_template/output/"
 
-            visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
-        end
+        visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     end
 end
 
