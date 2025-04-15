@@ -232,7 +232,7 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         else 
             models_path = joinpath(cluster, "models")
         end
-            println(models_path)
+        println(models_path)
         if isdir(models_path)   # Vérifier si le chemin existe
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
             append!(model_files, matching_pdb)
@@ -347,10 +347,13 @@ df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
 create_file=false
 template=true
+
 for row in eachrow(df_info)
+    continuer =true
     query=row.PDB_apo
+    println(query)
     ## AF-Cluster
-    if template
+    if template && create_file
         Alpha_conformer_result_path=joinpath(folder_path,query)
         cluster_dirs_AC = filter(isdir, glob("cluster*", Alpha_conformer_result_path))
         println(length(cluster_dirs_AC))
@@ -359,7 +362,7 @@ for row in eachrow(df_info)
         else 
             println("We don't have template for $query")
         end
-    elseif !template
+    elseif !template && create_file
         AF_cluster(query,create_file)
     else
         if template 
@@ -368,19 +371,21 @@ for row in eachrow(df_info)
                 folder_model=folder_path*query*"_AF_CLUSTER_template/output/"   
             else 
                 println("We don't have the output of AF2 for $query")
-                break
+                continuer=false
             end
         else 
-            folder_model=folder_path*query*"_AF_CLUSTER/output/"   
+            folder_model=folder_path*query*"_AF_CLUSTER/output/predictions/"   
         end
-        filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
-        println(filtered_rows)
-        row = first(filtered_rows, 1)  # Prend la première ligne
+        if continuer
+            filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
+            println(filtered_rows)
+            row = first(filtered_rows, 1)  # Prend la première ligne
 
-        apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
-        holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
-    
-        visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+            apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
+            holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
+        
+            visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+        end
 
     end
 end
