@@ -1,7 +1,7 @@
 #!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
-#PBS -l ncpus=4
+#PBS -l ncpus=13
 #PBS -l mem=16g
 #PBS -l host=node48
 #PBS -l walltime=300:00:00
@@ -394,9 +394,9 @@ function clustering_each_uniprot_acc(df_final::DataFrame,sift_folder::String,pdb
     grouped_uniprots = DataFrame[g for g in groupby(df_final, :UNIPROT)]
 
     # Try only for 10
-    #grouped_uniprots_limited = grouped_uniprots[1:min(2, length(grouped_uniprots))]
+    grouped_uniprots_limited = grouped_uniprots[1:min(10, length(grouped_uniprots))]
 
-    df_results = pmap(df -> process_uniprot_df(df, sift_folder, pdb_folder), grouped_uniprots)
+    df_results = pmap(df -> process_uniprot_df(df, sift_folder, pdb_folder), grouped_uniprots_limited)
     df_completed = vcat(skipmissing(df_results)...)
     return df_completed
 end

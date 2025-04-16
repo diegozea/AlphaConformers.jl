@@ -79,7 +79,7 @@ function AF_cluster(query,create_file)
         end
 
         #take the msa use in AlphaConformers
-        msa=joinpath(folder_dir, "msa.a3m")
+        msa=joinpath(folder_path, "2QKEE_colabfold.a3m")
         if !isfile(msa)
             msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
             cp(msa_origin, msa)
@@ -249,8 +249,8 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     end
 
     #Visualisation of the result 
-    scatter(results.RMSD_Holo, results.RMSD_Apo,
-        xlabel="Holo", ylabel="Apo",
+    scatter(results.RMSD_Apo, results.RMSD_Holo,
+        xlabel="Apo", ylabel="Holo",
         title="$query with AF-CLUSTER U10",
         marker=:circle, legend=false,
         xlims=(0, 7), ylims=(0, 7))
@@ -284,8 +284,8 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U100.csv", results)
     end
     #Visualisation of the result 
-    scatter(results.RMSD_Holo, results.RMSD_Apo,
-        xlabel="Holo", ylabel="Apo",
+    scatter(results.RMSD_Apo, results.RMSD_Holo,
+        xlabel="Apo", ylabel="Holo",
         title=" $query with AF-CLUSTER U100",
         marker=:circle, legend=false,
         xlims=(0, 7), ylims=(0, 7))
@@ -328,8 +328,8 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     colors = [color_map[cluster] for cluster in cluster_labels]  # Associe la couleur à chaque point
 
     # Visualisation du résultat avec couleurs spécifiques
-    scatter(results.RMSD_Holo, results.RMSD_Apo,
-        xlabel="Holo", ylabel="Apo",
+    scatter(results.RMSD_Apo, results.RMSD_Holo,
+        xlabel="Apo", ylabel="Holo",
         title=" $query with AF-CLUSTER",
         marker=:circle, legend=true,
         xlims=(0, 7), ylims=(0, 7),
@@ -345,9 +345,19 @@ end
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
-create_file=false
-template=true
+create_file=true
+template=false
 
+query="2QKE"
+AF_cluster(query,create_file)
+#=
+folder_model=folder_path*query*"_AF_CLUSTER/output/predictions/"  
+apo_pdb = "2qkeE.pdb"
+holo_pdb = "5jytA.pdb"
+
+visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
+=#
+#=
 for row in eachrow(df_info)
     continuer =true
     query=row.PDB_apo
@@ -389,3 +399,4 @@ for row in eachrow(df_info)
 
     end
 end
+=#
