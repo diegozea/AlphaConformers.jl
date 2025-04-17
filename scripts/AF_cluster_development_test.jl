@@ -248,12 +248,33 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U10.csv", results)
     end
 
-    #Visualisation of the result 
-    scatter(results.RMSD_Apo, results.RMSD_Holo,
-        xlabel="Apo", ylabel="Holo",
-        title="$query with AF-CLUSTER U10",
-        marker=:circle, legend=false,
-        xlims=(0, 7), ylims=(0, 7))
+   scatter(
+        results.RMSD_Apo,
+        results.RMSD_Holo,
+        xlabel = "Apo",
+        ylabel = "Holo",
+        title = "$query with AF-CLUSTER U10",
+        marker = :circle,
+        legend = false,
+        xlims = (0, 30),
+        ylims = (0, 30)
+    )
+
+    # Création de l'inset (zoom sur 0–7)
+    scatter!(
+        results.RMSD_Apo,
+        results.RMSD_Holo,
+        xlims = (0, 7),
+        ylims = (0, 7),
+        inset = (1, bbox(0.05, 0.05, 0.5, 0.5, :bottom, :right)),
+        subplot = 2,
+        marker = :circle,
+        markersize = 3,  
+        legend = false,
+        xlabel = "",
+        ylabel = "",
+        title = "Zoom"
+    )
     if template 
         savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
     else 
@@ -284,11 +305,34 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         CSV.write(folder_path*"/"*query*"_AF_CLUSTER/rmsd_results_"*query*"_U100.csv", results)
     end
     #Visualisation of the result 
-    scatter(results.RMSD_Apo, results.RMSD_Holo,
-        xlabel="Apo", ylabel="Holo",
-        title=" $query with AF-CLUSTER U100",
-        marker=:circle, legend=false,
-        xlims=(0, 7), ylims=(0, 7))
+    
+   scatter(
+        results.RMSD_Apo,
+        results.RMSD_Holo,
+        xlabel = "Apo",
+        ylabel = "Holo",
+        title = "$query with AF-CLUSTER U100",
+        marker = :circle,
+        legend = false,
+        xlims = (0, 30),
+        ylims = (0, 30)
+    )
+
+    # Création de l'inset (zoom sur 0–7)
+    scatter!(
+        results.RMSD_Apo,
+        results.RMSD_Holo,
+        xlims = (0, 7),
+        ylims = (0, 7),
+        inset = (1, bbox(0.05, 0.05, 0.5, 0.5, :bottom, :right)),
+        subplot = 2,
+        marker = :circle,
+        markersize = 3,  
+        legend = false,
+        xlabel = "",
+        ylabel = "",
+        title = "Zoom"
+    )
     if template 
         savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
     else 
@@ -328,12 +372,34 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     colors = [color_map[cluster] for cluster in cluster_labels]  # Associe la couleur à chaque point
 
     # Visualisation du résultat avec couleurs spécifiques
-    scatter(results.RMSD_Apo, results.RMSD_Holo,
-        xlabel="Apo", ylabel="Holo",
-        title=" $query with AF-CLUSTER",
-        marker=:circle, legend=true,
-        xlims=(0, 7), ylims=(0, 7),
-        color=colors, label=cluster_labels)
+    
+   scatter(
+        results.RMSD_Apo,
+        results.RMSD_Holo,
+        xlabel = "Apo",
+        ylabel = "Holo",
+        title = "$query with AF-CLUSTER",
+        marker = :circle,
+        legend = false,
+        xlims = (0, 30),
+        ylims = (0, 30)
+    )
+
+    # Création de l'inset (zoom sur 0–7)
+    scatter!(
+        results.RMSD_Apo,
+        results.RMSD_Holo,
+        xlims = (0, 7),
+        ylims = (0, 7),
+        inset = (1, bbox(0.05, 0.05, 0.5, 0.5, :bottom, :right)),
+        subplot = 2,
+        marker = :circle,
+        markersize = 3,  
+        legend = false,
+        xlabel = "",
+        ylabel = "",
+        title = "Zoom"
+    )
     if template 
         savefig(folder_path * "/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
     else 
@@ -345,19 +411,9 @@ end
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
 println(df_info)
-create_file=true
-template=false
+create_file=false
+template=true
 
-query="2QKE"
-AF_cluster(query,create_file)
-#=
-folder_model=folder_path*query*"_AF_CLUSTER/output/predictions/"  
-apo_pdb = "2qkeE.pdb"
-holo_pdb = "5jytA.pdb"
-
-visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
-=#
-#=
 for row in eachrow(df_info)
     continuer =true
     query=row.PDB_apo
@@ -399,4 +455,3 @@ for row in eachrow(df_info)
 
     end
 end
-=#

@@ -34,7 +34,7 @@ addprocs(12)  # Ajoute 12 processus parallèles
 @everywhere using PairwiseListMatrices
 @everywhere using StatsBase
 @everywhere using Dates
-
+@everywhere using Profile
 
 
 #Link the 3 csv together
@@ -226,6 +226,7 @@ Output the Dataframe with two new colonnes MUTATION and MISSING_RESIDUES
     for row in eachrow(df_uniprot)
         mut=0
         pdb=row.PDB
+        @info "Uniprot " row.UNIPROT        
         #Recover the SIFT file
         siftsfile=joinpath(sift_folder,pdb*".xml.gz") #Use the temporary folder
         if !isfile(siftsfile)  # If the xml couldn't be download  
@@ -311,8 +312,6 @@ Output a Vector with the RMSD between each PDB --> its the half of the Correlati
     plm=PairwiseListMatrix(coverage_list,false,1.0)
     row_means = [mean(row) for row in eachrow(plm)]
     keep_indices = findall(x -> x > 0.8, row_means)
-    filtered_mat = plm[keep_indices, keep_indices]
-    #nplm=setlabels(plm,files)
     return rmsd_list,files,keep_indices # Output the file with all the rmsd and the file name
 end
 
@@ -358,7 +357,28 @@ Output a Dataframe with the cluster number for each CutOff
     end
     return final_df
 end
-
+#Filter the pdb to keep the relevant one 
+@everywhere function filter_pdb(df_uniprot)
+    #Check that we have apo and holo conformation 
+    is_apo = is_apo = any(ismissing, df_uniprot.LIGANDS) && any(!ismissing, df_uniprot.LIGANDS)
+    if is_apo 
+        df_uniprot_res = filter(row -> ismissing(row.RESOLUTION) || row.RESOLUTION < 3, df_uniprot) #Pour recuperer fichier avec bonne résolution
+        df_uniprot_res_date = filter(row -> row.DATE_RELEASE >= Date("2018-01-01", "yyyy-mm-dd"), df_uniprot_res) #get pdb release after the training of AF2
+        println(df_uniprot_res_date)
+        if !isempty(df_uniprot_res_date) #check that we still have row
+            is_apo = is_apo = any(ismissing, df_uniprot_res_date.LIGANDS) && any(!ismissing, df_uniprot_res_date.LIGANDS)
+            if is_apo #Check that we still have apo and holo conformation 
+                return df_uniprot_res_date
+            else 
+                return nothing 
+            end
+        else 
+            return nothing
+        end
+    else 
+        return nothing
+    end
+end
 """ 
 For each uniprot accession we are adding information about the number of mutation and the missing residues, we calculate the RMSD 
 between every pdb form the pdb accesion to compare there stucture and than cluster them in cluster base on there similarity
@@ -368,17 +388,23 @@ Output a dataframe with all the added colonnes
 """
 #function to be use in parallelization 
 @everywhere function process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    df_uniprot = count_mutation_pdb_uni(df_uniprot, sift_folder)
+    #Filter the pdb 
+    df_uniprot_filter=filter_pdb(df_uniprot)
+    if df_uniprot_filter == nothing 
+        return missing
+    end
+    df_uniprot_filter = count_mutation_pdb_uni(df_uniprot_filter, sift_folder)
 
-    rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot, sift_folder, pdb_folder)
+    rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot_filter, sift_folder, pdb_folder)
 
     if length(keep_indices) > 0
-        df_cluster = cah(rmsd_list, files, keep_indices)
-        select!(df_uniprot, Not(["RES_END", "RES_BEG"]))
-        df_result = leftjoin(df_uniprot, df_cluster, on=[:PDB, :CHAIN])
+        df_cluster = @profile cah(rmsd_list, files, keep_indices)
+        Profile.print()
+        select!(df_uniprot_filter, Not(["RES_END", "RES_BEG"]))
+        df_result = leftjoin(df_uniprot_filter, df_cluster, on=[:PDB, :CHAIN])
         return df_result
     else
-        return nothing
+        return missing
     end
 end
 
@@ -394,7 +420,7 @@ function clustering_each_uniprot_acc(df_final::DataFrame,sift_folder::String,pdb
     grouped_uniprots = DataFrame[g for g in groupby(df_final, :UNIPROT)]
 
     # Try only for 10
-    grouped_uniprots_limited = grouped_uniprots[1:min(10, length(grouped_uniprots))]
+    grouped_uniprots_limited = grouped_uniprots[1:min(50, length(grouped_uniprots))]
 
     df_results = pmap(df -> process_uniprot_df(df, sift_folder, pdb_folder), grouped_uniprots_limited)
     df_completed = vcat(skipmissing(df_results)...)
@@ -553,6 +579,7 @@ function main(part_1::Bool,save::Bool,sift_folder::String,pdb_folder::String)
     println(first(df_completed,20))
     println(size(df_completed))
 
+    #=
     # Save the result
     CSV.write("pdb_information_details_final_1000.csv", df_completed)
 
@@ -567,6 +594,7 @@ function main(part_1::Bool,save::Bool,sift_folder::String,pdb_folder::String)
     println(size(check_cluster))
     println("It separates properly : ",(frequency/size(check_cluster)[1])*100)
     CSV.write("pdb_apo_holo_1000.csv", check_cluster)
+    =#
 end
 
 ###########################################################################################################################################
@@ -584,3 +612,5 @@ main(false,true,sift_folder,pdb_folder)
 @show "Début de fin", Dates.format(now(), "HH:MM:SS")
 
 @info "END !"
+
+Profile.print()
