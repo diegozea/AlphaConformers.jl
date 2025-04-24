@@ -4,7 +4,7 @@
 #PBS -l ncpus=13
 #PBS -l mem=16g
 #PBS -l host=node48
-#PBS -l walltime=300:00:00
+#PBS -l walltime=600:00:00
 #PBS -j oe
 =#
 
@@ -181,7 +181,7 @@ output a dictionnaire with the mapping Uniprot => Residues
 @everywhere function get_uniprot_mapping_residues(row::DataFrameRow,sift_folder::String,pdb_folder::String)
     # Retrieve the mapping between Uniprot => PDB
     mapping=get_sift_mapping(row,sift_folder) #OrderedDict Uniprot => PDB
-    if mapping == nothing # If the xml file couldn't be download
+    if mapping === nothing # If the xml file couldn't be download
         return nothing # don't do the mapping 
     end
     # Recover PDB residues
@@ -279,7 +279,7 @@ Output a Vector with the RMSD between each PDB --> its the half of the Correlati
             #Get the mapping Uniprot => Residues for both file
             dict1=get_uniprot_mapping_residues(df_uniprot[i,:],sift_folder,pdb_folder) 
             dict2 = get_uniprot_mapping_residues(df_uniprot[j,:],sift_folder,pdb_folder)
-            if dict1 == nothing  || dict2 == nothing # Check if the mapping was possible
+            if dict1 === nothing  || dict2 === nothing # Check if the mapping was possible
                 push!(coverage_list,0.0)
                 rmsd = missing # we will not annalyse those pdb 
             else
@@ -350,10 +350,23 @@ Output a Dataframe with the cluster number for each CutOff
         file_i = files[setdiff(1:end, rows_with_missing)]
         df_clusters.PDB = [split(f, "_")[1] for f in file_i]  
         df_clusters.CHAIN = [split(f, "_")[2] for f in file_i] 
-        df_clusters[!, Symbol("Cluster_$cutoff")] = cluster_assignments  # Add the cluster to the DF
+
+        cluster_col = Symbol("Cluster_$cutoff")
+        if length(cluster_assignments) == length(file_i)
+            df_clusters[!, cluster_col] = cluster_assignments
+        else
+            @info "⚠️ Cluster length mismatch, filling with `missing` for cutoff = $cutoff"
+            @show length(cluster_assignments)
+            @show cluster_assignments
+            @show length(file_i)
+            @show file_i
+            @show rows_with_missing
+            df_clusters[!, cluster_col] = Vector{Union{Missing, Int}}(missing, length(file_i))
+        end
+        #df_clusters[!, Symbol("Cluster_$cutoff")] = cluster_assignments  # Add the cluster to the DF
 
         # Do a `left join` to include PDBs that could not be parsed
-        final_df = leftjoin(final_df, df_clusters, on=on=[:PDB,:CHAIN])
+        final_df = leftjoin(final_df, df_clusters, on=[:PDB,:CHAIN])
     end
     return final_df
 end
@@ -383,23 +396,22 @@ end
 For each uniprot accession we are adding information about the number of mutation and the missing residues, we calculate the RMSD 
 between every pdb form the pdb accesion to compare there stucture and than cluster them in cluster base on there similarity
 
-Take in input a dataframe for 1 uniprot and the path the the sift folder and the odb folder 
+Take in input a dataframe for 1 uniprot and the path the the sift folder and the pdb folder 
 Output a dataframe with all the added colonnes
 """
 #function to be use in parallelization 
 @everywhere function process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
     #Filter the pdb 
-    df_uniprot_filter=filter_pdb(df_uniprot)
-    if df_uniprot_filter == nothing 
-        return missing
-    end
-    df_uniprot_filter = count_mutation_pdb_uni(df_uniprot_filter, sift_folder)
+    #df_uniprot_filter=filter_pdb(df_uniprot)
+    #if df_uniprot_filter === nothing 
+        #return missing
+    #end
+    df_uniprot_filter = count_mutation_pdb_uni(df_uniprot, sift_folder)
 
     rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot_filter, sift_folder, pdb_folder)
 
     if length(keep_indices) > 0
-        df_cluster = @profile cah(rmsd_list, files, keep_indices)
-        Profile.print()
+        df_cluster = cah(rmsd_list, files, keep_indices)
         select!(df_uniprot_filter, Not(["RES_END", "RES_BEG"]))
         df_result = leftjoin(df_uniprot_filter, df_cluster, on=[:PDB, :CHAIN])
         return df_result
@@ -569,7 +581,7 @@ function main(part_1::Bool,save::Bool,sift_folder::String,pdb_folder::String)
     end
     if save 
         # get back the final df 
-        file_path_df_final="pdb_information_details_1000.csv"
+        file_path_df_final="pdb_information_details_filter.csv"
         df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
         comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
     end 
@@ -579,10 +591,10 @@ function main(part_1::Bool,save::Bool,sift_folder::String,pdb_folder::String)
     println(first(df_completed,20))
     println(size(df_completed))
 
-    #=
+    
     # Save the result
-    CSV.write("pdb_information_details_final_1000.csv", df_completed)
-
+    CSV.write("pdb_information_details_final_1.csv", df_completed)
+    
     # Compare the cluster
     check_cluster=check_apo_holo_cluster(df_completed)
     println(first(check_cluster,20))
@@ -594,7 +606,7 @@ function main(part_1::Bool,save::Bool,sift_folder::String,pdb_folder::String)
     println(size(check_cluster))
     println("It separates properly : ",(frequency/size(check_cluster)[1])*100)
     CSV.write("pdb_apo_holo_1000.csv", check_cluster)
-    =#
+    
 end
 
 ###########################################################################################################################################
@@ -612,5 +624,3 @@ main(false,true,sift_folder,pdb_folder)
 @show "Début de fin", Dates.format(now(), "HH:MM:SS")
 
 @info "END !"
-
-Profile.print()
