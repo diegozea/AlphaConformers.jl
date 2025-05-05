@@ -19,23 +19,28 @@ for folder in folders
     folder_name=basename(folder)
     csv_files = filter(f -> isfile(f) && endswith(f, ".csv"), readdir(folder, join=true))
     for csv_file in csv_files
-        println(basename(csv_file))
-        #Take the file name 
-        filename_no_ext = split(basename(csv_file), ".")[1]
-        println(filename_no_ext)
-        file_name = join(split(filename_no_ext, "_")[3:end], "_")
-        println(file_name)
+        try 
+            println(basename(csv_file))
+            #Take the file name 
+            filename_no_ext = split(basename(csv_file), ".")[1]
+            println(filename_no_ext)
+            file_name = join(split(filename_no_ext, "_")[3:end], "_")
+            println(file_name)
 
-        #Get the rmsd 
-        parts = split(file_name, "_")
-        row_match = filter(row -> occursin(parts[1], row.apo_id), df_info)
-        rmsd_apo_holo=row_match.rmsd_apo_holo[1]
+            #Get the rmsd 
+            parts = split(file_name, "_")
+            row_match = filter(row -> occursin(parts[1], row.apo_id), df_info)
+            rmsd_apo_holo=row_match.rmsd_apo_holo[1]
 
-        #Get the file 
-        df_file=DataFrames.DataFrame(CSV.File(csv_file,
-        comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-        push!(df_comparaison,(folder_name,file_name,rmsd_apo_holo,minimum(df_file.RMSD_Apo),mean(df_file.RMSD_Apo),var(df_file.RMSD_Apo),minimum(df_file.RMSD_Holo),mean(df_file.RMSD_Holo),var(df_file.RMSD_Holo)))
-    end
+            #Get the file 
+            df_file=DataFrames.DataFrame(CSV.File(csv_file,
+            comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
+            push!(df_comparaison,(folder_name,file_name,rmsd_apo_holo,minimum(df_file.RMSD_Apo),mean(df_file.RMSD_Apo),var(df_file.RMSD_Apo),minimum(df_file.RMSD_Holo),mean(df_file.RMSD_Holo),var(df_file.RMSD_Holo)))
+        catch e
+            println("didn't work for $folder_name",e)
+            continue
+        end
+        end
 end
 CSV.write("Compare_output_AF.csv", df_comparaison)
 println(first(df_comparaison,20))

@@ -62,7 +62,7 @@ function analyse_output(query::String,folder_path::String)
     holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
 
     # Construire le chemin du dossier modèle
-    folder_model=folder_path*query*"_No_AFDB/"
+    folder_model=folder_path*query*"_No_AFDB_MAFFT"
     println("Apo PDB Path: ", apo_pdb)
     println("Holo PDB Path: ", holo_pdb)
     println("Folder Model: ", folder_model)
@@ -72,16 +72,16 @@ function analyse_output(query::String,folder_path::String)
     println(typeof(model_files))
 
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"/rmsd_results_"*query*".csv", results)
+    CSV.write(folder_path*"/"*query*"_No_AFDB_MAFFT/rmsd_results_"*query*".csv", results)
 
     #Visualisation of the result 
     scatter(results.RMSD_Holo, results.RMSD_Apo,
     xlabel="Holo", ylabel="Apo",
     title="Compare model with Apo and Holo form for "*query,
     marker=:circle, legend=false,
-    xlims=(0, 7), ylims=(0, 7))
+    xlims=(0,7), ylims=(0, 7))
 
-    savefig(folder_path*"/"*query*"/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    savefig(folder_path*"/"*query*"_No_AFDB_MAFFT/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
 end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
