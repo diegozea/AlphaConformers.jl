@@ -9,7 +9,7 @@
 =#
 
 import Pkg
-Pkg.activate("/home/julie.daniel/.julia/environments/v1.11")
+Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
 Pkg.status("MIToS")
 using MIToS
 using MIToS.PDB

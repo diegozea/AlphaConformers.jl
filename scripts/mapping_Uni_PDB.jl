@@ -103,7 +103,7 @@ end
 
 #Save information in a DF
 """
-From the Dataframe with all the information of Pfam CATH and Uniprot we had the information form the header 
+From the Dataframe with all the information of PFAM, CATH and Uniprot we had the information form the header 
 We use the function get_header_pdb
 
 Take in input the Dataframe from join_information and output a Dataframe with the header information added 
@@ -142,10 +142,10 @@ function get_ligand_information(df_biolip_5_first_columns::DataFrame,df_pdb_reso
 end 
 
 """
-Do the correspondance between Uniprot and PDB index. Use SIFTS mapping so we need to download the .xml file.
-We handle the error if the file couldn't be install 
+Do the correspondance between Uniprot and PDB index. Use SIFTS mapping so we need the .xml file.
+We handle the error if the file couldn't be found 
 
-Take in input a row form the DataFrame get_ligand_information and the path to a folder to save temporary file
+Take in input a row form the DataFrame get_ligand_information and the path to a folder where the .xml file are save
 output a dictionnaire with the mapping Uniprot => PDB
 """
 #Retrieve the link between Uniprot and PDB index
@@ -174,7 +174,7 @@ end
 """
 Make the link between the Uniprot index and the residues. Use the fonction get_sift_mapping and MIToS.PDB.downloadpdb
 
-Take in input one row form the DataFrame get_ligand_information and the path to a folder to save temporary file
+Take in input one row form the DataFrame get_ligand_information and the path to a folder where the .pdb file are saved
 output a dictionnaire with the mapping Uniprot => Residues
 """
 #Relating Uniprots indices to residuals
@@ -206,7 +206,7 @@ output a dictionnaire with the mapping Uniprot => Residues
             @warn "❌ Key $id_uni not found for $pdb" #If some residue aren't represent in the pdb we ignore them 
         end 
     end
-    @assert length(residues_uniprot)>0 
+    @assert length(residues_uniprot)>0 # If we don't have any residues at the end 
     return residues_uniprot
 end
 
@@ -214,7 +214,7 @@ end
 """
 Compare the residues form PDB and Uniprot to identify the number of mutation and the missing residues
 
-Take in input the DataFrame from get_ligand_information and the path to a folder to save temporary file
+Take in input the DataFrame from get_ligand_information and the path to a folder where the .xml file are saved
 Output the Dataframe with two new colonnes MUTATION and MISSING_RESIDUES
 """
 #Register the number of mutation and missing residues
@@ -266,7 +266,7 @@ end
 """
 Compare for each uniprot accession number the pdb file associate with structure alignment 
 
-Take in input the DataFrame from count_mutation_pdb_uni and the path to a folder to save temporary file
+Take in input the DataFrame from count_mutation_pdb_uni and the path to folder with .pdb and .xml file
 Output a Vector with the RMSD between each PDB --> its the half of the Correlation matrix
 """
 #Compute the RMSD between each pdb 
@@ -322,7 +322,7 @@ end
 
 
 """
-Create the cluster for different CutOff : 1.5 2 and 4
+Create the cluster for different CutOff
 
 Take in input the Vector with the RMSD from calculate_RMSD_uniprot
 Output a Dataframe with the cluster number for each CutOff
@@ -365,11 +365,7 @@ Output a Dataframe with the cluster number for each CutOff
         else
             @info "⚠️ Cluster length mismatch, filling with `missing` for cutoff = $cutoff"
             @show length(cluster_assignments)
-            @show cluster_assignments
             @show length(file_i)
-            @show file_i
-            @show rows_with_missing
-            @show keep_indices
             df_clusters[!, cluster_col] = Vector{Union{Missing, Int}}(missing, length(file_i))
         end
         #df_clusters[!, Symbol("Cluster_$cutoff")] = cluster_assignments  # Add the cluster to the DF
@@ -382,144 +378,132 @@ end
 
 
 """
-Try to create the cluster with Hobohm algorithm
+Create the cluster with Hobohm algorithm
+
+Take in input the first row of the dataframe that represent the query, the other line of the dataframe, 
+the path to a folder with the .pdb file and the RMSD cutoff we want
 """
 #CAH with Hobohm
 @everywhere function structural_clustering_hobohm_multi(query_pdb, pdb_folder, targets, rmsd_cutoffs)
-    # -- Étape 1 : Lecture unique des fichiers --
-    pdb_list = [uppercase(query_pdb.PDB) * ".pdb_" * query_pdb.CHAIN]
-    for t in eachrow(targets)
+    #Read the file
+    pdb_list = [uppercase(query_pdb.PDB) * ".pdb_" * query_pdb.CHAIN] #For the query
+    for t in eachrow(targets) #For the target
         push!(pdb_list, uppercase(t.PDB) * ".pdb_" * t.CHAIN)
     end
-    unique!(pdb_list)
+    unique!(pdb_list) #Take out the duplicates
 
     structures = []
     for pdb_chain in pdb_list
         pdb, chain = split(pdb_chain, "_")
-        path = AlphaConformers._get_abspath(pdb, pdb_folder)
-        push!(structures, AlphaConformers._read_pdb_chain(path, chain))
+        path = AlphaConformers._get_abspath(pdb, pdb_folder) #get the absolute path 
+        push!(structures, AlphaConformers._read_pdb_chain(path, chain)) #save the information only for the specific chain 
     end
     N = length(structures)
-    results = Dict{Float64, Union{AlphaConformers.StructuralClustering, Nothing}}() # Change le type du dictionnaire pour accepter Nothing
+    results = Dict{Float64, Union{AlphaConformers.StructuralClustering, Nothing}}() 
 
-    # -- Étape 2 : Pour chaque cutoff, faire le clustering --
+    # For every cutoff do the clustering
     for rmsd_cutoff in rmsd_cutoffs
         clusters = zeros(Int, N)
         cluster_sizes = Int[]
         cluster_number = 0
 
         for i in 1:N
-            if structures[i] === nothing # Vérifie si la structure est nothing
-                clusters[i] = -1  # Marque les structures 'nothing' avec -1
-                continue # Passe à la structure suivante
+            if structures[i] === nothing # Check if we suceed to have the structure
+                clusters[i] = -1  
+                continue # Go to the next structure
             end
 
-            if clusters[i] == 0
+            if clusters[i] == 0 #Check that we didn't already do this file
                 cluster_number += 1
                 clusters[i] = cluster_number
                 push!(cluster_sizes, 1)
 
                 for j in (i+1):N
-                    if structures[j] === nothing # Vérifie si la structure est nothing
-                        continue # Passe à la structure suivante
+                    if structures[j] === nothing # Check if we suceed to have the structure
+                        continue # Go to the next structure
                     end
-                    if clusters[j] == 0
+                    if clusters[j] == 0 #Check that we didn't already do this file
+                        #Extract the 2 structures
                         res1_dict = Dict(r.id => r for r in structures[i])
                         res2_dict = Dict(r.id => r for r in structures[j])
+                        #Take the common key
                         common_ids = intersect(keys(res1_dict), keys(res2_dict))
 
+                        #Check that we have common residues
                         if isempty(common_ids)
                             continue
                         end
-
+                        #Extract the residues
                         res1_common = [res1_dict[id] for id in common_ids]
                         res2_common = [res2_dict[id] for id in common_ids]
-
+                        #Align the structure
                         _, _, rmsd = superimpose(res1_common, res2_common)
-
+                        #Compare the RMSD to the cutoff
                         if rmsd <= rmsd_cutoff
-                            clusters[j] = cluster_number
+                            clusters[j] = cluster_number #assign cluster
                             cluster_sizes[cluster_number] += 1
                         end
                     end
                 end
             end
         end
-        # Gérer le cas où tous les clusters sont nothing
+        # If all the cluster are nothing 
         if all(x -> x == -1, clusters)
             results[rmsd_cutoff] = nothing
         else
-            results[rmsd_cutoff] = AlphaConformers.StructuralClustering(copy(pdb_list), copy(clusters), copy(cluster_sizes), cluster_number)
+            #Save the result
+            results[rmsd_cutoff] = AlphaConformers.StructuralClustering(copy(pdb_list), copy(clusters), copy(cluster_sizes), cluster_number) 
         end
     end
     return results
 end
+"""
+Save the cluster for each cutoff in the main DataFrame
 
+Take in input the DF with all the information and the dictionnaire output by structural_clustering_hobohm_multi
+Output the DF with one colonne for every cutoff
+"""
+
+#Create the DF with the cluster 
 @everywhere function add_cluster_columns!(df::DataFrame, cluster_hobohm::Dict{Float64, Union{AlphaConformers.StructuralClustering, Nothing}})
+    #For each cutoff
     for cutoff in sort(collect(keys(cluster_hobohm)))
         result = cluster_hobohm[cutoff]
-        cluster_col_name = Symbol("Cluster_$(cutoff)")
+        cluster_col_name = Symbol("Cluster_$(cutoff)") #Create the colonne
         
-        if result !== nothing # Ajout de la vérification ici
-            # Split "7UXU.pdb_A" => PDB = 7UXU, CHAIN = A
+        if result !== nothing # if it is not nothing
+            # Split file name to have the information "7UXU.pdb_A" => PDB = 7UXU, CHAIN = A
             pdbs = result.pdbs
             pdb = [split(p, '.')[1] for p in pdbs]
             chain = [split(p, '_')[2] for p in pdbs]
             pdb_string = Vector{String}(lowercase.(pdb))
             chain_string = Vector{String}(chain)
-            cluster_ids = result.clusters
+            cluster_ids = result.clusters #get the cluster number assign 
             # Build a temporary DataFrame with clustering info
             df_cluster = DataFrame(:PDB => pdb_string, :CHAIN => chain_string, Symbol(cluster_col_name) => cluster_ids)
             # Join with main DataFrame
             df = leftjoin(df, df_cluster, on=[:PDB, :CHAIN])
         else
-            # Gérer le cas où result est nothing
-            df[!, cluster_col_name] .= missing  # Ajouter une colonne remplie de valeurs manquantes
-            @warn "Pas de clusters pour cutoff $(cutoff)" #émet un avertissement
+            # if it's nothing
+            df[!, cluster_col_name] .= missing  # Add a c colonne with only missing 
+            @warn "Pas de clusters pour cutoff $(cutoff)" 
         end
     end
     return df
 end
 
 
-#Filter the pdb to keep the relevant one 
-@everywhere function filter_pdb(df_uniprot)
-    #Check that we have apo and holo conformation 
-    is_apo = is_apo = any(ismissing, df_uniprot.LIGANDS) && any(!ismissing, df_uniprot.LIGANDS)
-    if is_apo 
-        df_uniprot_res = filter(row -> ismissing(row.RESOLUTION) || row.RESOLUTION < 3, df_uniprot) #Pour recuperer fichier avec bonne résolution
-        df_uniprot_res_date = filter(row -> row.DATE_RELEASE >= Date("2018-01-01", "yyyy-mm-dd"), df_uniprot_res) #get pdb release after the training of AF2
-        println(df_uniprot_res_date)
-        if !isempty(df_uniprot_res_date) #check that we still have row
-            is_apo = is_apo = any(ismissing, df_uniprot_res_date.LIGANDS) && any(!ismissing, df_uniprot_res_date.LIGANDS)
-            if is_apo #Check that we still have apo and holo conformation 
-                return df_uniprot_res_date
-            else 
-                return nothing 
-            end
-        else 
-            return nothing
-        end
-    else 
-        return nothing
-    end
-end
 """ 
-For each uniprot accession we are adding information about the number of mutation and the missing residues, we calculate the RMSD 
-between every pdb form the pdb accesion to compare there stucture and than cluster them in cluster base on there similarity
+For each uniprot accession we want to assign cluster. We first use structural_clustering_hobohm_multi and if the cluster couldn't 
+separate the apo and holo shape we calculate the RMSD between every pdb form the pdb accesion to compare there stucture 
+and than cluster them in cluster base on there similarity with the function cah
 
 Take in input a dataframe for 1 uniprot and the path the the sift folder and the pdb folder 
 Output a dataframe with all the added colonnes
 """
 #function to be use in parallelization 
 @everywhere function process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    #Filter the pdb 
-    #df_uniprot_filter=filter_pdb(df_uniprot)
-    #if df_uniprot_filter === nothing 
-        #return missing
-    #end
-    #df_uniprot_filter = count_mutation_pdb_uni(df_uniprot, sift_folder)
-    
+   
     #hobohm algorithme 
     @show "debut hobohm  ", Dates.format(now(), "HH:MM:SS")
     cluster_hobohm=structural_clustering_hobohm_multi(df_uniprot[1,:], pdb_folder, df_uniprot[2:end,:],[0.5, 0.75, 1, 1.25, 1.5,2]) #put in query the first pdb of the uniprot
@@ -527,98 +511,58 @@ Output a dataframe with all the added colonnes
     df_result=add_cluster_columns!(df_uniprot, cluster_hobohm)
     @show "Hobohm" df_result
     @show " fin hobohm ", Dates.format(now(), "HH:MM:SS")
-
+    
+    #Check if succed to have different cluster 
     nom_colonne = "Cluster_0.5"
     colonne_a_verifier = df_result[!, nom_colonne]
-
     if !any(ismissing, colonne_a_verifier) && all(x -> x == 1, colonne_a_verifier)
-        @info "Didn't succeed to separate with Hobohm"
-        @show "debut Normal", Dates.format(now(), "HH:MM:SS")
-        rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot, sift_folder, pdb_folder)
-
-        if !ismissing(keep_indices) || !isempty(keep_indices)
-            @info "We have files"
-            df_cluster = cah(rmsd_list, files, keep_indices)
-            df_result = leftjoin(df_uniprot, df_cluster, on=[:PDB, :CHAIN])
-            @show "Normal" df_result
-            @show "Fin de normal  ", Dates.format(now(), "HH:MM:SS")
-            return df_result
-        else
-            @info "We don't have Files"
-            return missing
+       #If not 
+        try 
+            @info "Didn't succeed to separate with Hobohm"
+            @show "debut Normal", Dates.format(now(), "HH:MM:SS")
+            rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot, sift_folder, pdb_folder)
+            #Check that after the coverage we still have 
+            if !isempty(keep_indices)
+                @info "We have files"
+                df_cluster = cah(rmsd_list, files, keep_indices)
+                df_result = leftjoin(df_uniprot, df_cluster, on=[:PDB, :CHAIN])
+                @show "Normal" df_result
+                @show "Fin de normal  ", Dates.format(now(), "HH:MM:SS")
+                return df_result
+            else
+                @info "We don't have Files"
+                return df_result
+            end
+        catch e
+            if isa(e, AssertionError)
+                @warn "Didn't succeed to cluster in Normal, We use Hobohm clusteing"
+                @show e
+                return df_result
+            end
         end
     else 
         return df_result
-    end
-    
-    
+    end 
 end
 
 # Get all the information of each pdb 
 """
-For each uniprot accession we are adding information about the number of mutation and the missing residues, we calculate the RMSD 
-between every pdb form the pdb accesion to compare there stucture and than cluster them in cluster base on there similarity
+Split the DF for each uniprot and use pmap to run the code simultaneously for each uniprot
 
 Take in input the DataFrame from get_ligand_information
-Output the DataFrame with new columns MUTATION MISSING_RESIDUES Cluster_1.5 Cluster_2.0 Cluster_4.0
+Output the DataFrame with cluster for different cutoff
 """
 function clustering_each_uniprot_acc(df_final::DataFrame,sift_folder::String,pdb_folder::String)
     grouped_uniprots = DataFrame[g for g in groupby(df_final, :UNIPROT)]
 
     # Try only for 10
-    grouped_uniprots_limited = grouped_uniprots[1:min(20, length(grouped_uniprots))]
+    grouped_uniprots_limited = grouped_uniprots[1:min(70, length(grouped_uniprots))]
 
     df_results = pmap(df -> process_uniprot_df(df, sift_folder, pdb_folder), grouped_uniprots_limited)
     df_completed = vcat(skipmissing(df_results)...)
     return df_completed
 end
 
-function clustering_debug(df_final::DataFrame,sift_folder::String,pdb_folder::String)
-
-    uniprot ="A0A010"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A010 FINISH"
-    
-    uniprot ="A0A023UGN9"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A023UGN9 FINISH"
-
-    uniprot ="A0A024B5J2"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A024B5J2 FINISH"
-
-    uniprot ="A0A060TAG5"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A060TAG5 FINISH"
-
-    uniprot ="A0A067NAT9"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A067NAT9 FINISH"
-
-    uniprot ="A0A067XP79"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A067XP79 FINISH"
-    
-    uniprot ="A0A069Q0R8"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A069Q0R8 FINISH"
-
-    """
-    uniprot ="A0A097PIM0"
-    df_uniprot=df_final[df_final.UNIPROT .== uniprot, :]
-    df_completed=process_uniprot_df(df_uniprot, sift_folder, pdb_folder)
-    @info "A0A097PIM0 FINISH"
-    """
-    return df_completed
-
-end
 #Compare the Clustering 
 """
 Function to analyse the different cutoff from the cluster and chose the more releatable one 
@@ -631,6 +575,7 @@ function check_apo_holo_cluster(df_completed::DataFrame)
 
     for row in eachrow(df_completed)
         uniprot=row.UNIPROT # Check for every uniprot accession 
+        @show uniprot
         #Check that we haven't already done this
         is_present= uniprot in check_cluster.UNIPROT
         if !is_present
@@ -647,13 +592,24 @@ function check_apo_holo_cluster(df_completed::DataFrame)
                 for cutoff in [0.5, 0.75, 1, 1.25, 1.5,2]
                     # Retrieve clusters for each cutoff
                     cluster_col = Symbol("Cluster_$(cutoff)")
-
-                    # Compare files without ligands and with ligands
+                    cluster_with = with_ligands[:, cluster_col]
+                    cluster_without = without_ligands[:, cluster_col]
+                    @show unique(cluster_without)
+                    @show unique(cluster_with)
+                    cluster_different=setdiff(unique(cluster_with),unique(cluster_without))
+                    @show cluster_different
+                    if length(cluster_different)==length(unique(cluster_with))
+                        @show cutoff
+                        if  cutoff>result
+                            result = cutoff
+                        end
+                    end
+                    #=
                     for file_with_ligands in eachrow(with_ligands)
                         for file_without_ligands in eachrow(without_ligands)
-                            if !ismissing(file_with_ligands[cluster_col]) && 
-                                !ismissing(file_without_ligands[cluster_col]) && 
-                                file_with_ligands[cluster_col] != file_without_ligands[cluster_col]
+                            cluster_with = file_with_ligands[cluster_col]
+                            cluster_without = file_without_ligands[cluster_col]
+                            if !ismissing(cluster_with) && !ismissing(cluster_without) && cluster_with != cluster_without
                                 # If the files are in different clusters, take the smaller value
                                 if  cutoff>result
                                     result = cutoff
@@ -661,6 +617,7 @@ function check_apo_holo_cluster(df_completed::DataFrame)
                             end
                         end
                     end
+                    =#
                 end
                 push!(check_cluster,(uniprot,true,result))
                 
@@ -764,51 +721,14 @@ function main(part_1::Bool,part_2::Bool,save::Bool,sift_folder::String,pdb_folde
         file_path_df_final="pdb_information_details_filter.csv"
         df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
         comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-    end 
-    if part_2
-        function process_group(group_key)
-            try
-                # Récupérer le groupe à partir du DataFrame original
-                df_group = df_final[df_final.UNIPROT .== group_key, :]
-                result = count_mutation_pdb_uni(df_group, sift_folder)
-                return result  # Retourner le résultat (peut être un DataFrame ou nothing)
-            catch e
-                @error "Error processing group $(group_key): $(e)"  # Log l'erreur
-                return nothing # IMPORTANT : Retourner `nothing` en cas d'erreur pour que skipmissing fonctionne
-            end
-        end
-    
-        # Obtenir les clés de groupe uniques (UNIPROT IDs)
-        uniprot_ids = unique(df_final.UNIPROT)
-    
-        # Utiliser pmap pour traiter chaque groupe itérativement
-        df_results = pmap(process_group, uniprot_ids)
-    
-        # Combiner les résultats non-missing
-        df_completed = vcat(skipmissing(df_results)...)
-    
-        if save
-            CSV.write("pdb_information_details_filter_mutation.csv", df_completed)
-        end
-    end
-    #=
-    return 
-    if save 
-        # get back the final df 
-        file_path_df_final="pdb_information_details_filter_mutation.csv"
-        df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
-        comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-    end 
-    =#
+    end  
     #Clustering
-    #df_completed=clustering_debug(df_final,sift_folder,pdb_folder)
     df_completed=clustering_each_uniprot_acc(df_final,sift_folder,pdb_folder)
     println(first(df_completed,20))
-    #println(size(df_completed))
+    println(size(df_completed))
 
-    
     # Save the result
-    CSV.write("pdb_information_details_final_mutation_cluster.csv", df_completed)
+    CSV.write("pdb_information_details_final_cluster_1000.csv", df_completed)
     
     # Compare the cluster
     check_cluster=check_apo_holo_cluster(df_completed)
@@ -821,6 +741,34 @@ function main(part_1::Bool,part_2::Bool,save::Bool,sift_folder::String,pdb_folde
     println(size(check_cluster))
     println("It separates properly : ",(frequency/size(check_cluster)[1])*100)
     CSV.write("pdb_apo_holo_1000.csv", check_cluster)
+
+    #Add information about Missing residues and mutation
+    if part_2
+        function process_group(group_key)
+            try
+                # Récupérer le groupe à partir du DataFrame original
+                df_group = df_final[df_completed.UNIPROT .== group_key, :]
+                result = count_mutation_pdb_uni(df_group, sift_folder)
+                return result  # Retourner le résultat (peut être un DataFrame ou nothing)
+            catch e
+                @error "Error processing group $(group_key): $(e)"  # Log l'erreur
+                return nothing # IMPORTANT : Retourner `nothing` en cas d'erreur pour que skipmissing fonctionne
+            end
+        end
+    
+        # Obtenir les clés de groupe uniques (UNIPROT IDs)
+        uniprot_ids = unique(df_completed.UNIPROT)
+    
+        # Utiliser pmap pour traiter chaque groupe itérativement
+        df_results = pmap(process_group, uniprot_ids)
+    
+        # Combiner les résultats non-missing
+        df_completed_final = vcat(skipmissing(df_results)...)
+    
+        if save
+            CSV.write("pdb_information_details_filter_mutation.csv", df_completed_final)
+        end
+    end
     
 end
 
