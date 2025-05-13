@@ -21,7 +21,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 USalign_jll = "927da072-87df-5aff-817c-c070e1bdca98"
 
 [compat]
-MIToS = "2.15"
+MIToS = "3.1.0"
 julia = "1"
 
 [extras]

@@ -153,6 +153,8 @@ function run_foldseek(pdb_file::AbstractString, db_path::Vector{String};
     end
 end
 
+
+
 function merge_tables(table_files::Vector{String})
     tables = map(table_files) do file
         table = read_foldseek_search_results(file)
@@ -248,91 +250,151 @@ function _find_duplicates(lst)
             push!(seen, x)
         end
     end
+    println(length(duplicates))
+    println(duplicates)
     return duplicates
 end
 
 function merge_msas(table::DataFrames.DataFrame)
     println("table ",size(table))
     out_folders = dirname.(unique(table.file))
-    msas = [read(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
+    msas = [MIToS.MSA.read_file(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
             for folder in out_folders]
     # Select only the matched sequences by using bits and fident to identify the matches.
     # Apply this filter only when there are duplicated names to prevent losing elements 
     # due to numerical differences in comparisons.
     starts = Set((row.target, row.bits, row.fident) for row in eachrow(table))
     targets = Set(row.target for row in eachrow(table))
-    println("starts ",first(starts,5))
-    println("targets ",first(targets,5))
-    println("shape msas ",size(msas))
+    @show "starts ",first(starts,20)
+    @show "targets ",first(targets,5)
+    @show "shape msas ",size(msas)
     for i in eachindex(msas)
-        println("index",i)
         msa = msas[i]
-        println(" msa ",size(msa))
+        @show " msa ",size(msa)
         seqnames = MIToS.MSA.sequencenames(msa)[2:end]
-        println("shape seqnames ",length(seqnames))
+        @show "shape seqnames ",length(seqnames)
         if abs(length(seqnames) - size(msa, 1)) != 1
             @info "Avertissement : le nombre de noms de séquences ne correspond pas au nombre de lignes de msa !"
             while length(seqnames) < (size(msa, 1)-1)
                 push!(seqnames, "Unnamed_" * string(length(seqnames) + 1))
             end
         end
-        println("shape selected ",length(seqnames)) 
-        println("Nombre unique d'IDs :", length(unique(seqnames))) 
-        println(last(seqnames,10)) 
-        println("shape msa ", size(msa))
+        @show "shape selected ",length(seqnames)
+        @show "Nombre unique d'IDs :", length(unique(seqnames)) 
+        @show "shape msa ", size(msa)
         msa_targets = [first(split(seqname, "\t")) for seqname in seqnames]
-        println("msa_target ",size(msa_targets))
+        @show "msa_target ",length(msa_targets)
+        @show length(unique(msa_targets))
         duplicated_msa_targets = _find_duplicates(msa_targets)
+        @show duplicated_msa_targets
         # Create a selection vector, starting with `true` to keep the first sequence
         selected = Bool[]
         push!(selected, true)
+        names=[]
         for seqname in seqnames
-            if occursin("Unnamed", seqname)
-                println(seqname)
+            @show seqname
+            name = first(split(seqname, "\t"))
+            if occursin("Unnamed", name)
                 push!(selected,false)
-            elseif seqname in duplicated_msa_targets
-                push!(selected, _seq_name_to_key(seqname) in starts)
+            elseif name in duplicated_msa_targets
+                key = _seq_name_to_key(seqname)  # ("1QGP.pdb_A", 56, 0.203)
+                @show name
+                @show key
+                @show key in starts
+
+                if key in starts
+                    # Vérifie si une entrée du même nom existe déjà dans la liste `names`
+                    existing_index = findfirst(n -> n[1] == key[1], names)
+
+                    if existing_index !== nothing
+                        existing_key = names[existing_index]  # Clé déjà enregistrée
+
+                        # Comparaison sur la valeur du score (3e élément)
+                        if key[3] < existing_key[3]
+                            # Trouver la position de l'entrée à désélectionner
+                            pos_du = findfirst(s -> _seq_name_to_key(s) == existing_key, seqnames)
+                            if pos_du !== nothing
+                                selected[pos_du] = false
+                            end
+                            push!(selected, true)
+                            names[existing_index] = key  # Remplace la clé avec la meilleure
+                        else
+                            push!(selected, false)
+                        end
+                    else
+                        push!(names, key)
+                        push!(selected, true)
+                    end
+                else
+                    push!(selected, false)
+                end
             else
-                push!(selected, first(split(seqname, "\t")) in targets)
+                push!(selected, first(split(name, "\t")) in targets)
+
             end
         end  
-        println("shape selected ",length(selected))   
-        println("shape msa ", size(msa))
-        println("Type de selected : ", eltype(msa))  # Vérifie que c'est bien un Vector{Bool}
-        println("Nombre de true dans selected : ", count(selected))  # Vérifie combien de séquences sont sélectionnéess
-        try 
-            msas2[i] = msa[selected, :]
-        catch e 
-            msas2 = []  # Liste vide pour stocker les lignes sélectionnées
-            for (i, row) in enumerate(msa)
-                println("i = ", i, " | Taille actuelle de msa : ", size(msa, 1))
-            end
-            for (i, row) in enumerate(msa)
-                println(i)
-                if selected[i]  # Vérifie si selected[i] est vrai
-                    push!(msas2, row)  # Ajoute la ligne correspondante à msas2
-                end
-            end
-            println(msas2)
-        end
+        @show "shape selected ",length(selected)  
+        @show "shape msa ", size(msa)
+        @show "Nombre de true dans selected : ", count(selected)  # Vérifie combien de séquences sont sélectionnéess
+        msas[i] = msa[selected, :]
+        @show first(msa,5)
     end
-    println("shape msas ",length(msas2))
+    @show "shape msas ",length(msas)
     # Return the MSA if there is only one
-    length(msas2) == 1 && return only(msas2)
-    # Otherwise, concatenate the multiple MSAs using the query sequence as reference
-    msa_a = msas2[1]
-    for msa_b in msas2[2:end]
-        cols_a, cols_b = _match_columns(msa_a, msa_b, 1, 1)
-        msa_a = MIToS.MSA.join(msa_a, msa_b[2:end, :], cols_a, cols_b; axis=2)
+    if length(msas) == 1
+        @info "1 msa"
+        return only(msas) 
     end
-    println("msa_a new ",first(msa_a,2))
+    #length(msas) == 1 && return only(msas)
+    # Otherwise, concatenate the multiple MSAs using the query sequence as reference
+    msa_a = msas[1]
+    for msa_b in msas[2:end]
+        cols_a, cols_b = _match_columns(msa_a, msa_b, 1, 1)
+        msa_a = MIToS.MSA.join_msas(msa_a, msa_b[2:end, :], cols_a, cols_b; axis=2)
+    end
+    @show "msa_a new ",first(msa_a,2)
     # Clean the sequence names by deleting the MSA number at the beginning that 
     # was added by the join function and the sequence data Foldseek adds at the end.
-    cleaned_names = String[replace(first(split(name)), r"^[1-9]+_" => "")
-                           for name in MIToS.MSA.sequencename_iterator(msa_a)]
-    @assert length(cleaned_names) == length(unique(cleaned_names))
+    msa_a_seq=collect(MIToS.MSA.sequencename_iterator(msa_a))
+    @show first(msa_a_seq,5)
+    cleaned_names=String[]
+    for name in msa_a_seq
+        all_name=split(name,"\t")[1]
+        push!(cleaned_names, join(split(all_name, "_")[2:end], "_"))
+    end 
+    @show first(cleaned_names,5)
+    @show length(cleaned_names)
+    #cleaned_names = String[replace(first(split(name)), r"^[1-9]+_" => "")
+    #                  for name in MIToS.MSA.sequencename_iterator(msa_a)]
+    @show length(unique(cleaned_names))
+    if length(cleaned_names) != length(unique(cleaned_names))
+        @info "Pas de nom unique"
+        # Dictionnaire pour suivre le nombre d'occurrences de chaque nom
+        name_counts = Dict{String, Int}()
+
+        # Liste des nouveaux noms uniques
+        unique_names = String[]
+
+        for name in cleaned_names
+            if haskey(name_counts, name)
+                name_counts[name] += 1
+                @show name
+
+                #new_name = "$(name_counts[name])-$(name)"
+            else
+                name_counts[name] = 1
+                new_name = name
+            end
+        end
+        @assert length(unique_names) == length(unique(unique_names))  # Vérification
+        cleaned_names = unique_names
+    end
+  
+
+    # Renommer les séquences avec les nouveaux noms uniques
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
-end
+
+    end
 
 # structure_distances -------------------------------------------------------------------- #
 
@@ -344,7 +406,7 @@ end
 function _get_aligned_residues(query, target, paths, tstart, tend)
     # msa = read(paths.msa, MIToS.MSA.FASTA)
     pdb_file = _aligned_pdb_file(query, target, paths)
-    res = read(pdb_file, MIToS.PDB.PDBFile)
+    res = MIToS.PDB.read_file(pdb_file, MIToS.PDB.PDBFile)
     # NOTE: Foldseek creates a single chain for the aligned structures: A
     # NOTE: tstart and tend are the residue numbers in the Foldseek-aligned structure
     res[tstart:tend]
@@ -448,7 +510,7 @@ end
 
 function _read_pdb(pdb_file, chain)
     if isfile(pdb_file)
-        MIToS.PDB.read(pdb_file, MIToS.PDB.PDBFile,
+        MIToS.PDB.read_file(pdb_file, MIToS.PDB.PDBFile,
             chain=chain, model="1", onlyheavy=true, occupancyfilter=true)
     else
         @warn "The file $pdb_file does not exist."
@@ -469,7 +531,7 @@ function find_best_match!(
     # get the PDB code and chain from the target name
     pdb, chain = AlphaConformers._get_pdb_and_chain(target)
     # read the PDB file
-    conformation_b = if pdb_folder === nothing
+    conformation_b = if pdb_folder === nothing #link with pdb databases 
         mktempdir() do tmp_folder
             @info "Downloading $pdb"
             pdb_file = joinpath(tmp_folder, "$pdb.pdb.gz")
@@ -592,6 +654,9 @@ function get_rmsd_matrix(rmsds::Dict{Tuple{String,String},Float64}, targets::Set
     end
     df = DataFrames.DataFrame(; target_a, target_b, rmsd)
     sort!(df, [:target_a, :target_b])
+    #contatenation targetA et B
+    #stat.base countmap
+    #df .= mapcols(x -> parse.(Float64, x), df)
     mat = PairwiseListMatrices.from_table(df, false, diagonalvalue=0.0)
     # delete rows and columns with NaN values
     nan_col = vec(any(isnan, mat, dims=1))
@@ -608,17 +673,26 @@ function cluster_structures(rmsds::Dict{Tuple{String,String},Float64}, targets::
 end
 
 function get_target2sequence(expanded_table, msa)
-    seqnames = Set{String}(MIToS.MSA.sequencename_iterator(msa))
+    seqnames=collect(MIToS.MSA.sequencename_iterator(msa))
+    clean_seqnames = collect(split(x, '\t')[1] for x in seqnames)
+    #=
+    seqnames= Set(msa_info)
+    @show first(seqnames,5)
+    =#
     target2sequence = Dict{String,String}()
+    test=[]
     for row in eachrow(expanded_table)
         seqname = ismissing(row.evalue) ? row.query : row.target
-        if seqname in seqnames
+        seqname = String(seqname)
+        push!(test,seqname)
+        if seqname in clean_seqnames
             target2sequence[row.target] = seqname
-        else
+        else 
             @warn "The sequence $seqname is not in the MSA."
         end
     end
     target2sequence
+    
 end
 
 function get_cluster2targets(targets, clusters)
@@ -640,13 +714,15 @@ function get_cluster2seqnames(cluster2targets, target2sequence)
 end
 
 function _check_names_in_msa(names, msa)
-    found_names = Set{String}()
-    for seqname in MIToS.MSA.sequencename_iterator(msa)
+    found_names = []
+    seqnames= collect(MIToS.MSA.sequencename_iterator(msa))
+    clean_seqnames = collect(split(x, '\t')[1] for x in seqnames)
+    for seqname in clean_seqnames
         if seqname in names
             push!(found_names, seqname)
         end
     end
-    missing_names = setdiff(Set(names), found_names)
+    missing_names = setdiff(names, found_names)
     if !isempty(missing_names)
         @info "The first 5 sequences in the MSA are: $(first(MIToS.MSA.sequencename_iterator(msa), 5))"
         @warn "The following sequences are not in the MSA: $(collect(missing_names))"
@@ -671,7 +747,19 @@ function get_cluster2msa(msa, cluster2seqnames)
             continue
         end
         try
-            cluster2msa[cluster] = msa[seqnames, :]
+            names=MIToS.MSA.sequencenames(msa)
+            all_name= String[]
+            for nom in seqnames
+                name_line = findfirst(x -> startswith(x, nom), names)
+                if name_line !== nothing
+                    push!(all_name, names[name_line])
+                end
+            end
+            if isempty(all_name)
+                @warn "No MSA for cluster $cluster"
+                continue
+            end
+            cluster2msa[cluster] = msa[all_name, :]
         catch err
             @error "Error ($err) getting the MSA for cluster $cluster"
             @info "seqnames: $seqnames"
@@ -695,16 +783,22 @@ function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
     expanded_table::DataFrames.DataFrame,
     msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
+    @info "get_target2sequence"
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
+    @info "cluster_structures"
     targets, clustering_result = cluster_structures(rmsds, targets)
-    large_clusters = Clustering.cutree(clustering_result, h=1.0)
+    large_clusters = Clustering.cutree(clustering_result, h=1)
     small_clusters = Clustering.cutree(clustering_result, h=0.5)
+    @info "get_cluster2targets"
     large_cluster2targets = AlphaConformers.get_cluster2targets(targets, large_clusters)
     small_cluster2targets = AlphaConformers.get_cluster2targets(targets, small_clusters)
+    @info "get_cluster2seqnames"
     large_cl2seq = AlphaConformers.get_cluster2seqnames(large_cluster2targets, target2sequence)
     # small_cl2seq = AlphaConformers.get_cluster2seqnames(small_cluster2targets, target2sequence)
+    @info "get_cluster2msa"
     large_cl2msa = AlphaConformers.get_cluster2msa(msa, large_cl2seq)
+    @info "get_cluster2structures"
     small_cl2pdb = AlphaConformers.get_cluster2structures(structures, small_cluster2targets)
     large_small_pairs = zip(large_clusters, small_clusters) |> unique |> sort
     (large_small_pairs, large_cl2msa, small_cl2pdb)
@@ -718,29 +812,48 @@ function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
         # MSA
         cluster_folder = mkdir(joinpath(out_folder, "cluster_$(large)_$(small)"))
         msa_file = joinpath(cluster_folder, "sequences.a3m")
-        write(msa_file, large_cl2msa[large], MIToS.MSA.FASTA)
+        MIToS.MSA.write_file(msa_file, large_cl2msa[large], MIToS.MSA.FASTA)
         # Structures
         cluster_template_folder = mkdir(joinpath(cluster_folder, "templates"))
         for (target, structure) in small_cl2pdb[small]
-            pdb_file = joinpath(cluster_template_folder,
-                replace(target, ".pdb" => "") * ".pdb")
-            write(pdb_file, structure, MIToS.PDB.PDBFile)
+            #Get the right extension 
+            base_name = replace(target, ".pdb" => "")
+            if startswith(base_name, "AF")
+                upper_file = joinpath(cluster_template_folder, uppercase(base_name) * ".pdb")
+                MIToS.PDB.write_file(upper_file, structure, MIToS.PDB.PDBFile)
+            else 
+                # lowercase and uppercase file 
+                lower_file = joinpath(cluster_template_folder, lowercase(base_name) * ".pdb")
+                MIToS.PDB.write_file(lower_file, structure, MIToS.PDB.PDBFile)
+            end
         end
     end
     out_folder
 end
 
-function alphaconformers(input_pdb, pdb_db, alphafold_db, pdb_folder, out_folder; 
+#faire pour ajouter n pdb et les concaténer dans foldseek 
+function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
         evalue_cutoff::Float64=1e-5)
-    
     @info "Running Foldseek"
-    output = run_foldseek(input_pdb, "$pdb_db,$alphafold_db", out_folder=out_folder)
-    merged_table = merge_tables([output[1].table_file, output[2].table_file])
-    println(first(merged_table,10))
+    #output = run_foldseek(input_pdb, "$pdb_db,$alphafold_db", out_folder=out_folder)
+    output = run_foldseek(input_pdb, db , out_folder=out_folder)
+    # Initialiser un vecteur vide de String
+    output_vector = Vector{String}()
+
+    # Boucle correcte sur les éléments de `output`
+    for item in output
+        push!(output_vector, item.table_file)  # Ajouter au vecteur
+    end
+
+    # Fusionner les tables
+    merged_table = merge_tables(output_vector)
+
+    #merged_table = merge_tables([output[1].table_file, output[2].table_file])
     filter!(row -> row.evalue < evalue_cutoff, merged_table)
+    @info "Merge MSAS"
     merged_msa = merge_msas(merged_table)
-    println(first(merge_msas,10))
     
+    #merged_msa = merge_msas(merged_table)
     @info "Getting the aligned structures"
     structures = _get_aligned_structures(merged_table)
     
@@ -753,8 +866,10 @@ function alphaconformers(input_pdb, pdb_db, alphafold_db, pdb_folder, out_folder
     rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
     fill_rmsds!(rmsds, expanded_table, structures)
     
+    
     @info "Clustering structures"
     large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
+    @info "Create folder"
     create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
 end
 
