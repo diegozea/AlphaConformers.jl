@@ -58,7 +58,7 @@ function analyse_output(query::String,folder_path::String)
     holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
 
     # Construire le chemin du dossier modèle
-    folder_model=folder_path*query
+    folder_model=folder_path*query*"_Update"
     println("Apo PDB Path: ", apo_pdb)
     println("Holo PDB Path: ", holo_pdb)
     println("Folder Model: ", folder_model)
@@ -68,7 +68,7 @@ function analyse_output(query::String,folder_path::String)
     println(typeof(model_files))
 
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"/rmsd_results_"*query*".csv", results)
+    CSV.write(folder_path*"/"*query*"_Update/rmsd_results_"*query*".csv", results)
 
     #Visualisation of the result 
     scatter(results.RMSD_Apo, results.RMSD_Holo,
@@ -77,7 +77,7 @@ function analyse_output(query::String,folder_path::String)
     marker=:circle, legend=false,
     xlims=(0,7), ylims=(0, 6))
 
-    savefig(folder_path*"/"*query*"/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    savefig(folder_path*"/"*query*"_Update/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
 end
 using Glob
 using Statistics
@@ -148,8 +148,8 @@ end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 query="1AKZ"
-#analyse_output(query,folder_path)
+analyse_output(query,folder_path)
 
 chemin_dossier_1 = joinpath(folder_path,"1AKZ")
-chemin_dossier_2 = joinpath(folder_path,"1AKZ_A/clusters")
+chemin_dossier_2 = joinpath(folder_path,"1AKZ_Update")
 resultats = compare_directories(chemin_dossier_1, chemin_dossier_2)

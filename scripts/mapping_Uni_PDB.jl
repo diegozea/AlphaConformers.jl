@@ -224,39 +224,39 @@ Output the Dataframe with two new colonnes MUTATION and MISSING_RESIDUES
     #Add column with missing residue
     df_uniprot.MISSING_RESIDUES .= 0
     #For each pdb file
+    @info "Uniprot " unique(df_uniprot.UNIPROT)  
     for row in eachrow(df_uniprot)
         mut=0
+        mis=0
         pdb=row.PDB
-        @info "Uniprot " row.UNIPROT        
         #Recover the SIFT file
-        siftsfile=joinpath(sift_folder,pdb*".xml.gz") #Use the temporary folder
+        siftsfile=joinpath(sift_folder,pdb*".xml.gz")
         if !isfile(siftsfile)  # If the xml couldn't be download  
             @warn "❌ Error sift file $pdb is not download"
             return df_uniprot #Don't count the mutation and missing residues  
         end
         #Do the comparaison 
-        residue_data = read(siftsfile, SIFTSXML)
+        residue_data = MIToS.SIFTS.read_file(siftsfile, SIFTSXML,chain = String(row.CHAIN))
         #For each residues
-        for i in 1:length(residue_data)
+        for res in residue_data
             #get the information
-            residues=read(siftsfile, SIFTSXML)[i]
-            res_uni=get(residues, dbUniProt, :name, "missing")
-            id_uni=get(residues, dbUniProt, :id, "missing")
-            res_pdb=get(residues, dbPDB, :name, "")
-            chain_pdb=get(residues, dbPDB, :chain, "") #Check that we are on the right channel and good Uniprot
+            #Count the number of missing residues
+            mis += res.missing ? 1 : 0
+            #Get the mapping
+            res_uni=get(res, dbUniProt, :name, "missing")
+            id_uni=get(res, dbUniProt, :id, "missing")
+            res_pdb=get(res, dbPDB, :name, "")
+            chain_pdb=get(res, dbPDB, :chain, "") #Check that we are on the right channel and good Uniprot
             #If not in uniprot we ignore
             if row.CHAIN==chain_pdb && row.UNIPROT==id_uni
                 res_pdb_n=three2residue(res_pdb) # Returns a MIToS.MSA.Residue
                 if res_uni != string(res_pdb_n) # If not same residue then mutation
-                    mut=mut+1
+                    mut += 1
                 end
             end  
         end
         #Add value in df
         row.MUTATION = mut
-        #Count the number of missing residues
-        sifts_1ivo = read(siftsfile, SIFTSXML, chain = String(row.CHAIN))
-        mis=count([res.missing for res in sifts_1ivo]) # Returns a boolean vector so counts the number of 1s
         row.MISSING_RESIDUES=mis
     end
     return df_uniprot
@@ -506,10 +506,22 @@ Output a dataframe with all the added colonnes
    
     #hobohm algorithme 
     @show "debut hobohm  ", Dates.format(now(), "HH:MM:SS")
-    cluster_hobohm=structural_clustering_hobohm_multi(df_uniprot[1,:], pdb_folder, df_uniprot[2:end,:],[0.5, 0.75, 1, 1.25, 1.5,2]) #put in query the first pdb of the uniprot
-    @show cluster_hobohm
-    df_result=add_cluster_columns!(df_uniprot, cluster_hobohm)
-    @show "Hobohm" df_result
+    cutoffs=[0.5, 0.75, 1, 1.25, 1.5,2]
+    df_result = nothing
+    try 
+        cluster_hobohm=structural_clustering_hobohm_multi(df_uniprot[1,:], pdb_folder, df_uniprot[2:end,:],cutoffs) #put in query the first pdb of the uniprot
+        @show cluster_hobohm
+        df_result=add_cluster_columns!(df_uniprot, cluster_hobohm)
+        @show "Hobohm" df_result
+    catch e
+        @warn "Couldn't performs Hobohm algorithm for" uniprot_ids=unique(df_uniprot.UNIPROT)
+        for cutoff in cutoffs 
+            cluster_col_name = Symbol("Cluster_$(cutoff)")
+            df_uniprot[!, cluster_col_name] = fill(missing, nrow(df_uniprot)) # Add a c colonne with only missing 
+        end
+        df_result = df_uniprot
+    end
+
     @show " fin hobohm ", Dates.format(now(), "HH:MM:SS")
     
     #Check if succed to have different cluster 
@@ -520,7 +532,13 @@ Output a dataframe with all the added colonnes
         try 
             @info "Didn't succeed to separate with Hobohm"
             @show "debut Normal", Dates.format(now(), "HH:MM:SS")
-            rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot, sift_folder, pdb_folder)
+            try 
+                rmsd_list, files, keep_indices = calculate_RMSD_uniprot(df_uniprot, sift_folder, pdb_folder)
+            catch e
+                @warn "Didn't succeed to cluster in Normal, We use Hobohm clusteing"
+                @show e
+                return df_result
+            end
             #Check that after the coverage we still have 
             if !isempty(keep_indices)
                 @info "We have files"
@@ -556,10 +574,12 @@ function clustering_each_uniprot_acc(df_final::DataFrame,sift_folder::String,pdb
     grouped_uniprots = DataFrame[g for g in groupby(df_final, :UNIPROT)]
 
     # Try only for 10
-    grouped_uniprots_limited = grouped_uniprots[1:min(70, length(grouped_uniprots))]
+    #grouped_uniprots_limited = grouped_uniprots[1:min(100, length(grouped_uniprots))]
 
-    df_results = pmap(df -> process_uniprot_df(df, sift_folder, pdb_folder), grouped_uniprots_limited)
+    df_results = map(df -> process_uniprot_df(df, sift_folder, pdb_folder), grouped_uniprots)
     df_completed = vcat(skipmissing(df_results)...)
+    @info "All the Uniprot are done"
+    @show last(df_completed,20)
     return df_completed
 end
 
@@ -575,7 +595,6 @@ function check_apo_holo_cluster(df_completed::DataFrame)
 
     for row in eachrow(df_completed)
         uniprot=row.UNIPROT # Check for every uniprot accession 
-        @show uniprot
         #Check that we haven't already done this
         is_present= uniprot in check_cluster.UNIPROT
         if !is_present
@@ -590,6 +609,8 @@ function check_apo_holo_cluster(df_completed::DataFrame)
                 result = 0
                 # Compare clusters for each cutoff
                 for cutoff in [0.5, 0.75, 1, 1.25, 1.5,2]
+                    cluster_col = Symbol("Cluster_$(cutoff)")
+                    #=
                     # Retrieve clusters for each cutoff
                     cluster_col = Symbol("Cluster_$(cutoff)")
                     cluster_with = with_ligands[:, cluster_col]
@@ -604,7 +625,7 @@ function check_apo_holo_cluster(df_completed::DataFrame)
                             result = cutoff
                         end
                     end
-                    #=
+                    =#
                     for file_with_ligands in eachrow(with_ligands)
                         for file_without_ligands in eachrow(without_ligands)
                             cluster_with = file_with_ligands[cluster_col]
@@ -617,7 +638,7 @@ function check_apo_holo_cluster(df_completed::DataFrame)
                             end
                         end
                     end
-                    =#
+                    
                 end
                 push!(check_cluster,(uniprot,true,result))
                 
@@ -721,54 +742,79 @@ function main(part_1::Bool,part_2::Bool,save::Bool,sift_folder::String,pdb_folde
         file_path_df_final="pdb_information_details_filter.csv"
         df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
         comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-    end  
+    end 
+    
     #Clustering
     df_completed=clustering_each_uniprot_acc(df_final,sift_folder,pdb_folder)
     println(first(df_completed,20))
     println(size(df_completed))
 
     # Save the result
-    CSV.write("pdb_information_details_final_cluster_1000.csv", df_completed)
-    
-    # Compare the cluster
-    check_cluster=check_apo_holo_cluster(df_completed)
-    println(first(check_cluster,20))
-    value_counts = countmap(check_cluster.BEST_CUTOFF)  # Count the occurrences
-    most_frequent_value = argmax(value_counts) 
-    println("The cutoff that best separates the apo and holo form is : ", most_frequent_value)
-    frequency = count(x -> !ismissing(x) && x == most_frequent_value, check_cluster.BEST_CUTOFF)
-    println("She appears ", frequency, " time.")
-    println(size(check_cluster))
-    println("It separates properly : ",(frequency/size(check_cluster)[1])*100)
-    CSV.write("pdb_apo_holo_1000.csv", check_cluster)
+    CSV.write("pdb_information_details_final_cluster.csv", df_completed)
+    CSV.write("pdb_information_details_final_cluster.csv", filter(!isnothing, df_completed))
 
+    
+    # Compare the cluster 
+    check_cluster = check_apo_holo_cluster(df_completed)
+    println(first(check_cluster, 20))
+
+    # Compte les occurrences de chaque valeur de BEST_CUTOFF (en excluant les valeurs manquantes)
+    value_counts = countmap(skipmissing(check_cluster.BEST_CUTOFF))
+
+    # Trie les résultats par fréquence décroissante
+    sorted_counts = sort(collect(value_counts), by = x -> -x[2])
+
+    println("Occurrences de chaque BEST_CUTOFF :")
+    for (cutoff, count) in sorted_counts
+        println("Cutoff = ", cutoff, " → ", count, " fois (", round(count / nrow(check_cluster) * 100, digits=2), "%)")
+    end
+
+    # Affiche le cutoff le plus fréquent
+    most_frequent_value = first(sorted_counts)[1]
+    println("\nLe cutoff le plus fréquent est : ", most_frequent_value)
+
+    # Fréquence absolue et relative
+    frequency = count(x -> !ismissing(x) && x == most_frequent_value, check_cluster.BEST_CUTOFF)
+    println("Il apparaît ", frequency, " fois.")
+    println("Nombre total d'éléments : ", size(check_cluster, 1))
+    println("Cela représente ", round((frequency / size(check_cluster, 1)) * 100, digits=2), "% des cas.")
+
+    # Export CSV
+    CSV.write("pdb_apo_holo.csv", check_cluster)
+    
+    
     #Add information about Missing residues and mutation
+    @show "Debut mapping", Dates.format(now(), "HH:MM:SS")
     if part_2
         function process_group(group_key)
             try
                 # Récupérer le groupe à partir du DataFrame original
-                df_group = df_final[df_completed.UNIPROT .== group_key, :]
+                df_group = df_final[df_final.UNIPROT .== group_key, :]
                 result = count_mutation_pdb_uni(df_group, sift_folder)
                 return result  # Retourner le résultat (peut être un DataFrame ou nothing)
             catch e
-                @error "Error processing group $(group_key): $(e)"  # Log l'erreur
-                return nothing # IMPORTANT : Retourner `nothing` en cas d'erreur pour que skipmissing fonctionne
+                @warn "Error processing group $(group_key): $(e)"  # Log l'erreur
+                df_group = df_final[df_final.UNIPROT .== group_key, :]
+                df_group.MUTATION .= missing
+                #Add column with missing residue
+                df_group.MISSING_RESIDUES .= missing
+                return df_group 
             end
         end
     
         # Obtenir les clés de groupe uniques (UNIPROT IDs)
-        uniprot_ids = unique(df_completed.UNIPROT)
+        uniprot_ids = unique(df_final.UNIPROT)
     
         # Utiliser pmap pour traiter chaque groupe itérativement
-        df_results = pmap(process_group, uniprot_ids)
-    
+        df_results = map(process_group, uniprot_ids)
         # Combiner les résultats non-missing
         df_completed_final = vcat(skipmissing(df_results)...)
-    
+        @show first(df_completed_final,20)
         if save
             CSV.write("pdb_information_details_filter_mutation.csv", df_completed_final)
         end
     end
+    @show "Fin mapping", Dates.format(now(), "HH:MM:SS")
     
 end
 
@@ -777,13 +823,13 @@ end
 #############################################################################################################################################
 
 @info "START ! "
-@show "Début de debut ", Dates.format(now(), "HH:MM:SS")
+@show "Date de debut ", Dates.format(now(), "HH:MM:SS")
 
 const sift_folder= abspath("/alpha/database/sift", "sift_files")
 const pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
 
 main(false,false,true,sift_folder,pdb_folder)
 
-@show "Début de fin", Dates.format(now(), "HH:MM:SS")
+@show "Date de fin", Dates.format(now(), "HH:MM:SS")
 
 @info "END !"
