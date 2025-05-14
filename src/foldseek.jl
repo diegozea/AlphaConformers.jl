@@ -289,13 +289,15 @@ function merge_msas(table::DataFrames.DataFrame)
         @show duplicated_msa_targets
         # Create a selection vector, starting with `true` to keep the first sequence
         selected = Bool[]
-        push!(selected, true)
-        names=[]
+        selected = trues(length(seqnames))
+        names = Dict{String, Tuple{Int, Tuple{String, Int, Float64}}}()  # name → (index, key)
+        index=0
         for seqname in seqnames
+            index=index+1
             @show seqname
             name = first(split(seqname, "\t"))
             if occursin("Unnamed", name)
-                push!(selected,false)
+                 selected[index] = false
             elseif name in duplicated_msa_targets
                 key = _seq_name_to_key(seqname)  # ("1QGP.pdb_A", 56, 0.203)
                 @show name
@@ -304,32 +306,33 @@ function merge_msas(table::DataFrames.DataFrame)
 
                 if key in starts
                     # Vérifie si une entrée du même nom existe déjà dans la liste `names`
-                    existing_index = findfirst(n -> n[1] == key[1], names)
-
-                    if existing_index !== nothing
-                        existing_key = names[existing_index]  # Clé déjà enregistrée
-
+                    if haskey(names, key)
+                        @show "not new"
+                        existing_index, existing_key = names[key]
+                        @show existing_key
                         # Comparaison sur la valeur du score (3e élément)
                         if key[3] < existing_key[3]
+                            @show "better"
                             # Trouver la position de l'entrée à désélectionner
-                            pos_du = findfirst(s -> _seq_name_to_key(s) == existing_key, seqnames)
-                            if pos_du !== nothing
-                                selected[pos_du] = false
-                            end
-                            push!(selected, true)
-                            names[existing_index] = key  # Remplace la clé avec la meilleure
+                            selected[existing_index] = false
+                            selected[index] = true
+                            names[key] = (index, key)
                         else
-                            push!(selected, false)
+                            selected[index] = false
+                            @show false
                         end
                     else
-                        push!(names, key)
-                        push!(selected, true)
+                        # Première fois qu'on voit ce nom
+                        names[key] = (index, key)
+                        selected[index] = true
+                        @show true
                     end
                 else
-                    push!(selected, false)
+                    selected[index] = false
+                    @show false
                 end
             else
-                push!(selected, first(split(name, "\t")) in targets)
+                selected[index] = name in targets
 
             end
         end  
@@ -584,6 +587,78 @@ function find_best_match!(
     end
 end
 
+function find_rmsd_hobohm!(
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    rmsds::Dict{Tuple{String,String},Float64},
+    target::String,
+    target2uniprot::Dict{String,String},
+    uniprot2targets::Dict{String,Vector{String}};
+    pdb_folder::Union{String,Nothing}=nothing,
+    min_coverage::Float64=0.75,
+    min_identity::Float64=0.95)
+    # get the PDB code and chain from the target name
+    pdb, chain = AlphaConformers._get_pdb_and_chain(target)
+    # read the PDB file
+    conformation_b = if pdb_folder === nothing #link with pdb databases 
+        mktempdir() do tmp_folder
+            @info "Downloading $pdb"
+            pdb_file = joinpath(tmp_folder, "$pdb.pdb.gz")
+            MIToS.PDB.downloadpdb(pdb; format=MIToS.PDB.PDBFile, filename=pdb_file)
+            _read_pdb(pdb_file, chain)
+        end
+    else
+        _read_pdb(joinpath(pdb_folder, uppercase(pdb) * ".pdb"), chain)
+    end
+    if conformation_b === nothing
+        return nothing
+    end
+    #Algorithme with Hobohm 
+    sort!(targets) 
+    selected = []
+
+    for target_a in targets
+        if target_a == target
+            continue
+        end
+
+        conformation_a = structures[target_a]
+        aln = structural_alignment(conformation_a, conformation_b)
+        if aln === nothing
+            continue
+        end
+
+        coverage = aln[5]
+        identity = aln[6]
+        rmsd = aln[4]
+
+        # Vérifier les seuils
+        if coverage < min_coverage || identity < min_identity
+            continue
+        end
+
+        # Comparer uniquement avec les structures déjà retenues
+        is_redundant = any(existing -> begin
+            existing_aln = structural_alignment(structures[existing], conformation_a)
+            existing_aln !== nothing && existing_aln[6] ≥ min_identity
+        end, selected)
+
+        if !is_redundant
+            key = sort((target, target_a))
+            rmsds[key] = rmsd
+            push!(selected, target_a)
+
+            # Sauvegarder la première non redondante comme meilleur match
+            aligned_positions = [m[2] for m in aln[3]]
+            structures[target] = aln[2][aligned_positions]
+            return (; aligned_a=aln[1], aligned_b=aln[2], matches=aln[3],
+                    rmsd=rmsd, coverage=coverage, identity=identity, keys=key)
+        end
+    end
+
+    return nothing
+
+end
+
 function process_known_conformations!(
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
     expanded_table::DataFrames.DataFrame,
@@ -594,7 +669,7 @@ function process_known_conformations!(
     for row in eachrow(expanded_table)
         if ismissing(row.query)
             target = row.target
-            best_match = find_best_match!(structures, rmsds, target,
+            best_match = find_rmsd_hobohm!(structures, rmsds, target,
                 target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
             if best_match !== nothing
                 row.query = only([q for q in best_match.keys if q != target])
