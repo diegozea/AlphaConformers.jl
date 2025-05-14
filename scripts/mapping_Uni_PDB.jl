@@ -35,6 +35,7 @@ addprocs(12)  # Ajoute 12 processus parallèles
 @everywhere using StatsBase
 @everywhere using Dates
 @everywhere using Profile
+@everywhere using InlineStrings
 
 
 #Link the 3 csv together
@@ -709,6 +710,47 @@ function biolip_preparation(create_file::Bool ,save::Bool)
     return df_biolip_5_first_columns
 end
 
+#Clean csv to have 1 ligne one structure
+function clean_csv(input_path::String, output_path::String)
+    # Lire le fichier CSV (avec une seule ligne contenant des vecteurs)
+    raw_df = CSV.File(input_path) |> DataFrame
+    @show raw_df
+    # Liste des colonnes à traiter (ordonnée comme dans le fichier source)
+    columns = [
+        :PDB, :CHAIN, :RES_BEG, :RES_END, :PFAM_NB, :CATH_NB,
+        :RESOLUTION, :METHOD, :DATE_RELEASE, :UNIPROT, :LIGANDS,
+        Symbol("Cluster_0.5"), Symbol("Cluster_0.75"), Symbol("Cluster_1.0"),
+        Symbol("Cluster_1.25"), Symbol("Cluster_1.5"), Symbol("Cluster_2.0")
+    ]
+
+    # Conteneur pour les lignes nettoyées
+    all_rows = DataFrame()
+
+    for row in eachrow(raw_df)
+        # Parse les vecteurs depuis les chaînes
+        parsed_columns = Dict{Symbol, Vector}()
+        for col in columns
+            parsed_columns[col] = eval(Meta.parse(row[col]))
+        end
+
+        # Nombre d'éléments par colonne (doit être constant pour une ligne)
+        n = length(parsed_columns[:PDB])
+
+        # Crée un DataFrame pour cette ligne
+        temp_df = DataFrame()
+        for col in columns
+            temp_df[!, col] = parsed_columns[col]
+        end
+
+        # Empile
+        append!(all_rows, temp_df)
+    end
+
+    # Écrit le fichier de sortie
+    CSV.write(output_path, all_rows)
+    println("✅ CSV converti avec succès : $output_path")
+end
+
 
 ################  Function main ##################
 """ 
@@ -719,8 +761,9 @@ Take in input Boolean to now f=if we do the first part and if we take a file sav
 where all the sift are save and all the pdb 
 At the end we will have a csv created with all the information : pdb_information_details_final.csv
 """
-function main(part_1::Bool,part_2::Bool,save::Bool,sift_folder::String,pdb_folder::String)
+function main(part_1::Bool,part_2::Bool,part_3::Bool,save::Bool,sift_folder::String,pdb_folder::String)
     sift_uniprot_mapping, sift_pfam_mapping, sift_cath_mapping = download_file()
+    #get the information about every PDB
     if part_1
         df_biolip_5_first_columns=biolip_preparation(false,false)
 
@@ -737,54 +780,7 @@ function main(part_1::Bool,part_2::Bool,save::Bool,sift_folder::String,pdb_folde
             CSV.write("pdb_information_details.csv", df_final)
         end
     end
-    if save 
-        # get back the final df 
-        file_path_df_final="pdb_information_details_filter.csv"
-        df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
-        comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-    end 
-    
-    #Clustering
-    df_completed=clustering_each_uniprot_acc(df_final,sift_folder,pdb_folder)
-    println(first(df_completed,20))
-    println(size(df_completed))
-
-    # Save the result
-    CSV.write("pdb_information_details_final_cluster.csv", df_completed)
-    CSV.write("pdb_information_details_final_cluster.csv", filter(!isnothing, df_completed))
-
-    
-    # Compare the cluster 
-    check_cluster = check_apo_holo_cluster(df_completed)
-    println(first(check_cluster, 20))
-
-    # Compte les occurrences de chaque valeur de BEST_CUTOFF (en excluant les valeurs manquantes)
-    value_counts = countmap(skipmissing(check_cluster.BEST_CUTOFF))
-
-    # Trie les résultats par fréquence décroissante
-    sorted_counts = sort(collect(value_counts), by = x -> -x[2])
-
-    println("Occurrences de chaque BEST_CUTOFF :")
-    for (cutoff, count) in sorted_counts
-        println("Cutoff = ", cutoff, " → ", count, " fois (", round(count / nrow(check_cluster) * 100, digits=2), "%)")
-    end
-
-    # Affiche le cutoff le plus fréquent
-    most_frequent_value = first(sorted_counts)[1]
-    println("\nLe cutoff le plus fréquent est : ", most_frequent_value)
-
-    # Fréquence absolue et relative
-    frequency = count(x -> !ismissing(x) && x == most_frequent_value, check_cluster.BEST_CUTOFF)
-    println("Il apparaît ", frequency, " fois.")
-    println("Nombre total d'éléments : ", size(check_cluster, 1))
-    println("Cela représente ", round((frequency / size(check_cluster, 1)) * 100, digits=2), "% des cas.")
-
-    # Export CSV
-    CSV.write("pdb_apo_holo.csv", check_cluster)
-    
-    
     #Add information about Missing residues and mutation
-    @show "Debut mapping", Dates.format(now(), "HH:MM:SS")
     if part_2
         function process_group(group_key)
             try
@@ -814,8 +810,53 @@ function main(part_1::Bool,part_2::Bool,save::Bool,sift_folder::String,pdb_folde
             CSV.write("pdb_information_details_filter_mutation.csv", df_completed_final)
         end
     end
-    @show "Fin mapping", Dates.format(now(), "HH:MM:SS")
-    
+    if part_3
+        #Clustering
+        df_completed=clustering_each_uniprot_acc(df_final,sift_folder,pdb_folder)
+        println(first(df_completed,20))
+        println(size(df_completed))
+        # Save the result
+        if save 
+            #CSV.write("pdb_information_details_final_mutation_cluster.csv", df_completed)
+            CSV.write("pdb_information_details_final_mutation_cluster.csv", filter(!isnothing, df_completed)) 
+        end
+    end
+    if save 
+        # get back the final df 
+        file_path_df_final="pdb_information_details_final_mutation_cluster.csv"
+        df_completed=DataFrames.DataFrame(CSV.File(file_path_df_final,
+        comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
+    end 
+    clean_csv(file_path_df_final, "pdb_information_details_final_mutation_cluster_reformatted.csv")
+
+    # Compare the cluster 
+    check_cluster = check_apo_holo_cluster(df_completed)
+    println(first(check_cluster, 20))
+
+    # Compte les occurrences de chaque valeur de BEST_CUTOFF (en excluant les valeurs manquantes)
+    value_counts = countmap(skipmissing(check_cluster.BEST_CUTOFF))
+
+    # Trie les résultats par fréquence décroissante
+    sorted_counts = sort(collect(value_counts), by = x -> -x[2])
+
+    println("Occurrences de chaque BEST_CUTOFF :")
+    for (cutoff, count) in sorted_counts
+        println("Cutoff = ", cutoff, " → ", count, " fois (", round(count / nrow(check_cluster) * 100, digits=2), "%)")
+    end
+
+    # Affiche le cutoff le plus fréquent
+    most_frequent_value = first(sorted_counts)[1]
+    println("\nLe cutoff le plus fréquent est : ", most_frequent_value)
+
+    # Fréquence absolue et relative
+    frequency = count(x -> !ismissing(x) && x == most_frequent_value, check_cluster.BEST_CUTOFF)
+    println("Il apparaît ", frequency, " fois.")
+    println("Nombre total d'éléments : ", size(check_cluster, 1))
+    println("Cela représente ", round((frequency / size(check_cluster, 1)) * 100, digits=2), "% des cas.")
+
+    # Export CSV
+    CSV.write("pdb_apo_holo.csv", check_cluster)
+   
 end
 
 ###########################################################################################################################################
@@ -828,7 +869,7 @@ end
 const sift_folder= abspath("/alpha/database/sift", "sift_files")
 const pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
 
-main(false,false,true,sift_folder,pdb_folder)
+main(false,false,false,true,sift_folder,pdb_folder)
 
 @show "Date de fin", Dates.format(now(), "HH:MM:SS")
 

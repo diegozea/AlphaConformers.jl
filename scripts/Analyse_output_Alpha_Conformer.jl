@@ -148,7 +148,7 @@ end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 query="1AKZ"
-analyse_output(query,folder_path)
+#analyse_output(query,folder_path)
 
 chemin_dossier_1 = joinpath(folder_path,"1AKZ")
 chemin_dossier_2 = joinpath(folder_path,"1AKZ_Update")

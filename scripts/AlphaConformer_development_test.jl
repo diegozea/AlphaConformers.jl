@@ -131,8 +131,9 @@ println(size(info_pdb))
 
 #Run AlphaConformers with apo form in template 
 global index=0
+global list=[3,6,8,9,10,11]
 for row in eachrow(info_pdb)
-    if index == 7
+    if index == 1
         apo_pdb=row.PDB_apo
         apo_chain=row.CHAIN_apo
         apo_model=row.INDEX_apo
