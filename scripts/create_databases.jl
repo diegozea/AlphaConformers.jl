@@ -1,11 +1,11 @@
 #!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
-#PBS -l ncpus=13
-#PBS -l mem=30g
-#PBS -l host=node48
-#PBS -l walltime=300:00:00
-#PBS -j oe
+#SBATCH --nodelist=node48
+#SBATCH --time=900:00:00
+#SBATCH --mem=100G
+#SBATCH --cpus-per-task=40
+#SBATCH --output=create_databases-%j.out
 =#
 import Pkg
 Pkg.activate("/home/julie.daniel/.julia/environments/v1.11")
@@ -81,24 +81,59 @@ addprocs(12)  # Ajoute 4 processus parallèles
 end
 
 @everywhere function filter_pdb(df_uniprot,pdb_folder::String)
-    #Check that we have apo and holo conformation 
-    is_apo = is_apo = any(ismissing, df_uniprot.LIGANDS) && any(!ismissing, df_uniprot.LIGANDS)
-    if is_apo 
-        df_uniprot_res = filter(row -> ismissing(row.RESOLUTION) || row.RESOLUTION < 2.5, df_uniprot) #Pour recuperer fichier avec bonne résolution
-        df_uniprot_res_date = filter(row -> row.DATE_RELEASE >= Date("2020-07-01", "yyyy-mm-dd"), df_uniprot_res) #get pdb release after the training of AF2
-        if !isempty(df_uniprot_res_date) #check that we still have row
-            is_apo = is_apo = any(ismissing, df_uniprot_res_date.LIGANDS) && any(!ismissing, df_uniprot_res_date.LIGANDS)
-            if is_apo #Check that we still have apo and holo conformation 
-                return check_rmsd_apo_holo(df_uniprot_res_date,pdb_folder)
-            else 
-                return nothing 
+    # Check that apo and holo are in different cluster 
+    with_ligands = filter(row -> !ismissing(row.LIGANDS), df_uniprot)
+    without_ligands = filter(row -> ismissing(row.LIGANDS), df_uniprot)
+    result = 0
+    for cutoff in [0.5, 0.75, 1.0, 1.25, 1.5,2]
+        cluster_col = Symbol("Cluster_$(cutoff)")
+        for file_with_ligands in eachrow(with_ligands)
+            for file_without_ligands in eachrow(without_ligands)
+                cluster_with = file_with_ligands[cluster_col]
+                cluster_without = file_without_ligands[cluster_col]
+                if !ismissing(cluster_with) && !ismissing(cluster_without) && cluster_with != cluster_without
+                    # If the files are in different clusters, take the smaller value
+                    if  cutoff>result
+                        result = cutoff
+                    end 
+                end
             end
-        else 
+        end
+    end
+    if result != 0
+        #check that they have more than 1A of differences 
+        if result >=1.0
+            cutoff =1.0
+            cluster_col = Symbol("Cluster_$(cutoff)")
+           # Extraire les clusters (non-missing) pour cutoff 1.0
+            clusters_with = Set(row[cluster_col] for row in eachrow(with_ligands) if !ismissing(row[cluster_col]))
+            clusters_without = Set(row[cluster_col] for row in eachrow(without_ligands) if !ismissing(row[cluster_col]))
+
+            # Garder les lignes seulement si les clusters sont disjoints
+            if isempty(intersect(clusters_with, clusters_without))
+                df_final = vcat(with_ligands, without_ligands)
+            else
+                df_final = DataFrame()  # Vide si clusters en commun
+            end
+            @show df_final
+            if !isempty(df_final)
+                #check that we still have apo 
+                is_apo = any(ismissing, df_final.LIGANDS)
+                if is_apo
+                    return df_final
+                else 
+                    return nothing
+                end
+            else 
+                return nothing
+            end
+        else
             return nothing
         end
     else 
         return nothing
     end
+    
 end
 
 function create_database(df_final::DataFrame,pdb_folder:: String)
@@ -134,7 +169,7 @@ function foldseek_similar_pdb(df_final::DataFrame,FOLDSEEK_DB::String,pdb_folder
             df_result=AlphaConformers.read_foldseek_search_results(out_file)
             #Filter the evalue to keep the one < 1e-3
             println(first(df_result,5))
-            df_result_evalue = filter(row -> row.evalue < 1e-3, df_result)
+            df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
             println(first(df_result_evalue,5))
             push!(database,(uniprot,pdb_file,chain,size(df_result_evalue)[1]))
         else 
@@ -147,12 +182,106 @@ function foldseek_similar_pdb(df_final::DataFrame,FOLDSEEK_DB::String,pdb_folder
     return df_merged
 end
 
+function use_usalign(df_result_evalue,pdbfilepath)
+    for (i, row2) in enumerate(eachrow(df_result_evalue))
+        if i != 1
+            row2.target
+            aln_data = mktempdir() do tmp_folder
+                aln_data = nothing
+                try 
+                    pdb, chain = split(row2.target,"_")
+                    @info "Downloading $pdb"
+                    pdb_file = joinpath(tmp_folder, "$pdb.gz")
+                    MIToS.PDB.downloadpdb(String(split(pdb,".")[1]); format=MIToS.PDB.PDBFile, filename=pdb_file)
+                    aln_data = usalign(pdbfilepath, pdb_file)
+                    
+                catch e 
+                    @warn "Didn't succeed to download the pdb"
+                    aln_date=nothing
+                end
+                return aln_data
+            end
+            if aln_data === nothing
+                return false
+            end
+            @show first(aln_data,5)
+            row=first(aln_data)
+            if row.TM1 > 0.5 || row.TM2 > 0.5
+                return  false
+            end
+        end
+    end
+    return true
+end
 @info "Start"
 const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
 
 #Get the file with the result 
-file_path_df_final="pdb_information_details_final_1.csv"
+file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2.csv"
+df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
+comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
+println(first(df_final,20))
+println(size(df_final))
+
+filtering = false
+
+if filtering 
+    df_final=create_database(df_final,pdb_folder)
+    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2.csv", filter(!isnothing, df_final)) 
+end
+println(first(df_final,20))
+println(size(df_final))
+
+
+#=
+if df_final !== nothing 
+    df_merged=foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
+    println(first(df_merged,20))
+    println(size(df_merged))
+    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek.csv",df_merged)
+end
+
+@info "End"
+=#
+#=
+file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2.csv"
+df_merged=DataFrames.DataFrame(CSV.File(file_path_df_final,
+comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
+println(first(df_final,20))
+println(size(df_final))
+
+if df_merged !== nothing
+    database = filter(row -> row.NB_SIMILAR_PROT < 50, df_merged)
+    @show size(database)
+    df=DataFrame(UNIPROT=String[],PDB=String[],CHAIN=String[]) # Create an empty DF
+    df_last=DataFrame()
+    for row in eachrow(database)
+        uniprot=row.UNIPROT
+        pdb_file=row.PDB
+        chain=row.CHAIN
+        println(pdb_file)
+        pdbfilepath=joinpath(pdb_folder,uppercase(pdb_file)*".pdb" ) # Use the temporary file
+        if isfile(pdbfilepath) #Check that the file is not already downloaded
+            @info "Run Foldseek"
+            out_file=AlphaConformers.foldseek_search(pdbfilepath,db_path=FOLDSEEK_DB)
+            df_result=AlphaConformers.read_foldseek_search_results(out_file)
+            #Filter the evalue to keep the one < 1e-3
+            println(first(df_result,5))
+            df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
+            check=use_usalign(df_result_evalue,pdbfilepath)
+            if check
+                push!(df,(uniprot,pdb_file,chain))
+            end
+        else 
+            @warn "The PDB file of $pdb_file doesn't exist"
+        end
+    end
+    df_last = innerjoin(database, df, on=[:UNIPROT, :PDB, :CHAIN])
+end
+CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2_final2.csv", df_last) 
+=#
+file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2_final2.csv"
 df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
 comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
 println(first(df_final,20))
@@ -163,13 +292,7 @@ filtering = true
 if filtering 
     df_final=create_database(df_final,pdb_folder)
 end
+
 println(first(df_final,20))
 println(size(df_final))
-
-if df_final !== nothing 
-    df_merged=foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
-    println(first(df_merged,20))
-    println(size(df_merged))
-    CSV.write("pdb_information_details_final_1_foldseek.csv",df_merged)
-end
-@info "End"
+CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2_final2_1.csv", filter(!isnothing, df_final)) 

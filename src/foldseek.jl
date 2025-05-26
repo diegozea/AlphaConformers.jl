@@ -289,47 +289,56 @@ function merge_msas(table::DataFrames.DataFrame)
         @show duplicated_msa_targets
         # Create a selection vector, starting with `true` to keep the first sequence
         selected = Bool[]
-        selected = trues(length(seqnames))
-        names = Dict{String, Tuple{Int, Tuple{String, Int, Float64}}}()  # name → (index, key)
-        index=0
+        selected = trues(length(seqnames)+1)
+        names = Dict{Tuple{String, Int, Float64}, Int}()  # name → (key, index)
+        index=1
         for seqname in seqnames
             index=index+1
-            @show seqname
             name = first(split(seqname, "\t"))
             if occursin("Unnamed", name)
                  selected[index] = false
             elseif name in duplicated_msa_targets
                 key = _seq_name_to_key(seqname)  # ("1QGP.pdb_A", 56, 0.203)
-                @show name
-                @show key
-                @show key in starts
+                
 
                 if key in starts
                     # Vérifie si une entrée du même nom existe déjà dans la liste `names`
-                    if haskey(names, key)
-                        @show "not new"
-                        existing_index, existing_key = names[key]
-                        @show existing_key
+                    found=nothing
+                    for kv in names
+                        
+                        if kv[1][1] == key[1]
+                            
+                            found = kv
+                        end
+                    end
+
+                    #found = findfirst(kv -> kv[1][1] == key[1], names)
+                    if found !== nothing
+                        existing_key = found[1]
+                        existing_index = found[2]
+                        
                         # Comparaison sur la valeur du score (3e élément)
                         if key[3] < existing_key[3]
-                            @show "better"
+                            
                             # Trouver la position de l'entrée à désélectionner
                             selected[existing_index] = false
                             selected[index] = true
-                            names[key] = (index, key)
+                            names[key] = index
+                            delete!(names, existing_key)  # key est la clé, pas la valeur
+
                         else
                             selected[index] = false
-                            @show false
+                            
                         end
                     else
                         # Première fois qu'on voit ce nom
-                        names[key] = (index, key)
+                        names[key] = index
                         selected[index] = true
-                        @show true
+                        
                     end
                 else
                     selected[index] = false
-                    @show false
+                    
                 end
             else
                 selected[index] = name in targets
@@ -558,21 +567,30 @@ function find_best_match!(
         aln = structural_alignment(conformation_a, conformation_b)
         if aln !== nothing
             push!(alignment_list, key => aln)
+        else 
+            push!(alignment_list, key => [conformation_a,conformation_b,nothing,nothing,nothing,nothing])
         end
     end
     if isempty(alignment_list)
         return nothing
     end
     alignments = OrderedCollections.OrderedDict(alignment_list)
+    if all(x -> x[4] === nothing, values(alignments))
+        return nothing
+    end
     # get the best match
     df = DataFrames.DataFrame(values(alignments), ["aligned_a", "aligned_b", "matches",
         "rmsd", "coverage", "identity"])
     df[!, "keys"] .= keys(alignments)
-    filter!(row -> row.coverage > min_coverage && row.identity > min_identity, df)
+    filter!(row -> !ismissing(row.coverage) > min_coverage && !ismissing(row.identity) > min_identity, df)
     if !isempty(df)
         # if there is a match, store the rmsd values
         for (key, aln) in alignments
-            rmsds[key] = aln[4]
+            if aln[4] === nothing
+                rmsds[key] = nothing
+            else 
+                rmsds[key] = aln[4]
+            end
         end
         # select the best match
         sort!(df, ["identity", "coverage", "rmsd"], rev=[true, true, false])
@@ -581,6 +599,7 @@ function find_best_match!(
         aligned_positions = [m[2] for m in best_alignment.matches]
         structures[target] = best_alignment.aligned_b[aligned_positions]
         # return the best match
+        @show first(rmsds,10)
         best_alignment
     else
         nothing
@@ -666,10 +685,11 @@ function process_known_conformations!(
     uniprot2targets::Dict{String,Vector{String}};
     pdb_folder::Union{String,Nothing}=nothing,)
     rmsds = Dict{Tuple{String,String},Float64}()
+    @show first(expanded_table,10)
     for row in eachrow(expanded_table)
         if ismissing(row.query)
             target = row.target
-            best_match = find_rmsd_hobohm!(structures, rmsds, target,
+            best_match = find_best_match!(structures, rmsds, target,
                 target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
             if best_match !== nothing
                 row.query = only([q for q in best_match.keys if q != target])
@@ -708,7 +728,7 @@ function fill_rmsds!(rmsds::Dict{Tuple{String,String},Float64},
         if aln !== nothing
             rmsds[key] = aln[4]
         else
-            rmsds[key] = NaN
+            rmsds[key] = nothing
         end
     end
     rmsds
@@ -718,21 +738,42 @@ function get_rmsd_matrix(rmsds::Dict{Tuple{String,String},Float64}, targets::Set
     target_a = String[]
     target_b = String[]
     rmsd = Float64[]
+    @show size(targets)
     for (key, value) in rmsds
         key_a = key[1]
         key_b = key[2]
         if key_a in targets && key_b in targets
             push!(target_a, key_a)
             push!(target_b, key_b)
-            push!(rmsd, value)
+            if value===nothing
+                push!(rmsd, NaN)
+            else 
+                push!(rmsd, value)
+            end
         end
     end
     df = DataFrames.DataFrame(; target_a, target_b, rmsd)
+    @show size(df)
     sort!(df, [:target_a, :target_b])
+    for col in names(df)
+        col_data = df[!, col]
+
+        n_missing = count(ismissing, col_data)
+        n_nothing = count(x -> x === nothing, col_data)
+        n_nan = eltype(col_data) <: AbstractFloat ? count(isnan, col_data) : 0
+
+        println("Colonne ", col, " : ",
+            n_missing, " missing, ",
+            n_nothing, " nothing, ",
+            n_nan, " NaN")
+    end
     #contatenation targetA et B
     #stat.base countmap
     #df .= mapcols(x -> parse.(Float64, x), df)
-    mat = PairwiseListMatrices.from_table(df, false, diagonalvalue=0.0)
+    plm=PairwiseListMatrices.PairwiseListMatrix(df.rmsd,false,0.0)
+    @show first(plm,5)
+    mat = PairwiseListMatrices.from_table(df, false, diagonalvalue=1.0)
+    @show first(mat,5)
     # delete rows and columns with NaN values
     nan_col = vec(any(isnan, mat, dims=1))
     nan_row = vec(any(isnan, mat, dims=2))
@@ -746,6 +787,68 @@ function cluster_structures(rmsds::Dict{Tuple{String,String},Float64}, targets::
     structure_names = unsorted_names[clustering_result.order]
     structure_names, clustering_result
 end
+
+function hobohm_clustering(
+    table::DataFrames.DataFrame,
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    rmsd_threshold::Float64
+)
+    rmsds = Dict{Tuple{String,String},Float64}()
+    n = DataFrames.nrow(table)
+    targets = [table[i, :target] for i in 1:n]
+    clustered = Set{String}()
+    cluster_labels = Dict{String, Int}()
+    cluster_index = 1
+
+    for i in 1:n
+        target_i = targets[i]
+        if target_i in clustered
+            continue
+        end
+
+        cluster_labels[target_i] = cluster_index
+        push!(clustered, target_i)
+        struct_i = structures[target_i]
+
+        for j in (i+1):n
+            target_j = targets[j]
+            if target_j in clustered
+                continue
+            end
+
+            sorted_ids = sort([target_i, target_j])
+            key = (sorted_ids[1], sorted_ids[2])
+
+            if !haskey(rmsds, key)
+                struct_j = structures[target_j]
+                aln = structural_alignment(struct_i, struct_j,
+                    BioAlignments.GlobalAlignment(),
+                    BioAlignments.AffineGapScoreModel(BioAlignments.BLOSUM62,
+                        gap_open=-10, gap_extend=-1))
+                if aln !== nothing
+                    rmsds[key] = aln[4]
+                else
+                    rmsds[key] = nothing
+                end
+            end
+
+            if rmsds[key] !== nothing && rmsds[key] ≤ rmsd_threshold
+                cluster_labels[target_j] = cluster_index
+                push!(clustered, target_j)
+            end
+        end
+
+        cluster_index += 1
+    end
+    @show first(cluster_labels,5)
+    # Construction des résultats attendus
+    filtered_targets = sort(collect(keys(cluster_labels)))
+    clusters = [cluster_labels[t] for t in filtered_targets]
+
+    return filtered_targets, clusters
+end
+
+
 
 function get_target2sequence(expanded_table, msa)
     seqnames=collect(MIToS.MSA.sequencename_iterator(msa))
@@ -853,6 +956,26 @@ function get_cluster2structures(structures, cluster2targets)
     end
     cluster2structures
 end
+function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float64},
+    expanded_table::DataFrames.DataFrame,
+    msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
+    @info "get_target2sequence"
+    target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
+    targets = Set{String}(expanded_table.target)
+    @info "cluster_structures"
+    targets, clusters=hobohm_clustering(expanded_table, structures,1.0)
+    @info "get_cluster2targets"
+    cluster2targets = AlphaConformers.get_cluster2targets(targets, clusters)
+    @info "get_cluster2seqnames"
+    cl2seq = AlphaConformers.get_cluster2seqnames(cluster2targets, target2sequence)
+    @info "get_cluster2msa"
+    cl2msa = AlphaConformers.get_cluster2msa(msa, cl2seq)
+    @info "get_cluster2structures"
+    cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
+    (clusters, cl2msa, cl2pdb)
+end
+
 
 function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
     expanded_table::DataFrames.DataFrame,
@@ -862,12 +985,16 @@ function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
+    
     targets, clustering_result = cluster_structures(rmsds, targets)
     large_clusters = Clustering.cutree(clustering_result, h=1)
     small_clusters = Clustering.cutree(clustering_result, h=0.5)
+
     @info "get_cluster2targets"
+    
     large_cluster2targets = AlphaConformers.get_cluster2targets(targets, large_clusters)
     small_cluster2targets = AlphaConformers.get_cluster2targets(targets, small_clusters)
+    
     @info "get_cluster2seqnames"
     large_cl2seq = AlphaConformers.get_cluster2seqnames(large_cluster2targets, target2sequence)
     # small_cl2seq = AlphaConformers.get_cluster2seqnames(small_cluster2targets, target2sequence)
@@ -943,6 +1070,7 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
     
     
     @info "Clustering structures"
+    #large_small_pairs, large_cl2msa, small_cl2pdb= create_template_clusters_hobohm(rmsds, expanded_table, merged_msa, structures)
     large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
     @info "Create folder"
     create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)

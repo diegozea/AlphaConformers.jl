@@ -1,12 +1,13 @@
 #!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
 
 #=
-#PBS -l host=node48
-#PBS -l walltime=900:00:00
-#PBS -l mem=100gb
-#PBS -l ncpus=40
-#PBS -j oe
+#SBATCH --nodelist=node48
+#SBATCH --time=900:00:00
+#SBATCH --mem=100G
+#SBATCH --cpus-per-task=40
+#SBATCH --output=AlphaConformers_development_test.jl.o%j.out
 =#
+
 
 import Pkg
 Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
@@ -133,7 +134,7 @@ println(size(info_pdb))
 global index=0
 global list=[3,6,8,9,10,11]
 for row in eachrow(info_pdb)
-    if index == 1
+    if index == 7
         apo_pdb=row.PDB_apo
         apo_chain=row.CHAIN_apo
         apo_model=row.INDEX_apo
@@ -149,8 +150,9 @@ for row in eachrow(info_pdb)
         end
         mkdir(output_dir)
         println(output_dir)
+        
         AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db)
         #AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
-    end
+    end 
     global index=index+1
 end
