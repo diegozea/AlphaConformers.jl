@@ -844,8 +844,9 @@ function hobohm_clustering(
     # Construction des résultats attendus
     filtered_targets = sort(collect(keys(cluster_labels)))
     clusters = [cluster_labels[t] for t in filtered_targets]
+    clusters_array = [(i, cluster_labels[t]) for (i, t) in enumerate(filtered_targets)]
 
-    return filtered_targets, clusters
+    return filtered_targets, clusters, clusters_array
 end
 
 
@@ -964,7 +965,7 @@ function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float6
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
-    targets, clusters=hobohm_clustering(expanded_table, structures,1.0)
+    targets, clusters, clusters_array =hobohm_clustering(expanded_table, structures,1.0)
     @info "get_cluster2targets"
     cluster2targets = AlphaConformers.get_cluster2targets(targets, clusters)
     @info "get_cluster2seqnames"
@@ -973,7 +974,7 @@ function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float6
     cl2msa = AlphaConformers.get_cluster2msa(msa, cl2seq)
     @info "get_cluster2structures"
     cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
-    (clusters, cl2msa, cl2pdb)
+    (clusters_array, cl2msa, cl2pdb)
 end
 
 
@@ -1004,6 +1005,33 @@ function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
     small_cl2pdb = AlphaConformers.get_cluster2structures(structures, small_cluster2targets)
     large_small_pairs = zip(large_clusters, small_clusters) |> unique |> sort
     (large_small_pairs, large_cl2msa, small_cl2pdb)
+end
+
+function create_folder_structure_hobohm(clusters::Vector{Tuple{Int64, Int64}},
+    cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
+    cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
+    out_folder::String=mktempdir())
+    for (index, clust) in clusters
+        # MSA
+        cluster_folder = mkdir(joinpath(out_folder, "cluster_$(clust)_$(index)"))
+        msa_file = joinpath(cluster_folder, "sequences.a3m")
+        MIToS.MSA.write_file(msa_file, cl2msa[clust], MIToS.MSA.FASTA)
+        # Structures
+        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates"))
+        for (target, structure) in cl2pdb[clust]
+            #Get the right extension 
+            base_name = replace(target, ".pdb" => "")
+            if startswith(base_name, "AF")
+                upper_file = joinpath(cluster_template_folder, uppercase(base_name) * ".pdb")
+                MIToS.PDB.write_file(upper_file, structure, MIToS.PDB.PDBFile)
+            else 
+                # lowercase and uppercase file 
+                lower_file = joinpath(cluster_template_folder, lowercase(base_name) * ".pdb")
+                MIToS.PDB.write_file(lower_file, structure, MIToS.PDB.PDBFile)
+            end
+        end
+    end
+    out_folder
 end
 
 function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
@@ -1070,10 +1098,11 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
     
     
     @info "Clustering structures"
-    #large_small_pairs, large_cl2msa, small_cl2pdb= create_template_clusters_hobohm(rmsds, expanded_table, merged_msa, structures)
-    large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
+    clusters_array, cl2msa, cl2pdb= create_template_clusters_hobohm(rmsds, expanded_table, merged_msa, structures)
+    #large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
     @info "Create folder"
-    create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
+    #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
+    create_folder_structure_hobohm(clusters_array, cl2msa, cl2pdb, out_folder=out_folder)
 end
 
 # USAGE EXAMPLE

@@ -1,9 +1,14 @@
 # Analyse output of AlphaConformer
+using MIToS
+using MIToS.MSA
 using MIToS.PDB
 using DataFrames, CSV
 using Plots
 using AlphaConformers
 using Glob
+using Clustering: randindex
+using Glob
+using Statistics
 
 #Calculate the RMSD 
 function compare_model(model_files::Vector,holo_pdb::String,apo_pdb::String,folder_path::String,folder_model::String)
@@ -79,8 +84,7 @@ function analyse_output(query::String,folder_path::String)
 
     savefig(folder_path*"/"*query*"_Update/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
 end
-using Glob
-using Statistics
+
 
 function analyze_directory(base_dir::String,div::Bool)
     cluster_dirs = filter(isdir, sort(glob("cluster_*", base_dir)))
@@ -88,6 +92,7 @@ function analyze_directory(base_dir::String,div::Bool)
     template_counts = Int[]
     a3m_line_counts = Int[]
     template_files_set = Set{String}()
+    all_seq_names = Set{String}() 
 
     for cluster_dir in cluster_dirs
         template_dir = joinpath(cluster_dir, "templates")
@@ -104,8 +109,10 @@ function analyze_directory(base_dir::String,div::Bool)
 
         # Nombre de lignes dans les fichiers .a3m
         for a3m_file in a3m_files
-            lines = countlines(a3m_file)
-            push!(a3m_line_counts, lines)
+            msa=MIToS.MSA.read_file(a3m_file, MIToS.MSA.FASTA, generatemapping=true)
+            seqnames = MIToS.MSA.sequencenames(msa)[2:end]
+            push!(a3m_line_counts, length(seqnames))
+            union!(all_seq_names, seqnames)
         end
     end
     if div 
@@ -119,8 +126,37 @@ function analyze_directory(base_dir::String,div::Bool)
         n_clusters = n_clusters,
         avg_templates_per_cluster = avg_templates,
         avg_lines_per_a3m = avg_a3m_lines,
-        template_files = template_files_set
+        template_files = template_files_set,
+        unique_sequence_names = collect(all_seq_names)
     )
+end
+function get_cluster_assignments(base_dir::String)
+    cluster_dirs = filter(isdir, sort(glob("cluster_*", base_dir)))
+    assignments = Dict{String, Int}()
+    for (i, cluster_dir) in enumerate(cluster_dirs)
+        template_dir = joinpath(cluster_dir, "templates")
+        if isdir(template_dir)
+            for f in readdir(template_dir)
+                assignments[f] = i  # ou parse(Int, basename(cluster_dir)[end]) si cluster_X
+            end
+        end
+    end
+    return assignments
+end
+
+function compare_clusterings(dir1::String, dir2::String)
+    assign1 = get_cluster_assignments(dir1)
+    assign2 = get_cluster_assignments(dir2)
+    all_templates = union(keys(assign1), keys(assign2))
+    labels1 = Int[]
+    labels2 = Int[]
+    for t in all_templates
+        push!(labels1, get(assign1, t, -1))
+        push!(labels2, get(assign2, t, -1))
+    end
+    ari = randindex(labels1, labels2)
+    println("Adjusted Rand Index (ARI) between clusterings: $ari")
+    return ari
 end
 
 function compare_directories(dir1::String, dir2::String)
@@ -144,12 +180,28 @@ function compare_directories(dir1::String, dir2::String)
     println("\nFichiers uniquement dans $dir2/templates:")
     println(length(only_in_dir2))
     println(length(files2_lower))
+
+    # Overlap between sequence names (template names)
+    seqs1 = Set(lowercase.(stats1.unique_sequence_names))
+    seqs2 = Set(lowercase.(stats2.unique_sequence_names))
+    intersection = intersect(seqs1, seqs2)
+    union_set = union(seqs1, seqs2)
+    iou = isempty(union_set) ? 0.0 : length(intersection) / length(union_set)
+
+    println("\n=== Overlap des noms de séquence (IoU) ===")
+    println("Nombre de séquences uniques dans $dir1 : $(length(seqs1))")
+    println("Nombre de séquences uniques dans $dir2 : $(length(seqs2))")
+    println("Intersection : $(length(intersection))")
+    println("Union : $(length(union_set))")
+    println("Intersection over Union (IoU) : $iou")
+
+    compare_clusterings(dir1, dir2)
 end
 
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 query="1AKZ"
 #analyse_output(query,folder_path)
 
-chemin_dossier_1 = joinpath(folder_path,"1AKZ")
+chemin_dossier_1 = joinpath(folder_path,"1AKZ_A/clusters")
 chemin_dossier_2 = joinpath(folder_path,"1AKZ_Update")
 resultats = compare_directories(chemin_dossier_1, chemin_dossier_2)

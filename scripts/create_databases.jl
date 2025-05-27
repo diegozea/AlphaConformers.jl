@@ -153,6 +153,28 @@ function create_database(df_final::DataFrame,pdb_folder:: String)
 
     return vcat(Iterators.flatten(results)...)
 end
+"""
+Use the function getpdbdescription to have the details about the pdb file 
+
+Take in input a PDB code in lowercase and output the information in a vecteur 
+We will have the code pdb, the release date, the method of extraction and the resolution if we have the information 
+(can be missing if the method is NMR)
+"""
+function get_header_pdb(code_pdb::String)
+    header_info=getpdbdescription(code_pdb) # Returns a DICT
+    #Extract the information
+    ## Retrieve the publication date
+    date_info_p = get(header_info, "rcsb_accession_info", Dict())
+    date_info_d = get(date_info_p, "initial_release_date", nothing)
+    if date_info_d !== nothing
+        date_info_t = split(date_info_d, "T")
+        date_info = date_info_t[1]
+        return date_info
+    else
+        return nothing
+    end
+    
+end
 
 function foldseek_similar_pdb(df_final::DataFrame,FOLDSEEK_DB::String,pdb_folder::String)
     database=DataFrame(UNIPROT=String[],PDB=String[],CHAIN=String[],NB_SIMILAR_PROT=Int64[]) # Create an empty DF
@@ -170,8 +192,16 @@ function foldseek_similar_pdb(df_final::DataFrame,FOLDSEEK_DB::String,pdb_folder
             #Filter the evalue to keep the one < 1e-3
             println(first(df_result,5))
             df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
-            println(first(df_result_evalue,5))
-            push!(database,(uniprot,pdb_file,chain,size(df_result_evalue)[1]))
+            count=0
+            for row in eachrow(df_result_evalue)
+                #Check that the publication date is before AF2 training
+                target=String(split(row.target,".")[1])
+                code_pdb, date_info, method_info, res_info = get_header_pdb(target)
+                if Date(date_info) < Date("2018-04-30")
+                    count +=1
+                end
+            end
+            push!(database,(uniprot,pdb_file,chain,count))
         else 
             @warn "The PDB file of $pdb_file doesn't exist"
         end
@@ -218,38 +248,28 @@ const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
 
 #Get the file with the result 
-file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2.csv"
+file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted.csv"
 df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
 comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
 println(first(df_final,20))
 println(size(df_final))
 
-filtering = false
+filtering = true
 
 if filtering 
     df_final=create_database(df_final,pdb_folder)
-    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2.csv", filter(!isnothing, df_final)) 
+    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter.csv", filter(!isnothing, df_final)) 
 end
 println(first(df_final,20))
 println(size(df_final))
 
 
-#=
 if df_final !== nothing 
     df_merged=foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
     println(first(df_merged,20))
     println(size(df_merged))
     CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek.csv",df_merged)
 end
-
-@info "End"
-=#
-#=
-file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2.csv"
-df_merged=DataFrames.DataFrame(CSV.File(file_path_df_final,
-comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-println(first(df_final,20))
-println(size(df_final))
 
 if df_merged !== nothing
     database = filter(row -> row.NB_SIMILAR_PROT < 50, df_merged)
@@ -269,7 +289,12 @@ if df_merged !== nothing
             #Filter the evalue to keep the one < 1e-3
             println(first(df_result,5))
             df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
-            check=use_usalign(df_result_evalue,pdbfilepath)
+            filtered_df = filter(row -> begin
+                target = split(row.target, ".")[1]
+                code_pdb, date_info, _, _ = get_header_pdb(target)
+                row.evalue < 1e-5 && Date(date_info) < Date("2018-04-30")
+            end, df_result_evalue)
+            check=use_usalign(filtered_df,pdbfilepath)
             if check
                 push!(df,(uniprot,pdb_file,chain))
             end
@@ -278,21 +303,17 @@ if df_merged !== nothing
         end
     end
     df_last = innerjoin(database, df, on=[:UNIPROT, :PDB, :CHAIN])
+    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek_final.csv", df_last) 
 end
-CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2_final2.csv", df_last) 
-=#
-file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2_final2.csv"
-df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
-comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-println(first(df_final,20))
-println(size(df_final))
+
 
 filtering = true
 
 if filtering 
     df_final=create_database(df_final,pdb_folder)
+    println(first(df_final,20))
+    println(size(df_final))
+    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek_final_1.csv", filter(!isnothing, df_final)) 
 end
 
-println(first(df_final,20))
-println(size(df_final))
-CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek2_final2_1.csv", filter(!isnothing, df_final)) 
+
