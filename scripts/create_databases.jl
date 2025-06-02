@@ -176,42 +176,7 @@ function get_header_pdb(code_pdb::String)
     
 end
 
-function foldseek_similar_pdb(df_final::DataFrame,FOLDSEEK_DB::String,pdb_folder::String)
-    database=DataFrame(UNIPROT=String[],PDB=String[],CHAIN=String[],NB_SIMILAR_PROT=Int64[]) # Create an empty DF
-    df_merged=DataFrame()
-    for row in eachrow(df_final)
-        uniprot=row.UNIPROT
-        pdb_file=row.PDB
-        chain=row.CHAIN
-        println(pdb_file)
-        pdbfilepath=joinpath(pdb_folder,uppercase(pdb_file)*".pdb" ) # Use the temporary file
-        if isfile(pdbfilepath) #Check that the file is not already downloaded
-            @info "Run Foldseek"
-            out_file=AlphaConformers.foldseek_search(pdbfilepath,db_path=FOLDSEEK_DB)
-            df_result=AlphaConformers.read_foldseek_search_results(out_file)
-            #Filter the evalue to keep the one < 1e-3
-            println(first(df_result,5))
-            df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
-            count=0
-            for row in eachrow(df_result_evalue)
-                #Check that the publication date is before AF2 training
-                target=String(split(row.target,".")[1])
-                code_pdb, date_info, method_info, res_info = get_header_pdb(target)
-                if Date(date_info) < Date("2018-04-30")
-                    count +=1
-                end
-            end
-            push!(database,(uniprot,pdb_file,chain,count))
-        else 
-            @warn "The PDB file of $pdb_file doesn't exist"
-        end
-        
-    end
-    println(database)
-    df_merged = innerjoin(database, df_final, on=[:UNIPROT, :PDB, :CHAIN])
-    return df_merged
-end
-
+#function to use usalign to check the similarity of the structures
 function use_usalign(df_result_evalue,pdbfilepath)
     for (i, row2) in enumerate(eachrow(df_result_evalue))
         if i != 1
@@ -243,10 +208,108 @@ function use_usalign(df_result_evalue,pdbfilepath)
     end
     return true
 end
+
+# Function to find similar PDB files using Foldseek
+"""
+It takes in input a DataFrame with the columns UNIPROT, PDB and CHAIN
+It returns a DataFrame with the columns UNIPROT, PDB, CHAIN and NB_SIMILAR_PROT     
+It also returns a DataFrame with the columns UNIPROT, PDB and CHAIN for the proteins that have no similar structure
+It uses Foldseek to find similar structures and usalign to check the similarity of the structures
+"""
+function foldseek_similar_pdb(df_final::DataFrame,FOLDSEEK_DB::String,pdb_folder::String,details_df :: DataFrame)
+    #create all the database
+    database=DataFrame(UNIPROT=String[],PDB=String[],CHAIN=String[],NB_SIMILAR_PROT=Int64[]) # Create an empty DF
+    df_merged=DataFrame()
+    df=DataFrame(UNIPROT=String[],PDB=String[],CHAIN=String[]) # Create an empty DF
+    df_last=DataFrame()
+    # Loop through each row of the DataFrame
+    for row in eachrow(df_final)
+        # Extract the values from the row
+        uniprot=row.UNIPROT
+        pdb_file=row.PDB
+        chain=row.CHAIN
+        @show pdb_file
+        pdbfilepath=joinpath(pdb_folder,uppercase(pdb_file)*".pdb" ) # Use the temporary file
+        if isfile(pdbfilepath) #Check that the file is not already downloaded
+            @info "Run Foldseek"
+            out_file=AlphaConformers.foldseek_search(pdbfilepath,db_path=FOLDSEEK_DB)
+            df_result=AlphaConformers.read_foldseek_search_results(out_file)
+            #Filter the evalue to keep the one < 1e-5
+            @show first(df_result,5)
+            df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
+            count=0
+            # Check that the PDB file is before 2018-04-30
+            rows_to_keep = Vector{Int}()
+            for (i, row) in enumerate(eachrow(df_result_evalue))
+                # Extract the target and chain from the row
+                target=String(split(row.target,".")[1])
+                @show target
+                parts = split(row.target, "_")
+                @show parts
+                release_date = missing
+                if length(parts) >= 2 # Ensure we have the chain information
+                    chain = parts[2]
+                    matching_rows = filter(row -> row.PDB == lowercase(target) && row.CHAIN == chain, eachrow(details_df))
+                    @show matching_rows
+                    if !isempty(matching_rows)
+                        # Vérifier la date de release
+                        release_date = matching_rows[1][:DATE_RELEASE]  # adapte le nom de colonne si besoin
+                        @show release_date
+                    else
+                        release_date = get_header_pdb(target)
+                        @show release_date
+                        if release_date === nothing
+                            @warn "❌ No release date found for $target"
+                            count += 1
+                            continue
+                        end
+                    end
+                else
+                    # If no matching rows, we try to get the header information
+                    release_date=get_header_pdb(target)
+                    @show release_date
+                    if release_date === nothing
+                        @warn "❌ No release date found for $target"
+                        count += 1
+                        continue
+                    end
+                end
+                # Check if the release date is before 2018-04-30
+                if !ismissing(release_date) && Date(release_date) < Date("2018-04-30")
+                    #count as a similar protein
+                    push!(rows_to_keep, i)
+                    @info "✅ Similar protein found: $target"
+                    count += 1
+                end
+            end
+            @show count
+            push!(database,(uniprot,pdb_file,chain,count)) # Add the number of similar proteins to the database
+            # Filter the df_result_evalue to keep only the rows with a count < 50
+            if count < 50 
+                #Run usalign to check the similarity of the structures
+                @info "Run usalign"
+                filtered_df_result_evalue = df_result_evalue[rows_to_keep, :]
+                check=use_usalign(filtered_df_result_evalue,pdbfilepath)
+                if check #If no similar structure is found
+                    push!(df,(uniprot,pdb_file,chain))
+                end
+            end
+        else 
+            @warn "The PDB file of $pdb_file doesn't exist"
+        end
+        
+    end
+    println(database)
+    df_merged = innerjoin(df_final, database, on=[:UNIPROT, :PDB, :CHAIN])
+    df_last = innerjoin(df_final, df, on=[:UNIPROT, :PDB, :CHAIN])
+    return df_merged, df_last
+end
+
 @info "Start"
 const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
 
+#=
 #Get the file with the result 
 file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted.csv"
 df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
@@ -262,15 +325,24 @@ if filtering
 end
 println(first(df_final,20))
 println(size(df_final))
+=#
 
+file_path_df_final="pdb_information_details_final_mutation_cluster_reformatted_filter.csv"
+df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
+comment="#", missingstring=["", "None"]))
 
+details_df = DataFrame(CSV.File("pdb_information_details.csv", comment="#", missingstring=["", "None"]))
+    
 if df_final !== nothing 
-    df_merged=foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder)
+    df_merged, df_last =foldseek_similar_pdb(df_final,FOLDSEEK_DB,pdb_folder,details_df)
     println(first(df_merged,20))
     println(size(df_merged))
     CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek.csv",df_merged)
+    CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek_final.csv", df_last) 
+
 end
 
+#=
 if df_merged !== nothing
     database = filter(row -> row.NB_SIMILAR_PROT < 50, df_merged)
     @show size(database)
@@ -291,8 +363,16 @@ if df_merged !== nothing
             df_result_evalue = filter(row -> row.evalue < 1e-5, df_result)
             filtered_df = filter(row -> begin
                 target = split(row.target, ".")[1]
-                code_pdb, date_info, _, _ = get_header_pdb(target)
-                row.evalue < 1e-5 && Date(date_info) < Date("2018-04-30")
+                chain = split(row.target, "_")[2]
+                # Cherche dans details_df la ligne correspondante
+                matching_rows = filter(r -> r.PDB == target && r.CHAIN == chain, eachrow(details_df))
+                if !isempty(matching_rows)
+                    release_date = matching_rows[1][:DATE_RELEASE]  # adapte le nom de colonne si besoin
+                    row.evalue < 1e-5 && !ismissing(release_date) && Date(release_date) < Date("2018-04-30")
+                else
+                    # Si aucune ligne ne correspond, on considère comme avant 2018-04-30
+                    row.evalue < 1e-5
+                end
             end, df_result_evalue)
             check=use_usalign(filtered_df,pdbfilepath)
             if check
@@ -306,14 +386,13 @@ if df_merged !== nothing
     CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek_final.csv", df_last) 
 end
 
-
+=#
 filtering = true
 
 if filtering 
-    df_final=create_database(df_final,pdb_folder)
+    df_final=create_database(df_last,pdb_folder)
     println(first(df_final,20))
     println(size(df_final))
     CSV.write("pdb_information_details_final_mutation_cluster_reformatted_filter_foldseek_final_1.csv", filter(!isnothing, df_final)) 
 end
-
 

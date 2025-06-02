@@ -582,7 +582,9 @@ function find_best_match!(
     df = DataFrames.DataFrame(values(alignments), ["aligned_a", "aligned_b", "matches",
         "rmsd", "coverage", "identity"])
     df[!, "keys"] .= keys(alignments)
-    filter!(row -> !ismissing(row.coverage) > min_coverage && !ismissing(row.identity) > min_identity, df)
+    #filter!(row -> !ismissing(row.coverage) > min_coverage && !ismissing(row.identity) > min_identity, df)
+    #filter!(row ->  !ismissing(row.identity) > min_identity, df)
+    
     if !isempty(df)
         # if there is a match, store the rmsd values
         for (key, aln) in alignments
@@ -593,7 +595,8 @@ function find_best_match!(
             end
         end
         # select the best match
-        sort!(df, ["identity", "coverage", "rmsd"], rev=[true, true, false])
+        #sort!(df, ["identity", "coverage", "rmsd"], rev=[true, true, false])
+        sort!(df, ["rmsd"])
         best_alignment = first(df) # return a DataFrameRow containing the best match
         # store the best match in the structures dictionary
         aligned_positions = [m[2] for m in best_alignment.matches]
@@ -844,9 +847,7 @@ function hobohm_clustering(
     # Construction des résultats attendus
     filtered_targets = sort(collect(keys(cluster_labels)))
     clusters = [cluster_labels[t] for t in filtered_targets]
-    clusters_array = [(i, cluster_labels[t]) for (i, t) in enumerate(filtered_targets)]
-
-    return filtered_targets, clusters, clusters_array
+    return cluster_labels, clusters
 end
 
 
@@ -878,9 +879,10 @@ function get_cluster2targets(targets, clusters)
     cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
     cluster_numbers = unique(clusters)
     for cluster in cluster_numbers
-        cluster2targets[cluster] = targets[clusters.==cluster]
+        cluster2targets[cluster] = [name for (name, cl) in targets if cl == cluster]
     end
     cluster2targets
+
 end
 
 function get_cluster2seqnames(cluster2targets, target2sequence)
@@ -889,6 +891,7 @@ function get_cluster2seqnames(cluster2targets, target2sequence)
         cluster2seqnames[cluster] = unique(target2sequence[target] for target in targets
                                            if haskey(target2sequence, target))
     end
+    @show length(cluster2seqnames)
     cluster2seqnames
 end
 
@@ -946,6 +949,7 @@ function get_cluster2msa(msa, cluster2seqnames)
             rethrow(err)
         end
     end
+    @show length(cluster2msa)
     cluster2msa
 end
 
@@ -955,6 +959,7 @@ function get_cluster2structures(structures, cluster2targets)
         cluster2structures[cluster] = Dict{String,Vector{MIToS.PDB.PDBResidue}}(
             target => structures[target] for target in targets)
     end
+    @show length(cluster2structures)
     cluster2structures
 end
 function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float64},
@@ -965,7 +970,7 @@ function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float6
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
-    targets, clusters, clusters_array =hobohm_clustering(expanded_table, structures,1.0)
+    targets, clusters =hobohm_clustering(expanded_table, structures,1.0)
     @info "get_cluster2targets"
     cluster2targets = AlphaConformers.get_cluster2targets(targets, clusters)
     @info "get_cluster2seqnames"
@@ -974,7 +979,7 @@ function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float6
     cl2msa = AlphaConformers.get_cluster2msa(msa, cl2seq)
     @info "get_cluster2structures"
     cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
-    (clusters_array, cl2msa, cl2pdb)
+    (clusters, cl2msa, cl2pdb)
 end
 
 
@@ -1007,13 +1012,16 @@ function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
     (large_small_pairs, large_cl2msa, small_cl2pdb)
 end
 
-function create_folder_structure_hobohm(clusters::Vector{Tuple{Int64, Int64}},
+function create_folder_structure_hobohm(clusters,
     cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
     cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
     out_folder::String=mktempdir())
-    for (index, clust) in clusters
+    unique_cluster=unique(clusters)
+    for clust in unique_cluster
         # MSA
-        cluster_folder = mkdir(joinpath(out_folder, "cluster_$(clust)_$(index)"))
+        @show clust
+        
+        cluster_folder = mkdir(joinpath(out_folder, "cluster_$(clust)"))
         msa_file = joinpath(cluster_folder, "sequences.a3m")
         MIToS.MSA.write_file(msa_file, cl2msa[clust], MIToS.MSA.FASTA)
         # Structures
@@ -1030,6 +1038,7 @@ function create_folder_structure_hobohm(clusters::Vector{Tuple{Int64, Int64}},
                 MIToS.PDB.write_file(lower_file, structure, MIToS.PDB.PDBFile)
             end
         end
+        
     end
     out_folder
 end
@@ -1098,11 +1107,15 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
     
     
     @info "Clustering structures"
-    clusters_array, cl2msa, cl2pdb= create_template_clusters_hobohm(rmsds, expanded_table, merged_msa, structures)
+    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(rmsds, expanded_table, merged_msa, structures)
     #large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
     @info "Create folder"
     #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
-    create_folder_structure_hobohm(clusters_array, cl2msa, cl2pdb, out_folder=out_folder)
+    @show clusters
+    @show length(clusters)
+    @show length(cl2msa)
+    @show length(cl2pdb)
+    create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
 end
 
 # USAGE EXAMPLE
