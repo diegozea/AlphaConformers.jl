@@ -4,7 +4,7 @@
 #SBATCH --nodelist=node48
 #SBATCH --time=900:00:00
 #SBATCH --mem=100G
-#SBATCH --cpus-per-task=40
+#SBATCH --cpus-per-task=20
 #SBATCH --output=AlphaConformers_development_test.jl.o%j.out
 =#
 
@@ -58,7 +58,7 @@ const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
 
 const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
 
-db=[FOLDSEEK_DB, ALPHAFOLD_DB]
+db=[FOLDSEEK_DB]
 # download the dataset 
 file_path_df_final="/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"
 df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
@@ -134,6 +134,7 @@ println(size(info_pdb))
 global index=0
 global list=[3,6,8,9,10,11]
 for row in eachrow(info_pdb)
+    
     if index == 0
         apo_pdb=row.PDB_apo
         apo_chain=row.CHAIN_apo
@@ -144,7 +145,7 @@ for row in eachrow(info_pdb)
         println(REF_PDB)
         #output_dir = joinpath(PATH, apo_pdb*"_No_AFDB")
         #output_dir = joinpath(PATH, apo_pdb)
-        output_dir = joinpath(PATH, apo_pdb*"_Update")
+        output_dir = joinpath(PATH, apo_pdb*"_Update_3")
         if isdir(output_dir)
             rm(output_dir; recursive=true, force=true)
         end
@@ -152,7 +153,7 @@ for row in eachrow(info_pdb)
         println(output_dir)
         
         AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db)
-        AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
+        #AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
     end 
     global index=index+1
 end

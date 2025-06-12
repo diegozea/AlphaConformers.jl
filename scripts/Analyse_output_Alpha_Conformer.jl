@@ -63,7 +63,7 @@ function analyse_output(query::String,folder_path::String)
     holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
 
     # Construire le chemin du dossier modèle
-    folder_model=folder_path*query*"_Update"
+    folder_model=folder_path*query*"_Update_2"
     println("Apo PDB Path: ", apo_pdb)
     println("Holo PDB Path: ", holo_pdb)
     println("Folder Model: ", folder_model)
@@ -73,7 +73,7 @@ function analyse_output(query::String,folder_path::String)
     println(typeof(model_files))
 
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
-    CSV.write(folder_path*"/"*query*"_Update/rmsd_results_"*query*".csv", results)
+    CSV.write(folder_path*"/"*query*"_Update_2/rmsd_results_"*query*".csv", results)
 
     #Visualisation of the result 
     scatter(results.RMSD_Apo, results.RMSD_Holo,
@@ -82,7 +82,7 @@ function analyse_output(query::String,folder_path::String)
     marker=:circle, legend=false,
     xlims=(0,7), ylims=(0, 6))
 
-    savefig(folder_path*"/"*query*"_Update/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    savefig(folder_path*"/"*query*"_Update_2/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
 end
 
 
@@ -168,8 +168,8 @@ function compare_directories(dir1::String, dir2::String)
     println("Fichiers templates moyens: $(stats1.avg_templates_per_cluster) vs $(stats2.avg_templates_per_cluster)")
     println("Lignes moyennes .a3m: $(stats1.avg_lines_per_a3m) vs $(stats2.avg_lines_per_a3m)")
 
-    files1_lower = Set(lowercase.(collect(stats1.template_files)))
-    files2_lower = Set(lowercase.(collect(stats2.template_files)))
+    files1_lower = Set(unique(filter(f -> occursin(r"\.", f), lowercase.(collect(stats1.template_files)))))
+    files2_lower = Set(unique(filter(f -> occursin(r"\.", f), lowercase.(collect(stats2.template_files)))))
 
     only_in_dir1 = setdiff(files1_lower, files2_lower)
     only_in_dir2 = setdiff(files2_lower, files1_lower)
@@ -201,9 +201,9 @@ end
 folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
 query="1AKZ"
 
-analyse_output(query,folder_path)
+#analyse_output(query,folder_path)
 
 
 chemin_dossier_1 = joinpath(folder_path,"1AKZ_A/clusters")
-chemin_dossier_2 = joinpath(folder_path,"1AKZ_Update")
+chemin_dossier_2 = joinpath(folder_path,"1AKZ_Update_2")
 resultats = compare_directories(chemin_dossier_1, chemin_dossier_2)

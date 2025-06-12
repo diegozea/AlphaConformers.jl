@@ -1,6 +1,7 @@
 [deps]
 AlphaConformers = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
 BioAlignments = "00701ae9-d1dc-5365-b64a-a3a3ebf5695e"
+BioSequences = "7e6ae17a-c86d-528c-b3b9-7f778a29fe59"
 BioStructures = "de9282ab-8554-53be-b2d6-f6c222edabfc"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
