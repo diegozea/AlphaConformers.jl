@@ -81,9 +81,10 @@ function run_foldseek(pdb_file::AbstractString,
     # if there is only one database, continue
     isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
     db_name = basename(db_path)
-
+    @show db_name
     # IO paths
     out_folder_db = joinpath(out_folder, "$(db_name)_results")
+    @show out_folder_db
     _create_empty_folder(out_folder_db)
     pdb_name = first(splitext(basename(pdb_file))) # filename without extension
     table_file = joinpath(out_folder_db, "$(pdb_name)_results.m8")
@@ -95,26 +96,27 @@ function run_foldseek(pdb_file::AbstractString,
     try
         mktempdir() do tmp_folder
             cd(tmp_folder)
+            run(`$(Foldseek_jll.foldseek()) version`)
 
             # createdb for the query file
-            run(`$(Foldseek_jll.foldseek()) createdb $pdb_file query_db`)
+            run(pipeline(`$(Foldseek_jll.foldseek()) createdb $pdb_file query_db`))
 
             # run the search using -a to be able to recover the alignment
             # --prefilter-mode 1 to use less RAM when searching the AFDB, needing ~35 Gb
-            run(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a --prefilter-mode 1`)
+            run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 `, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
 
             # convertalis to m8
-            run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file`)
+            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file`))
 
             # convertalis to aligned_structures
             prefix = joinpath(aligned_structures_folder, "aln_")
-            run(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`)
+            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`))
             isfile(prefix) && rm(prefix)
 
             # run result2msa
-            run(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6`)
+            run(pipeline(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6`))
             # unpack the msa
-            run(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0`)
+            run(pipeline(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0`))
             if isfile(msa_file)
                 @warn "$msa_file already exists. It will be overwritten."
                 rm(msa_file)
@@ -548,6 +550,7 @@ function find_best_match!(
             @info "Downloading $pdb"
             pdb_file = joinpath(tmp_folder, "$pdb.pdb.gz")
             MIToS.PDB.downloadpdb(pdb; format=MIToS.PDB.PDBFile, filename=pdb_file)
+
             _read_pdb(pdb_file, chain)
         end
     else
@@ -567,21 +570,29 @@ function find_best_match!(
         aln = structural_alignment(conformation_a, conformation_b)
         if aln !== nothing
             push!(alignment_list, key => aln)
-        else 
-            push!(alignment_list, key => [conformation_a,conformation_b,nothing,nothing,nothing,nothing])
         end
     end
     if isempty(alignment_list)
         return nothing
     end
     alignments = OrderedCollections.OrderedDict(alignment_list)
-    if all(x -> x[4] === nothing, values(alignments))
-        return nothing
-    end
     # get the best match
     df = DataFrames.DataFrame(values(alignments), ["aligned_a", "aligned_b", "matches",
         "rmsd", "coverage", "identity"])
     df[!, "keys"] .= keys(alignments)
+
+
+    names = unique(vcat(df.aligned_a, df.aligned_b))
+    N = length(names)
+
+    for name in names
+        count_a = count(==(name), df.aligned_a)
+        count_b = count(==(name), df.aligned_b)
+        total = count_a + count_b
+        if total != N - 1
+            @warn "Le nom $name apparaît $total fois (attendu : $(N-1))"
+        end
+    end
     #filter!(row -> !ismissing(row.coverage) > min_coverage && !ismissing(row.identity) > min_identity, df)
     #filter!(row ->  !ismissing(row.identity) > min_identity, df)
     
@@ -589,7 +600,7 @@ function find_best_match!(
         # if there is a match, store the rmsd values
         for (key, aln) in alignments
             if aln[4] === nothing
-                rmsds[key] = nothing
+                return nothing
             else 
                 rmsds[key] = aln[4]
             end
@@ -602,84 +613,12 @@ function find_best_match!(
         aligned_positions = [m[2] for m in best_alignment.matches]
         structures[target] = best_alignment.aligned_b[aligned_positions]
         # return the best match
-        @show first(rmsds,10)
         best_alignment
     else
         nothing
     end
 end
 
-function find_rmsd_hobohm!(
-    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
-    rmsds::Dict{Tuple{String,String},Float64},
-    target::String,
-    target2uniprot::Dict{String,String},
-    uniprot2targets::Dict{String,Vector{String}};
-    pdb_folder::Union{String,Nothing}=nothing,
-    min_coverage::Float64=0.75,
-    min_identity::Float64=0.95)
-    # get the PDB code and chain from the target name
-    pdb, chain = AlphaConformers._get_pdb_and_chain(target)
-    # read the PDB file
-    conformation_b = if pdb_folder === nothing #link with pdb databases 
-        mktempdir() do tmp_folder
-            @info "Downloading $pdb"
-            pdb_file = joinpath(tmp_folder, "$pdb.pdb.gz")
-            MIToS.PDB.downloadpdb(pdb; format=MIToS.PDB.PDBFile, filename=pdb_file)
-            _read_pdb(pdb_file, chain)
-        end
-    else
-        _read_pdb(joinpath(pdb_folder, uppercase(pdb) * ".pdb"), chain)
-    end
-    if conformation_b === nothing
-        return nothing
-    end
-    #Algorithme with Hobohm 
-    sort!(targets) 
-    selected = []
-
-    for target_a in targets
-        if target_a == target
-            continue
-        end
-
-        conformation_a = structures[target_a]
-        aln = structural_alignment(conformation_a, conformation_b)
-        if aln === nothing
-            continue
-        end
-
-        coverage = aln[5]
-        identity = aln[6]
-        rmsd = aln[4]
-
-        # Vérifier les seuils
-        if coverage < min_coverage || identity < min_identity
-            continue
-        end
-
-        # Comparer uniquement avec les structures déjà retenues
-        is_redundant = any(existing -> begin
-            existing_aln = structural_alignment(structures[existing], conformation_a)
-            existing_aln !== nothing && existing_aln[6] ≥ min_identity
-        end, selected)
-
-        if !is_redundant
-            key = sort((target, target_a))
-            rmsds[key] = rmsd
-            push!(selected, target_a)
-
-            # Sauvegarder la première non redondante comme meilleur match
-            aligned_positions = [m[2] for m in aln[3]]
-            structures[target] = aln[2][aligned_positions]
-            return (; aligned_a=aln[1], aligned_b=aln[2], matches=aln[3],
-                    rmsd=rmsd, coverage=coverage, identity=identity, keys=key)
-        end
-    end
-
-    return nothing
-
-end
 
 function process_known_conformations!(
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
@@ -692,11 +631,17 @@ function process_known_conformations!(
     for row in eachrow(expanded_table)
         if ismissing(row.query)
             target = row.target
-            best_match = find_best_match!(structures, rmsds, target,
-                target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
-            if best_match !== nothing
-                row.query = only([q for q in best_match.keys if q != target])
+            try 
+                best_match = find_best_match!(structures, rmsds, target,
+                    target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
+                if best_match !== nothing
+                    row.query = only([q for q in best_match.keys if q != target])
+                end
+            catch e
+                @error "Error processing target $target"
+                continue
             end
+
         end
     end
     filter!(row -> !ismissing(row.query), expanded_table)
@@ -881,8 +826,31 @@ function get_cluster2targets(targets, clusters)
     for cluster in cluster_numbers
         cluster2targets[cluster] = [name for (name, cl) in targets if cl == cluster]
     end
-    cluster2targets
+    cluster2targets, length(cluster2targets)
 
+end
+
+function get_cluster2targets_concatenate(targets, clusters)
+    cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
+    # Regroupe les clusters par paquets de 10
+    grouped_clusters = Dict{Int, Vector{String}}()
+    for (name, cl) in targets
+        group = Int(ceil(cl / 10))
+        if !haskey(grouped_clusters, group)
+            grouped_clusters[group] = String[]
+        end
+        # Ajoute sans doublon
+        if !(name in grouped_clusters[group])
+            push!(grouped_clusters[group], name)
+        end
+    end
+    # Convertit en OrderedDict pour compatibilité
+    for (group, names) in sort(collect(grouped_clusters))
+        cluster2targets[group] = names
+    end
+    @show length(cluster2targets)
+    @show first(cluster2targets, 5)
+    cluster2targets, length(cluster2targets)
 end
 
 function get_cluster2seqnames(cluster2targets, target2sequence)
@@ -962,24 +930,27 @@ function get_cluster2structures(structures, cluster2targets)
     @show length(cluster2structures)
     cluster2structures
 end
-function create_template_clusters_hobohm(rmsds::Dict{Tuple{String,String},Float64},
+function create_template_clusters_hobohm(
     expanded_table::DataFrames.DataFrame,
     msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
-    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    cutoff::Float64)
     @info "get_target2sequence"
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
-    targets, clusters =hobohm_clustering(expanded_table, structures,1.0)
+    targets, clusters =hobohm_clustering(expanded_table, structures,cutoff)
     @info "get_cluster2targets"
-    cluster2targets = AlphaConformers.get_cluster2targets(targets, clusters)
+    cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets(targets, clusters)
+    #cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets_concatenate(targets, clusters)
+    
     @info "get_cluster2seqnames"
     cl2seq = AlphaConformers.get_cluster2seqnames(cluster2targets, target2sequence)
     @info "get_cluster2msa"
     cl2msa = AlphaConformers.get_cluster2msa(msa, cl2seq)
     @info "get_cluster2structures"
     cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
-    (clusters, cl2msa, cl2pdb)
+    (nb_cluster, cl2msa, cl2pdb)
 end
 
 
@@ -1016,8 +987,8 @@ function create_folder_structure_hobohm(clusters,
     cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
     cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
     out_folder::String=mktempdir())
-    unique_cluster=unique(clusters)
-    for clust in unique_cluster
+    #unique_cluster=unique(clusters)
+    for clust in 1:clusters
         # MSA
         @show clust
         
@@ -1070,51 +1041,118 @@ function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
     out_folder
 end
 
+function write_a3m(filename::String, mafft_msa::Vector{Any})
+    open(filename, "w") do io
+        for ( header,seq) in mafft_msa
+            println(io, ">$header")
+            println(io, seq)
+        end
+    end
+end
+
+function align_mafft(msa_file::String, pdb_dir::String)
+    #Get the MSA file output by Foldseek
+    msas = MIToS.MSA.read_file(msa_file, MIToS.MSA.FASTA, generatemapping=true)
+    seqnames = MIToS.MSA.sequencenames(msas) # Get the sequence names from the MSA
+
+    mafft_msa = []
+    model = "1" # Default model
+    query= first(seqnames) # The first sequence is the query sequence
+    pdb_id =String(split(query, "_")[1])
+    chain_id =String(split(query, "_")[2])
+
+    struc = MIToS.PDB.read_file(joinpath(pdb_dir,pdb_id)*".pdb", MIToS.PDB.PDBFile)
+    @show typeof(struc)
+    sequences=MIToS.PDB.modelled_sequences(struc;chain=chain_id)
+    seq = sequences[(model=model, chain=chain_id)]
+
+    push!(mafft_msa, (query, seq))
+    for seqname in seqnames[2:end]
+
+        pdb_id =split(seqname, ".")[1] # Get the PDB file name from the sequence name
+        struc = MIToS.PDB.read_file(joinpath(pdb_dir,pdb_id)*".pdb", MIToS.PDB.PDBFile)
+
+        chain_id = split(seqname, "_") # Get the chain from the sequence name
+        if length(chain_id) > 1
+            chain_id = String(split(chain_id[2],"\t")[1]) # Get the chain ID from the sequence name
+            sequences=MIToS.PDB.modelled_sequences(struc;chain=chain_id)
+            seq = sequences[(model=model, chain=chain_id)]
+        else
+            sequences=MIToS.PDB.modelled_sequences(struc)
+            seq = first(values(sequences))
+        end
+        
+        push!(mafft_msa, (seqname, seq))
+    end
+    @show length(mafft_msa)
+    @show first(mafft_msa, 5)
+    @show typeof(mafft_msa)
+    write_a3m("tmp_for_mafft.fasta", mafft_msa)
+    # Align the MSA using MAFFT
+
+    @info "Aligning MSA with MAFFT: $msa_file"
+    
+    run(pipeline(`$(MAFFT_jll.mafft()) --auto tmp_for_mafft.fasta`, stdout=msa_file))
+
+    # Lire l'alignement aligné
+    aligned_msa = MIToS.MSA.A3M.read_file(msa_file, A3M)
+    # Adjust the reference sequence in the MSA to avoid gaps
+    MIToS.MSA.adjustreference!(aligned_msa)
+    # Write the aligned MSA to the output file
+    MIToS.MSA.A3M.write_file(msa_file, aligned_msa, A3M)
+end
+
 #faire pour ajouter n pdb et les concaténer dans foldseek 
 function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
-        evalue_cutoff::Float64=1e-5)
+        evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0)
     @info "Running Foldseek"
     #output = run_foldseek(input_pdb, "$pdb_db,$alphafold_db", out_folder=out_folder)
-    output = run_foldseek(input_pdb, db , out_folder=out_folder)
+    output = run_foldseek(input_pdb, db , out_folder=out_folder) 
     # Initialiser un vecteur vide de String
     output_vector = Vector{String}()
 
     # Boucle correcte sur les éléments de `output`
     for item in output
+        align_mafft(item.msa_file,pdb_folder)  # Aligner les séquences MSA
         push!(output_vector, item.table_file)  # Ajouter au vecteur
     end
-
+    return 
     # Fusionner les tables
     merged_table = merge_tables(output_vector)
-
+    @show size(merged_table)
     #merged_table = merge_tables([output[1].table_file, output[2].table_file])
-    filter!(row -> row.evalue < evalue_cutoff, merged_table)
+    if evalue_cutoff !== nothing
+        filter!(row -> row.evalue < evalue_cutoff, merged_table)
+    end
+    #merged_table = merged_table[1:min(1000, size(merged_table, 1)), :]
+    @show size(merged_table)
     @info "Merge MSAS"
     merged_msa = merge_msas(merged_table)
+    @show size(merged_msa)
     
     #merged_msa = merge_msas(merged_table)
     @info "Getting the aligned structures"
     structures = _get_aligned_structures(merged_table)
-    
+    @show length(structures)
+
     @info "Adding known conformations"
-    sifts_uniprot_mapping = get_uniprot_mapping()
-    target2uniprot, expanded_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
-    uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
+    #sifts_uniprot_mapping = get_uniprot_mapping()
+    #target2uniprot, expanded_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+    #uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
+    #@show size(expanded_table)
     
     @info "Measuring RMSDs"
-    rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
-    fill_rmsds!(rmsds, expanded_table, structures)
+    #rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
+    #@show size(expanded_table)
+    #fill_rmsds!(rmsds, expanded_table, structures)
     
     
     @info "Clustering structures"
-    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(rmsds, expanded_table, merged_msa, structures)
-    #large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds, expanded_table, merged_msa, structures)
+    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(merged_table, merged_msa, structures,cutoff)
+    #large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds,expanded_table, merged_msa, structures)
     @info "Create folder"
     #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
-    @show clusters
-    @show length(clusters)
-    @show length(cl2msa)
-    @show length(cl2pdb)
+    
     create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
 end
 

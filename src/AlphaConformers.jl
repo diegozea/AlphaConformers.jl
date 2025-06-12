@@ -14,6 +14,8 @@ import PairwiseListMatrices
 import Distributed
 import ProgressMeter
 import Combinatorics
+import BioSequences 
+import BioStructures
 
 using TestItems
 
