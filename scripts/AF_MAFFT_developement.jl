@@ -1,52 +1,75 @@
-#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
+#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
-#PBS -l host=node48
-#PBS -l walltime=900:00:00
-#PBS -l mem=100gb
-#PBS -l ncpus=40
-#PBS -j oe
+#SBATCH --nodelist=node48
+#SBATCH --time=900:00:00
+#SBATCH --mem=100G
+#SBATCH --cpus-per-task=10
+#SBATCH --output=AF_MAFFT_developement.jl%j.out
 =#
-
 import Pkg
-Pkg.activate("/home/julie.daniel/.julia/environments/v1.11")
-Pkg.add("FilePathsBase")
+Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
 
+# Load necessary packages
 using FilePathsBase, Glob
 using AlphaConformers
 import MAFFT_jll
 using MIToS.MSA
 
-const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data"
-cd(PATH)
-const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
-# Chemins
-source_root = joinpath(PATH,"1AKZ_No_AFDB")
-dest_root = joinpath(PATH,"1AKZ_No_AFDB_MAFFT")
-@show source_root
-@show dest_root
+######################################################## MAIN  #####################################################
+"""
+This scripts change the MSA output by Foldseek by using MAFFT
+Take in input the ouput of AlphaConformer extract everything 
+And change only the MSA 
+With MAFFT we align by sequence and not structure 
 
-# Création de la racine de sortie si elle n'existe pas
+Input : 
+- PATH : path to the folder with all the output 
+- COLABFOLD_PATH : PATH to the colab fold to run  AF2
+- source_root : PATH to the output of AlphaConformer
+- dest_root : PATH to the new folder created to apply MAFFT
+Output : 
+Same file organization than ALphaConformer with MSA align with MAFFT 
+HAve the AF2 output 
+
+This code was use as a test 
+Will need to change how it work to be more efficent
+"""
+
+########################## Information to fill #################################
+#Path where all the result are
+const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data"
+#Path to colabfold
+const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
+# Path to get the MSA and template
+source_root = joinpath(PATH,"1AKZ_No_AFDB")
+#Path to save the result
+dest_root = joinpath(PATH,"1AKZ_No_AFDB_MAFFT")
+###################################################################################
+
+cd(PATH)
+
+# create the output folder
 mkpath(dest_root)
 
-# Parcours des clusters
+# For all the cluster 
 for cluster_dir in glob("cluster_*", source_root)
     src_cluster_path = joinpath(source_root, cluster_dir)
     dest_cluster_path = joinpath(dest_root, basename(cluster_dir))
     @show cluster_dir
     @show src_cluster_path
     @show dest_cluster_path
-    # Crée le dossier de destination pour le cluster
+    # Create the output folder with the cluster
     mkpath(dest_cluster_path)
 
-    # 1. Copier le dossier "templates"
+    # 1. Copie the template folder
     src_templates = joinpath(src_cluster_path, "templates")
     dest_templates = joinpath(dest_cluster_path, "templates")
     mkpath(dest_templates)
     for pdb_file in readdir(src_templates)
         cp(joinpath(src_templates, pdb_file), joinpath(dest_templates, pdb_file); force=true)
     end
-    # 2. Appliquer MAFFT sur sequences.a3m
+    # 2.Apply MAFFT on the MSA
     src_seq_file = joinpath(src_cluster_path, "sequences.a3m")
     dest_seq_file = joinpath(dest_cluster_path, "sequences.a3m")
 
@@ -55,9 +78,13 @@ for cluster_dir in glob("cluster_*", source_root)
     else
         @warn "Fichier sequences.a3m manquant dans $src_cluster_path"
     end
+    #Take the output to save in the write shape 
     msa = read(dest_seq_file, A3M)
     output_file=adjustreference!(msa)
     write(dest_seq_file,output_file,A3M)
 end
 
+#Run AlphaFold
 AlphaConformers.run_alphafold(dest_root, colabfold_path=COLABFOLD_PATH)
+
+############################################################ END ##############################################################

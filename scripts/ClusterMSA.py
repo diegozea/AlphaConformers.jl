@@ -165,9 +165,9 @@ if __name__=='__main__':
 
         write_fasta(tmp.SequenceName.tolist(), tmp.sequence.tolist(), outfile=args.o+'/'+args.keyword+'_'+"%03d" % clust+'.a3m')
 
-    print('writing 10 size-10 uniformly sampled clusters')
-    for i in range(args.n_controls):
-       tmp = df.sample(n=10)
+    print('writing size-', args.n_controls-1,'uniformly sampled clusters')
+    for i in range(10):
+       tmp = df.sample(n= args.n_controls-1)
        tmp = pd.concat([query_, tmp], axis=0)
        write_fasta(tmp.SequenceName.tolist(), tmp.sequence.tolist(), outfile=args.o+'/'+args.keyword+'_U10-'+"%03d" % i +'.a3m') 
     if len(df)>100:

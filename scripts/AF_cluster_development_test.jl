@@ -1,21 +1,26 @@
 #!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
 
 #=
-#PBS -l host=node48
-#PBS -l walltime=900:00:00
-#PBS -l mem=100gb
-#PBS -l ncpus=40
-#PBS -j oe
+#SBATCH --nodelist=node48
+#SBATCH --time=900:00:00
+#SBATCH --mem=100G
+#SBATCH --cpus-per-task=40
+#SBATCH --output=AF_cluster_development_test.jl.o%j.out
 =#
 import Pkg
-Pkg.activate("/home/julie.daniel/.julia/environments/v1.11")
-Pkg.add("Glob")
-Pkg.add("DataFrames")
+Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
+Pkg.status("MIToS")
+
+# Load necessary packages 
+using MIToS
 using Glob
 using DataFrames, CSV
 using Plots
 using MIToS.PDB
 using AlphaConformers
+using MIToS.MSA
+
+####################################### Functions ########################################
 
 """
     run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
@@ -61,14 +66,15 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
         cd(current_dir)
     end
 end
+
 """
 Run AF-Cluster to create the MSA and run the colabfold
-Take in input the name of the query and a boolean to know if the folder is alrready there 
+Take in input the name of the query and a boolean to know if the folder is already there 
 """
 #Create the folder and Run colabfold
 function AF_cluster(query,create_file)
     ### Create the folder to save the result
-    folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
+    folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/test_set/"
     folder_dir=folder_path*query*"_AF_CLUSTER"
     if create_file
         if !isdir(folder_dir)
@@ -79,17 +85,18 @@ function AF_cluster(query,create_file)
         end
 
         #take the msa use in AlphaConformers
-        msa=joinpath(folder_path, "2QKEE_colabfold.a3m")
-        if !isfile(msa)
-            msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
-            cp(msa_origin, msa)
-        end
+        msa=joinpath(folder_path, query*"_AlphaConformer","sequence.a3m")
 
         PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
         cd(PATH)
-
+        msa_file=MIToS.MSA.read_file(msa, MIToS.MSA.FASTA, generatemapping=true)# Check if the file exists and is readable
+        n=size(msa_file,1)
+        @show n
+        if n>10
+            n=10
+        end
         ### Create the cluster with AF-cluster
-        run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
+        run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas --n_controls $n`)
         msas=joinpath(folder_dir, "msas")
         if !isdir(msas)
             cp("msas", msas)
@@ -115,32 +122,35 @@ function AF_cluster(query,create_file)
     run(af_command)
     
 end
+
 """
-Run AF-Cluster to create the MSA and order the file to use run_alphafold()
-Take in input the name of the query and a boolean to know if the folder is alrready there 
+Run AF-Cluster to create the MSA and get the template, and order the file to use run_alphafold()
+Take in input the name of the query and a boolean to know if the folder is already there 
 """
 #Create the folder and Run colabfold
-function AF_cluster_template(query,create_file)
+function AF_cluster_template(query,create_file,Alpha_conformer_result_path,folder_path)
     ### Create the folder to save the result
-    folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-    folder_dir=folder_path*query*"_AF_CLUSTER_template"
+    folder_dir=folder_path*query*"_AF_CLUSTER_template_Hobohm"
     if create_file
         if !isdir(folder_dir)
             mkdir(folder_dir)
         else 
+            return 
+            #=
             rm(expanduser(folder_dir); force=true, recursive=true)
             mkdir(folder_dir)
+            =#
         end
 
         #take the msa use in AlphaConformers
         msa=joinpath(folder_dir, "msa.a3m")
         if !isfile(msa)
-            msa_origin=folder_path*"/"*query*"/afdb_up_results/msa.a3m"
+            msa_origin=Alpha_conformer_result_path*"/afdb_up_results/msa.a3m"
             cp(msa_origin, msa)
         end
 
-        PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
-        cd(PATH)
+        PATH_2 = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/"
+        cd(PATH_2)
 
         ### Create the cluster with AF-cluster
         run(`python3 scripts/ClusterMSA.py EX -i $msa -o msas`)
@@ -157,7 +167,7 @@ function AF_cluster_template(query,create_file)
 
         ## Get the template from AlphaConformer
         template_file=[]
-        cluster_dirs_AC = filter(isdir, glob("cluster*", folder_path*query))
+        cluster_dirs_AC = filter(isdir, glob("cluster*", Alpha_conformer_result_path))
         for cluster in cluster_dirs_AC
             files = glob("*", cluster*"/templates")  # Tous les fichiers du sous-dossier
             for file in files
@@ -203,6 +213,11 @@ function AF_cluster_template(query,create_file)
     
 end
 
+"""
+    compare_model(model_files::Vector,holo_pdb::String,apo_pdb::String,folder_path::String,folder_model::String)
+This function compares the models in `model_files` with the holo and apo PDB files.
+It calculates the RMSD for each model against the holo and apo structures.
+"""
 #Calculate the RMSD 
 function compare_model(model_files::Vector,holo_pdb::String,apo_pdb::String,folder_path::String,folder_model::String)
     results = DataFrame(Model=String[], RMSD_Holo=Float64[], RMSD_Apo=Float64[])
@@ -222,18 +237,24 @@ function compare_model(model_files::Vector,holo_pdb::String,apo_pdb::String,fold
     return results 
 end
 
+"""
+    visualisation(folder_model::String,holo_pdb::String,apo_pdb::String,folder_path::String,query::String,template::Bool)
+This function visualizes the results of the RMSD calculations for the models in `folder_model`.
+It creates scatter plots of the RMSD values for the apo and holo structures.
+"""
+#Create the plot and visualisation
 function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     model_files = String[]
-    # Trouver tous les dossiers qui commencent par "cluster"
+    # Found the folders that start with "EX_U100"
     cluster_dirs = filter(f -> occursin(r"^EX_(?!U100)", basename(f)), glob("EX_U10*",folder_model))
     for cluster in cluster_dirs
         if template 
-            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
+            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  
         else 
             models_path = joinpath(cluster, "models")
         end
         println(models_path)
-        if isdir(models_path)   # Vérifier si le chemin existe
+        if isdir(models_path)   # check if the path exists
             matching_pdb = filter(isfile, glob("*.pdb", models_path))
             append!(model_files, matching_pdb)
         end
@@ -242,6 +263,7 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
     println(length(model_files))
     println(typeof(model_files))
     results=compare_model(model_files,holo_pdb,apo_pdb,folder_path,folder_model)
+    # Save the results to a CSV file
     if template 
         CSV.write(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_results_"*query*"_U10.csv", results)
     else 
@@ -276,16 +298,16 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         title = "Zoom"
     )
     if template 
-        savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
+        savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U10.png")  
     else 
-        savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U10.png")  # Sauvegarde du plot
+        savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U10.png")  
     end
         model_files = String[]
-    # Trouver tous les dossiers qui commencent par "cluster"
+    # Found the folders that start with "EX_U100"
     cluster_dirs = filter(isdir, glob("EX_U100*", folder_model))
     for cluster in cluster_dirs
         if template 
-            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  # 📂 Chemin des modèles
+            models_path = cluster * "/af/predictions/" * split(basename(cluster), ".")[1] * "/models"  
         else 
             models_path = joinpath(cluster, "models")
         end
@@ -318,7 +340,7 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         ylims = (0, 30)
     )
 
-    # Création de l'inset (zoom sur 0–7)
+    
     scatter!(
         results.RMSD_Apo,
         results.RMSD_Holo,
@@ -334,9 +356,9 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         title = "Zoom"
     )
     if template 
-        savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
+        savefig(folder_path*"/"*query*"_AF_CLUSTER_template/rmsd_scatter_"*query*"_U100.png")  
     else 
-        savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U100.png")  # Sauvegarde du plot
+        savefig(folder_path*"/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*"_U100.png")  
     end
     model_files = String[]
     cluster_labels = String[]  # Stocke le cluster d'origine pour chaque fichier
@@ -406,52 +428,93 @@ function visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         savefig(folder_path * "/"*query*"_AF_CLUSTER/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
     end
 end
-################### MAIN #######################
 
-folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-df_info = CSV.read(folder_path*"/info_dev_set.csv", DataFrame, delim=',')
-println(df_info)
-create_file=false
+####################################################### MAIN ################################################################
+"""
+This code run AF-cluster with or without template, and then run colabfold to get the results.
+It also compares the results with the apo and holo structures, and visualizes the RMSD results
+
+Input :
+- folder_path : the path to the folder containing the PDB files
+- df_info : the DataFrame containing the PDB information
+- create_file : a boolean to know if we create the file or not
+- template : a boolean to know if we use the template or not
+Output for each cluster:
+- A folder with the results of AF-cluster and colabfold
+- A CSV file with the results of the comparison 
+- A plot with the RMSD results
+
+Need to run AlphaConformer before to have the MSA and the template
+Need the script ClusterMSA.py to run AF-cluster
+Be careful for all the folder path and the arborescence of the data that can be different
+"""
+
+
+########################## Information to fill #################################
+#Path to the folder where to put the output
+folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/Devset_test/"
+#Path to the folder containing the PDB files
+const PATH ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
+
+#Path to the CSV file containing the PDB information 
+df_info = CSV.read(PATH*"/info_dev_set.csv", DataFrame, delim=',') #file created in test_set_development.jl
+
+#Boolean to knofolder_pathw if we create the file or not
+create_file=true
+
+#Boolean to know if we use the template or not
 template=true
+#Path to take the MSA and the template from AlphaConformer result 
 
+################################################################################
+
+#For each row in the DataFrame df_info, we run AF-cluster and then colabfold
 for row in eachrow(df_info)
     continuer =true
     query=row.PDB_apo
-    println(query)
+    @show "Query $query"
+    Alpha_conformer_result_path=joinpath(folder_path,query*"_AlphaConformer_Hobohm")
     ## AF-Cluster
-    if template && create_file
-        Alpha_conformer_result_path=joinpath(folder_path,query)
+    if template && create_file #AF-cluster with template
+        
         cluster_dirs_AC = filter(isdir, glob("cluster*", Alpha_conformer_result_path))
-        println(length(cluster_dirs_AC))
-        if length(cluster_dirs_AC)!=0
-            AF_cluster_template(query,create_file)
+        
+        if length(cluster_dirs_AC)!=0 #if we have the cluster from AlphaConformer
+            AF_cluster_template(query,create_file,Alpha_conformer_result_path,folder_path) # run AF-cluster with template
         else 
             println("We don't have template for $query")
         end
-    elseif !template && create_file
-        AF_cluster(query,create_file)
-    else
-        if template 
-            folder_model=folder_path*query*"_AF_CLUSTER_template"
-            if isdir(folder_model)
-                folder_model=folder_path*query*"_AF_CLUSTER_template/output/"   
+    elseif !template && create_file #AF-cluster without template
+        AF_cluster(query,create_file) # run AF-cluster without template
+    
+    #Visualisation and comparison
+    else # if we don't create the file 
+        if template # with template
+            folder_model=folder_path*query*"_AF_CLUSTER_template_Hobohm"
+            if isdir(folder_model) #get the output of AF-cluster with template
+                folder_model=folder_path*query*"_AF_CLUSTER_template_Hobohm/output/"   
             else 
                 println("We don't have the output of AF2 for $query")
                 continuer=false
             end
-        else 
-            folder_model=folder_path*query*"_AF_CLUSTER/output/predictions/"   
+        else  #without template
+            folder_model=folder_path*query*"_AF_CLUSTER/output/predictions/" #get the output of AF-cluster without template
         end
-        if continuer
-            filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
-            println(filtered_rows)
-            row = first(filtered_rows, 1)  # Prend la première ligne
 
-            apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], "_", row.INDEX_apo[1], ".pdb.gz")
-            holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], "_", row.INDEX_holo[1], ".pdb.gz")
+        if continuer # if we have the output of AF-cluster
+            filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
+            row = first(filtered_rows, 1)  # Get the first row that matches the query
+
+            # Get the apo and holo PDB files
+            apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1], ".pdb")
+            holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1], ".pdb")
         
+            #create the visualisation
             visualisation(folder_model,holo_pdb,apo_pdb,folder_path,query,template)
         end
 
     end
 end
+
+@info "End"
+################################################### END #####################################################

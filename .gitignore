@@ -17,12 +17,19 @@ create_db.jl.e*
 test/data/1EX6_B_results.m8
 test/data/.*
 
+msas/
 data/
 scripts/*.jl.o*
-*.csv
-
+scripts/*.out*
+scripts/test_bioemu/
+scripts/*.csv
+scripts/*.log
+scripts/*.fasta
+scripts/*.json
+scripts/*.txt
+scripts/*.tsv
 # tmp
 .nfs*
-
+*.pdb
 # SIFTS
 pdb_chain_uniprot.csv.gz

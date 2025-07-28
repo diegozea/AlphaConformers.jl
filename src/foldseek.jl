@@ -3,6 +3,9 @@
 const _M8_COL_NAMES = ["query", "target", "fident", "alnlen", "mismatch", "gapopen",
     "qstart", "qend", "tstart", "tend", "evalue", "bits"]
 
+
+
+
 """
     foldseek_search(pdb_file::AbstractString; db_path::String = get(ENV, "FOLDSEEK_DB_PATH", ""), format_mode::Int = 0)
 
@@ -26,13 +29,15 @@ The function operates in a temporary directory that is automatically cleaned up 
 """
 function foldseek_search(pdb_file::AbstractString;
     db_path::String=get(ENV, "FOLDSEEK_DB_PATH", ""),
-    format_mode::Int=0)
+    format_output::String="query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend, evalue,bits"
+)
     isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " *
                               "the db_path keyword argument to the path of the Foldseek database.")
     isfile(db_path) || error("The path to the Foldseek database is not a file.")
     mktempdir() do tmp_folder
         # path without extension
         path = first(splitext(abspath(pdb_file)))
+        #=
         if format_mode == 5
             folder = dirname(path)
             aligned_folder = joinpath(folder, "aligned_structures")
@@ -43,13 +48,18 @@ function foldseek_search(pdb_file::AbstractString;
         else
             out_file = "$(path)_results.m8"
         end
-        run(`$(Foldseek_jll.foldseek()) easy-search $pdb_file $db_path $out_file $tmp_folder --format-mode $format_mode`)
+        =#
+        out_file = "$(path)_results.m8"
+        run(`$(Foldseek_jll.foldseek()) easy-search $pdb_file $db_path $out_file $tmp_folder --format-output $format_output`)
+        #=
         if format_mode == 5
             rm(out_file) # This file is empty when using using Foldseek v8
             return dirname(out_file)
         else
             return out_file
         end
+        =#
+        return out_file
     end
 end
 
@@ -61,8 +71,23 @@ end
 Reads the Foldseek easy-search output file (m8) and returns a DataFrame with the results 
 and proper column names.
 """
-function read_foldseek_search_results(file::AbstractString)
-    DataFrames.DataFrame(CSV.File(file, delim='\t', header=_M8_COL_NAMES))
+function read_foldseek_search_results(file::AbstractString; colonnes::Vector{String}=_M8_COL_NAMES)
+    """
+    lines = readlines(file)
+    # Garder seulement les lignes qui ne commencent pas par "@SQ"
+    filtered_lines = filter(line -> !startswith(line, "@SQ"), lines)
+    # Écrire dans un fichier temporaire
+    temp_file = tempname()
+    open(temp_file, "w") do io
+        for line in filtered_lines
+            println(io, line)
+        end
+    end
+    """
+    # Charger dans un DataFrame
+    df = DataFrames.DataFrame(CSV.File(file, delim='\t', header=colonnes))
+    return df
+    #rm(temp_file; force=true)
 end
 
 function run_foldseek(pdb_file::AbstractString,
@@ -270,6 +295,10 @@ function merge_msas(table::DataFrames.DataFrame)
     @show "starts ",first(starts,20)
     @show "targets ",first(targets,5)
     @show "shape msas ",size(msas)
+    if size(msas)[1] == 0
+        @error "No MSAs found in the provided table."
+        return nothing
+    end
     for i in eachindex(msas)
         msa = msas[i]
         @show " msa ",size(msa)
@@ -1093,43 +1122,50 @@ function align_mafft(msa_file::String, pdb_dir::String)
     @info "Aligning MSA with MAFFT: $msa_file"
     
     run(pipeline(`$(MAFFT_jll.mafft()) --auto tmp_for_mafft.fasta`, stdout=msa_file))
-
+    @show typeof(msa_file)
+    @show msa_file
     # Lire l'alignement aligné
-    aligned_msa = MIToS.MSA.A3M.read_file(msa_file, A3M)
+    aligned_msa = MIToS.MSA.read_file(msa_file, MIToS.MSA.FASTA)
     # Adjust the reference sequence in the MSA to avoid gaps
     MIToS.MSA.adjustreference!(aligned_msa)
     # Write the aligned MSA to the output file
-    MIToS.MSA.A3M.write_file(msa_file, aligned_msa, A3M)
+    MIToS.MSA.write_file(msa_file, aligned_msa, MIToS.MSA.A3M)
 end
 
 #faire pour ajouter n pdb et les concaténer dans foldseek 
 function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
-        evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0)
+        evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0, mafft::Bool=false)
     @info "Running Foldseek"
-    #output = run_foldseek(input_pdb, "$pdb_db,$alphafold_db", out_folder=out_folder)
+    
     output = run_foldseek(input_pdb, db , out_folder=out_folder) 
     # Initialiser un vecteur vide de String
     output_vector = Vector{String}()
 
     # Boucle correcte sur les éléments de `output`
     for item in output
-        align_mafft(item.msa_file,pdb_folder)  # Aligner les séquences MSA
+        if mafft 
+            align_mafft(item.msa_file,pdb_folder)  # Aligner les séquences MSA
+        end 
         push!(output_vector, item.table_file)  # Ajouter au vecteur
     end
-    return 
     # Fusionner les tables
     merged_table = merge_tables(output_vector)
     @show size(merged_table)
-    #merged_table = merge_tables([output[1].table_file, output[2].table_file])
-    if evalue_cutoff !== nothing
+    
+    if !isnan(evalue_cutoff)
         filter!(row -> row.evalue < evalue_cutoff, merged_table)
     end
-    #merged_table = merged_table[1:min(1000, size(merged_table, 1)), :]
+    
     @show size(merged_table)
+    if size(merged_table, 1) == 0
+        @error "No results found after filtering with e-value cutoff: $evalue_cutoff"
+        return
+    end
     @info "Merge MSAS"
     merged_msa = merge_msas(merged_table)
+    #MIToS.MSA.write_file(joinpath(out_folder, "sequence.a3m"), merged_msa, MIToS.MSA.A3M)
     @show size(merged_msa)
-    
+
     #merged_msa = merge_msas(merged_table)
     @info "Getting the aligned structures"
     structures = _get_aligned_structures(merged_table)

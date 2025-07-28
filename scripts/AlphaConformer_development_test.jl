@@ -12,6 +12,8 @@
 import Pkg
 Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
 Pkg.status("MIToS")
+
+# Load necessary packages
 using MIToS
 using MIToS.PDB
 using DataFrames
@@ -19,6 +21,13 @@ import CSV
 using Revise
 using AlphaConformers
 
+################################################## Functions ######################################################
+"""
+Extract the chain from a PDB file and save it to a new file.
+This function reads a PDB file, extracts the specified chain, and writes it to a new PDB file.
+
+"""
+# Function to read a PDB file and extract a specific chain
 function _read_pdb_chain_model(file::String, chain_code::String,model_code::String)
     # Read the chain specified by chain_code from the PDB file
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
@@ -46,84 +55,120 @@ function _read_pdb_chain_model(file::String, chain_code::String,model_code::Stri
     end
 end
 
-const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data"
-cd(PATH)
+# Function to create a development set
+function create_dev_set()
+    # download the original dataset 
+    file_path_df_final="/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"
+    df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
+    comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
+    println(first(df_final,20))
+    println(size(df_final))
+    
+    #Create the DF
+    info_pdb = DataFrame(
+        PDB_apo = String[], 
+        CHAIN_apo = String[], 
+        INDEX_apo = Union{Missing, String}[],  
+        PDB_holo = String[], 
+        CHAIN_holo = String[], 
+        INDEX_holo = Union{Missing, String}[] 
+    )
 
-const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
+    #For each pdb we want 
+    for row in eachrow(df_final)
+        apo=row.apo_id
+        apo_info=split(apo,r"[_-]")
+        if length(apo_info)>2
+            apo_pdb=apo_info[1]
+            apo_chain=apo_info[3]
+            apo_index=apo_info[2]
+        else
+            apo_pdb=apo_info[1]
+            apo_chain=apo_info[2]
+            apo_index="1"
+        end
+        holo=row.holo_id
+        holo_info=split(holo,r"[_-]")
+        if length(holo_info)>2
+            holo_pdb=holo_info[1]
+            holo_chain=holo_info[3]
+            holo_index=holo_info[2]
+        else
+            holo_pdb=holo_info[1]
+            holo_chain=holo_info[2]
+            holo_index="1"
+            
+        end
+        #save the information
+        push!(info_pdb,(apo_pdb,apo_chain,apo_index,holo_pdb,holo_chain,holo_index))
+        println(holo_pdb)
 
-const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
-
-const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
-#const ALPHAFOLD_DB = nothing
-
-const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
-
-db=[FOLDSEEK_DB]
-# download the dataset 
-file_path_df_final="/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"
-df_final=DataFrames.DataFrame(CSV.File(file_path_df_final,
-comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
-println(first(df_final,20))
-println(size(df_final))
-"""
-info_pdb = DataFrame(
-    PDB_apo = String[], 
-    CHAIN_apo = String[], 
-    INDEX_apo = Union{Missing, String}[],  
-    PDB_holo = String[], 
-    CHAIN_holo = String[], 
-    INDEX_holo = Union{Missing, String}[] 
-)
-for row in eachrow(df_final)
-    apo=row.apo_id
-    apo_info=split(apo,r"[_-]")
-    if length(apo_info)>2
-        apo_pdb=apo_info[1]
-        apo_chain=apo_info[3]
-        apo_index=apo_info[2]
-    else
-        apo_pdb=apo_info[1]
-        apo_chain=apo_info[2]
-        apo_index="1"
-    end
-    holo=row.holo_id
-    holo_info=split(holo,r"[_-]")
-    if length(holo_info)>2
-        holo_pdb=holo_info[1]
-        holo_chain=holo_info[3]
-        holo_index=holo_info[2]
-    else
-        holo_pdb=holo_info[1]
-        holo_chain=holo_info[2]
-        holo_index="1"
+        #Download the apo and holo pdb files with the chain and index
+        apo_path=joinpath(PATH,apo_pdb*".pdb.gz" )
+        MIToS.PDB.downloadpdb(String(apo_pdb), format = PDBFile,filename=apo_path) # Sinon ne reconnais pas le package --> weird   
+        chain = _read_pdb_chain_model(apo_path, String(apo_chain),String(apo_index))
+        if chain !== nothing
+            apo_chain_path=joinpath(PATH,apo_pdb*"_"*apo_chain*"_"*apo_index*".pdb.gz" )
+            MIToS.PDB.write(apo_chain_path, chain, MIToS.PDB.PDBFile)
+        end
         
-    end
-    push!(info_pdb,(apo_pdb,apo_chain,apo_index,holo_pdb,holo_chain,holo_index))
-    println(holo_pdb)
+        holo_path=joinpath(PATH,holo_pdb*".pdb.gz" )
+        MIToS.PDB.downloadpdb(String(holo_pdb), format = PDBFile,filename=holo_path) # Sinon ne reconnais pas le package --> weird   
+        chain = _read_pdb_chain_model(holo_path, String(holo_chain),String(holo_index))
+        if chain !== nothing
+            holo_chain_path=joinpath(PATH,holo_pdb*"_"*holo_chain*"_"*holo_index*".pdb.gz" )
+            MIToS.PDB.write(holo_chain_path, chain, MIToS.PDB.PDBFile)
+        end
 
-    apo_path=joinpath(PATH,apo_pdb*".pdb.gz" )
-    MIToS.PDB.downloadpdb(String(apo_pdb), format = PDBFile,filename=apo_path) # Sinon ne reconnais pas le package --> weird   
-    
-    chain = _read_pdb_chain_model(apo_path, String(apo_chain),String(apo_index))
-    if chain !== nothing
-        apo_chain_path=joinpath(PATH,apo_pdb*"_"*apo_chain*"_"*apo_index*".pdb.gz" )
-        MIToS.PDB.write(apo_chain_path, chain, MIToS.PDB.PDBFile)
     end
-    
-    holo_path=joinpath(PATH,holo_pdb*".pdb.gz" )
-    MIToS.PDB.downloadpdb(String(holo_pdb), format = PDBFile,filename=holo_path) # Sinon ne reconnais pas le package --> weird   
 
-    chain = _read_pdb_chain_model(holo_path, String(holo_chain),String(holo_index))
-    if chain !== nothing
-        holo_chain_path=joinpath(PATH,holo_pdb*"_"*holo_chain*"_"*holo_index*".pdb.gz" )
-        MIToS.PDB.write(holo_chain_path, chain, MIToS.PDB.PDBFile)
-    end
+    #Save the information in a csv file
+    CSV.write("info_dev_set.csv", info_pdb)
 
 end
 
-println(info_pdb)
-CSV.write("info_dev_set.csv", info_pdb)
+################################################## MAIN ######################################################
 """
+Function to executes AlphaConformer on a set of PDB files
+
+Input :
+-Path: Path to the main directory containing the apo and holo files
+-PDB_FOLDER: Path to the PDB files
+-FOLDSEEK_DB: Path to the Foldseek database
+-ALPHAFOLD_DB: Path to the AlphaFold database
+-COLABFOLD_PATH: Path to the ColabFold script
+-db: BDD use for Foldseek
+Output:
+- Folder for each PDB file containing the results of AlphaConformer
+- Function returns cluster and each have the result of AlphaFold
+
+Need to wait for AlphaFold result 
+Take around 40min for each pdb for AlphaConformer then wait for AlphaFold to execute each cluster 
+Time of total execution depend on the number of cluster 
+Can change the parameter of ALphaConformer to reduce the number of cluster
+    - db, evalue_cutoff, cutoff
+"""
+########################## Information to fill #################################
+# Path to the main directory containing the apo and holo files and where to save the result
+const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
+cd(PATH)
+# Path to the PDB files
+const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
+# Path to the Foldseek database
+const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
+# Path to the AlphaFold database
+const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
+#const ALPHAFOLD_DB = nothing
+# Path to the ColabFold script
+const COLABFOLD_PATH = "/opt/alphafold/runcolabfold.py"
+#BDD use for Foldseek
+db=[FOLDSEEK_DB,ALPHAFOLD_DB]
+####################################################################################
+
+#Create the development set
+if !isfile("info_dev_set.csv")
+    create_dev_set()
+end
 file_path="info_dev_set.csv"
 info_pdb=DataFrames.DataFrame(CSV.File(file_path,
 comment="#", missingstring=["", "None"])) # Output DF with PDB CHAIN RESOLUTION SITE LIGAND
@@ -132,28 +177,36 @@ println(size(info_pdb))
 
 #Run AlphaConformers with apo form in template 
 global index=0
-global list=[3,6,8,9,10,11]
 for row in eachrow(info_pdb)
     
-    if index == 0
-        apo_pdb=row.PDB_apo
-        apo_chain=row.CHAIN_apo
-        apo_model=row.INDEX_apo
-        println(typeof(apo_model))
-        println(apo_pdb)
-        REF_PDB = joinpath(PATH, apo_pdb*"_"*apo_chain*"_"*string(apo_model)*".pdb.gz")
-        println(REF_PDB)
-        #output_dir = joinpath(PATH, apo_pdb*"_No_AFDB")
-        #output_dir = joinpath(PATH, apo_pdb)
-        output_dir = joinpath(PATH, apo_pdb*"_Update_3")
-        if isdir(output_dir)
-            rm(output_dir; recursive=true, force=true)
-        end
-        mkdir(output_dir)
-        println(output_dir)
-        
-        AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db)
-        #AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)
-    end 
-    global index=index+1
+    #Get the apo pdb file
+    apo_pdb=row.PDB_apo
+    apo_chain=row.CHAIN_apo
+    apo_model=row.INDEX_apo #if model specified
+    @show apo_pdb
+    filename = string(apo_pdb, "_", apo_chain, "_", apo_model, ".pdb.gz")
+    REF_PDB = joinpath(PATH, filename) #Get the query path
+    @show REF_PDB
+
+    #Create the output directory
+    #output_dir = joinpath(PATH, apo_pdb*"_No_AFDB")
+    #output_dir = joinpath(PATH, apo_pdb)
+    output_dir = joinpath(PATH, "Devset_test/"*apo_pdb*"_AlphaConformer_Hobohm")
+    if isdir(output_dir)
+        rm(output_dir; recursive=true, force=true)
+    end
+    mkdir(output_dir)
+    println(output_dir)
+    
+    #Run AlphaConformers
+    try 
+        AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db=db, cutoff=1.0)
+        AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)   
+    catch e
+        @warn "Error for $apo_pdb : ", e
+    end         
+    
+    global index=index+1 #can be use if we want to run only for few pdbs
 end
+@show "End"
+########################################### End ###########################################################

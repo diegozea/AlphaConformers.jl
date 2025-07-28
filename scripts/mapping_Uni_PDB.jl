@@ -1,11 +1,11 @@
 #!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
-#PBS -l ncpus=13
-#PBS -l mem=50g
-#PBS -l host=node48
-#PBS -l walltime=600:00:00
-#PBS -j oe
+#SBATCH --nodelist=node48
+#SBATCH --time=600:00:00
+#SBATCH --mem=50G
+#SBATCH --cpus-per-task=13
+#SBATCH --output=mapping_Uni_PDB.jl.%j.out
 =#
 
 import Pkg
@@ -14,6 +14,7 @@ cd("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/")
 using Distributed
 addprocs(12)  # Ajoute 12 processus parallèles
 
+# Load necessary packages on all workers
 @everywhere using AlphaConformers
 @everywhere using BioStructures
 @everywhere using DataFrames
@@ -37,6 +38,7 @@ addprocs(12)  # Ajoute 12 processus parallèles
 @everywhere using Profile
 @everywhere using InlineStrings
 
+############################################### Fonctions ####################################################
 
 #Link the 3 csv together
 """
@@ -171,7 +173,6 @@ output a dictionnaire with the mapping Uniprot => PDB
     return siftsmap #Output the mapping UNIPROT => PDB
 end
 
-
 """
 Make the link between the Uniprot index and the residues. Use the fonction get_sift_mapping and MIToS.PDB.downloadpdb
 
@@ -210,7 +211,6 @@ output a dictionnaire with the mapping Uniprot => Residues
     @assert length(residues_uniprot)>0 # If we don't have any residues at the end 
     return residues_uniprot
 end
-
 
 """
 Compare the residues form PDB and Uniprot to identify the number of mutation and the missing residues
@@ -262,7 +262,6 @@ Output the Dataframe with two new colonnes MUTATION and MISSING_RESIDUES
     end
     return df_uniprot
 end
-
 
 """
 Compare for each uniprot accession number the pdb file associate with structure alignment 
@@ -320,8 +319,6 @@ Output a Vector with the RMSD between each PDB --> its the half of the Correlati
     return rmsd_list,file_i_i,keep_indices # Output the file with all the rmsd and the file name
 end
 
-
-
 """
 Create the cluster for different CutOff
 
@@ -376,7 +373,6 @@ Output a Dataframe with the cluster number for each CutOff
     end
     return final_df
 end
-
 
 """
 Create the cluster with Hobohm algorithm
@@ -492,7 +488,6 @@ Output the DF with one colonne for every cutoff
     end
     return df
 end
-
 
 """ 
 For each uniprot accession we want to assign cluster. We first use structural_clustering_hobohm_multi and if the cluster couldn't 
@@ -651,7 +646,6 @@ function check_apo_holo_cluster(df_completed::DataFrame)
     return check_cluster #Output the result 
 end
 
-
 #download sift Pfam and cath databases 
 """ 
 get the three csv that are already download and output them in a dataframe
@@ -751,8 +745,7 @@ function clean_csv(input_path::String, output_path::String)
     println("✅ CSV converti avec succès : $output_path")
 end
 
-
-################  Function main ##################
+#####################################  Function main ################################################################
 """ 
 main fonction to get all the information about all the pdb 
 use PFAM CATH BioLiP SIFT 
@@ -777,7 +770,7 @@ function main(part_1::Bool,part_2::Bool,part_3::Bool,save::Bool,sift_folder::Str
         df_final=get_ligand_information(df_biolip_5_first_columns,df_pdb_reso_resi)
 
         if save 
-            CSV.write("pdb_information_details.csv", df_final)
+            CSV.write("pdb_information_details.csv", df_final) #File with all the information about all the pdb
         end
     end
     #Add information about Missing residues and mutation
@@ -807,7 +800,7 @@ function main(part_1::Bool,part_2::Bool,part_3::Bool,save::Bool,sift_folder::Str
         df_completed_final = vcat(skipmissing(df_results)...)
         @show first(df_completed_final,20)
         if save
-            CSV.write("pdb_information_details_filter_mutation.csv", df_completed_final)
+            CSV.write("pdb_information_details_filter_mutation.csv", df_completed_final) 
         end
     end
     if part_3
@@ -859,18 +852,43 @@ function main(part_1::Bool,part_2::Bool,part_3::Bool,save::Bool,sift_folder::Str
    
 end
 
-###########################################################################################################################################
 ########################################################## MAIN ############################################################################
-#############################################################################################################################################
+"""
+Main function to gather all the information about PDBs, ligands, mutations, and clustering. 
+This function orchestrates the entire process, including downloading necessary files, processing data, and saving results.
+It compare apo and holo forms of PDBs, performs clustering, and outputs a final CSV file with detailed information and clusters.
+
+Input:
+- sift_folder: Path to the folder containing SIFT files.
+- pdb_folder: Path to the folder containing PDB files.
+- part_1: Boolean indicating whether to perform the first part of the process (downloading and creating DataFrame).
+- part_2: Boolean indicating whether to perform the second part (mutation and missing residues).
+- part_3: Boolean indicating whether to perform the third part (clustering and apo/holo comparison).
+- save: Boolean indicating whether to save the final results in a CSV file.
+Output:
+- A CSV file named "pdb_information_details_final_mutation_cluster_reformatted.csv" containing detailed information about PDBs, including mutations, clustering, and apo/holo status.
+
+Take a lot of time to run, so be patient. 
+Advise to put save to true to save the result in a csv file, so you can use it later without running the code again.
+"""
+
+########################## Information to fill #################################
+const sift_folder= abspath("/alpha/database/sift", "sift_files")
+const pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
+
+part_1=false # If we want to do the first part with the download of the file and the creation of the DataFrame
+part_2=false # If we want to do the second part with the mutation and missing residues
+part_3=false # If we want to do the third part with the clustering and the apo/holo comparison
+save=true # If we want to save the result in a csv file
+####################################################################################
 
 @info "START ! "
 @show "Date de debut ", Dates.format(now(), "HH:MM:SS")
 
-const sift_folder= abspath("/alpha/database/sift", "sift_files")
-const pdb_folder= abspath("/alpha/database/pdb", "pdb_files")
-
-main(false,false,false,true,sift_folder,pdb_folder)
+main(part_1,part_2,part_3,save,sift_folder,pdb_folder)
 
 @show "Date de fin", Dates.format(now(), "HH:MM:SS")
 
 @info "END !"
+
+################################################################# End ##############################################################################
