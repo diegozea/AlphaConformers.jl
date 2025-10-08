@@ -24,9 +24,9 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
             @info "Running AlphaFold for $(abspath(folder))"
             if isdir("templates")
                 if !isempty(readdir("templates"))
-                    af_command = `$colabfold_path sequences.a3m af --use-templates 1 --msa-input --custom-template-path templates/ --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
+                    af_command = `python3 $colabfold_path sequences.a3m af --use-templates 1 --msa-input --custom-template-path templates/ --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
                     @info "Running AlphaFold command: $af_command"
-                    run(af_command)
+                    success(run(af_command))
                 else
                     @warn "No templates found in $(abspath("templates"))"
                 end
@@ -34,6 +34,30 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
                 @warn "There is no templates folder in $(abspath(folder))"
             end
         end
+    finally
+        # return to the original working directory
+        cd(current_dir)
+    end
+end
+
+function run_alphafold_one_run(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
+    if isempty(colabfold_path)
+        throw(ErrorException("The path to ColabFold is not defined, please set the COLABFOLD_PATH environment variable or the colabfold_path keyword argument."))
+    end
+    if isempty(cluster_folders)
+        throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
+    end
+    msas_dir = joinpath(clusters_folder, "All_a3m")
+    templates_dir = joinpath(clusters_folder, "All_templates")
+    output_dir=mkdir(joinpath(clusters_folder, "AlphaFold_OneRun"))
+    # remember the current working directory
+    current_dir = pwd()
+    try
+        # run AlphaFold for each cluster
+        af_command = `$COLABFOLD_PATH $msas_dir $output_dir --msa-input --use-templates 1 --custom-template-path $templates_dir --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
+        @info "Running AlphaFold command: $af_command"
+        run(af_command)
+                
     finally
         # return to the original working directory
         cd(current_dir)
