@@ -1,0 +1,22 @@
+  Activating project at `/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers`
+ERROR: LoadError: IOError: readdir("/var/spool/slurmd/job300952/../pmix.293240.0"): permission denied (EACCES)
+Stacktrace:
+ [1] try_yieldto(undo::typeof(Base.ensure_rescheduled))
+   @ Base ./task.jl:958
+ [2] wait()
+   @ Base ./task.jl:1022
+ [3] wait(c::Base.GenericCondition{ReentrantLock}; first::Bool)
+   @ Base ./condition.jl:130
+ [4] wait
+   @ ./condition.jl:125 [inlined]
+ [5] take_unbuffered(c::Channel{Tuple{String, Vector{String}, Vector{String}}})
+   @ Base ./channels.jl:510
+ [6] take!
+   @ ./channels.jl:487 [inlined]
+ [7] iterate(c::Channel{Tuple{String, Vector{String}, Vector{String}}}, state::Nothing)
+   @ Base ./channels.jl:629
+ [8] run_tests(path::String; filter::Nothing, verbose::Bool)
+   @ TestItemRunner ~/.julia/packages/TestItemRunner/Q6zqe/src/TestItemRunner.jl:155
+ [9] top-level scope
+   @ /var/spool/slurmd/job300952/slurm_script:31
+in expression starting at /var/spool/slurmd/job300952/slurm_script:31
