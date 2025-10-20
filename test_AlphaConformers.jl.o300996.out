@@ -1,0 +1,36 @@
+ERROR: LoadError: UndefVarError: `get_uniprot_mapping` not defined in `Main.var"##233"`
+Suggestion: check for spelling errors or missing imports.
+Stacktrace:
+  [1] (::Main.var"##233".var"#1#2")(tmp_folder::String)
+    @ Main.var"##233" ./../Clean_AlphaConformers/test/sifts.jl:7
+  [2] mktempdir(fn::Main.var"##233".var"#1#2", parent::String; prefix::String)
+    @ Base.Filesystem ./file.jl:819
+  [3] mktempdir(fn::Function, parent::String)
+    @ Base.Filesystem ./file.jl:815
+  [4] top-level scope
+    @ ../Clean_AlphaConformers/test/sifts.jl:4
+  [5] eval
+    @ ./boot.jl:430 [inlined]
+  [6] include_string(mapexpr::typeof(identity), mod::Module, code::String, filename::String)
+    @ Base ./loading.jl:2734
+  [7] include_string(m::Module, txt::String, fname::String)
+    @ Base ./loading.jl:2744
+  [8] #invokelatest#2
+    @ ./essentials.jl:1055 [inlined]
+  [9] invokelatest
+    @ ./essentials.jl:1052 [inlined]
+ [10] #8
+    @ ~/.julia/packages/TestItemRunner/Q6zqe/src/TestItemRunner.jl:118 [inlined]
+ [11] withpath(f::TestItemRunner.var"#8#12"{String, String, Module}, path::String)
+    @ TestItemRunner ~/.julia/packages/TestItemRunner/Q6zqe/src/vendored_code.jl:7
+ [12] #7
+    @ ~/.julia/packages/TestItemRunner/Q6zqe/src/TestItemRunner.jl:117 [inlined]
+ [13] cd(f::TestItemRunner.var"#7#11"{String, String, Module}, dir::String)
+    @ Base.Filesystem ./file.jl:112
+ [14] run_testitem(filepath::String, use_default_usings::Bool, setups::Vector{Symbol}, package_name::String, original_code::String, line::Int64, column::Int64, test_setup_module_set::TestItemRunner.TestSetupModuleSet, testsetups::Dict{Symbol, Any})
+    @ TestItemRunner ~/.julia/packages/TestItemRunner/Q6zqe/src/TestItemRunner.jl:116
+ [15] run_tests(path::String; filter::Nothing, verbose::Bool)
+    @ TestItemRunner ~/.julia/packages/TestItemRunner/Q6zqe/src/TestItemRunner.jl:221
+ [16] top-level scope
+    @ none:1
+in expression starting at ../Clean_AlphaConformers/test/sifts.jl:4

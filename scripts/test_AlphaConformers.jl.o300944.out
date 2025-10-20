@@ -1,0 +1,9 @@
+  Activating project at `/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers`
+ERROR: LoadError: Invalid argument
+Stacktrace:
+ [1] error(s::String)
+   @ Base ./error.jl:35
+ [2] var"@run_package_tests"(__source__::LineNumberNode, __module__::Module, ex::Vararg{Any})
+   @ TestItemRunner ~/.julia/packages/TestItemRunner/Q6zqe/src/TestItemRunner.jl:255
+in expression starting at /var/spool/slurmd/job300944/slurm_script:27
+in expression starting at /var/spool/slurmd/job300944/slurm_script:27

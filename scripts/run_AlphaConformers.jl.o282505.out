@@ -1,0 +1,265 @@
+941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+createdb /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_C.pdb query_db 
+
+MMseqs Version:             	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Use GPU                     	0
+Path to ProstT5             	
+Chain name mode             	0
+Createdb extraction mode    	0
+Interface distance threshold	8
+Write mapping file          	0
+Mask b-factor threshold     	0
+Coord store mode            	2
+Write lookup file           	1
+Input format                	0
+File Inclusion Regex        	.*
+File Exclusion Regex        	^$
+Threads                     	80
+Verbosity                   	3
+
+Output file: query_db
+[=================================================================] 1 0s 3ms
+Time for merging to query_db_ss: 0h 0m 0s 1ms
+Time for merging to query_db_h: 0h 0m 0s 1ms
+Time for merging to query_db_ca: 0h 0m 0s 1ms
+Time for merging to query_db: 0h 0m 0s 1ms
+Ignore 0 out of 1.
+Too short: 0, incorrect: 0, not proteins: 0.
+Time for processing: 0h 0m 0s 28ms
+convertalis query_db /alpha/database/pdb/fullpdb results /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/fullpdb_results/6r17_C_results.m8 
+
+MMseqs Version:        	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Substitution matrix    	aa:3di.out,nucl:3di.out
+Alignment format       	0
+Format alignment output	query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits
+Gap open cost          	aa:10,nucl:10
+Gap extension cost     	aa:1,nucl:1
+Database output        	false
+Preload mode           	0
+Threads                	80
+Compressed             	0
+Verbosity              	3
+Exact TMscore          	0
+
+[=================================================================] 1 0s 0ms
+Time for merging to 6r17_C_results.m8: 0h 0m 0s 36ms
+Time for processing: 0h 0m 0s 255ms
+convertalis query_db /alpha/database/pdb/fullpdb results /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/fullpdb_results/aligned_structures/aln_ --format-mode 5 
+
+MMseqs Version:        	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Substitution matrix    	aa:3di.out,nucl:3di.out
+Alignment format       	5
+Format alignment output	query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits
+Gap open cost          	aa:10,nucl:10
+Gap extension cost     	aa:1,nucl:1
+Database output        	false
+Preload mode           	0
+Threads                	80
+Compressed             	0
+Verbosity              	3
+Exact TMscore          	0
+
+[=================================================================] 1 0s 0ms
+Time for merging to aln_: 0h 0m 0s 31ms
+Time for processing: 0h 0m 0s 513ms
+result2msa query_db /alpha/database/pdb/fullpdb results msa --msa-format-mode 6 
+
+MMseqs Version:           	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Substitution matrix       	aa:3di.out,nucl:3di.out
+Gap open cost             	aa:10,nucl:10
+Gap extension cost        	aa:1,nucl:1
+Allow deletions           	false
+Compositional bias        	1
+Compositional bias        	1
+MSA format mode           	6
+Summary prefix            	cl
+Skip query                	false
+Filter MSA                	0
+Use filter only at N seqs 	0
+Maximum seq. id. threshold	0.9
+Minimum seq. id.          	0.0
+Minimum score per column  	-20
+Minimum coverage          	0
+Select N most diverse seqs	1000
+Preload mode              	0
+Threads                   	80
+Compressed                	0
+Verbosity                 	3
+
+Query database size: 1 type: Aminoacid
+Target database size: 1013535 type: Aminoacid
+[=================================================================] 1 0s 0ms
+Time for merging to msa: 0h 0m 0s 0ms
+Time for processing: 0h 0m 0s 204ms
+Create directory msa_output
+unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0 
+
+MMseqs Version: 	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Unpack name mode	0
+Unpack suffix   	a3m
+Threads         	80
+Verbosity       	3
+
+[=================================================================] 1 0s 2ms
+Time for processing: 0h 0m 0s 3ms
+941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+createdb /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_C.pdb query_db 
+
+MMseqs Version:             	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Use GPU                     	0
+Path to ProstT5             	
+Chain name mode             	0
+Createdb extraction mode    	0
+Interface distance threshold	8
+Write mapping file          	0
+Mask b-factor threshold     	0
+Coord store mode            	2
+Write lookup file           	1
+Input format                	0
+File Inclusion Regex        	.*
+File Exclusion Regex        	^$
+Threads                     	80
+Verbosity                   	3
+
+Output file: query_db
+[=================================================================] 1 0s 3ms
+Time for merging to query_db_ss: 0h 0m 0s 1ms
+Time for merging to query_db_h: 0h 0m 0s 1ms
+Time for merging to query_db_ca: 0h 0m 0s 1ms
+Time for merging to query_db: 0h 0m 0s 1ms
+Ignore 0 out of 1.
+Too short: 0, incorrect: 0, not proteins: 0.
+Time for processing: 0h 0m 0s 27ms
+convertalis query_db /alpha/database/afdb/afdb_up results /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/afdb_up_results/6r17_C_results.m8 
+
+MMseqs Version:        	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Substitution matrix    	aa:3di.out,nucl:3di.out
+Alignment format       	0
+Format alignment output	query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits
+Gap open cost          	aa:10,nucl:10
+Gap extension cost     	aa:1,nucl:1
+Database output        	false
+Preload mode           	0
+Threads                	80
+Compressed             	0
+Verbosity              	3
+Exact TMscore          	0
+
+[=================================================================] 1 0s 0ms
+Time for merging to 6r17_C_results.m8: 0h 0m 0s 27ms
+Time for processing: 0h 0m 14s 829ms
+convertalis query_db /alpha/database/afdb/afdb_up results /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/afdb_up_results/aligned_structures/aln_ --format-mode 5 
+
+MMseqs Version:        	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Substitution matrix    	aa:3di.out,nucl:3di.out
+Alignment format       	5
+Format alignment output	query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits
+Gap open cost          	aa:10,nucl:10
+Gap extension cost     	aa:1,nucl:1
+Database output        	false
+Preload mode           	0
+Threads                	80
+Compressed             	0
+Verbosity              	3
+Exact TMscore          	0
+
+[=================================================================] 1 0s 0ms
+Time for merging to aln_: 0h 0m 0s 24ms
+Time for processing: 0h 0m 24s 532ms
+result2msa query_db /alpha/database/afdb/afdb_up results msa --msa-format-mode 6 
+
+MMseqs Version:           	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Substitution matrix       	aa:3di.out,nucl:3di.out
+Gap open cost             	aa:10,nucl:10
+Gap extension cost        	aa:1,nucl:1
+Allow deletions           	false
+Compositional bias        	1
+Compositional bias        	1
+MSA format mode           	6
+Summary prefix            	cl
+Skip query                	false
+Filter MSA                	0
+Use filter only at N seqs 	0
+Maximum seq. id. threshold	0.9
+Minimum seq. id.          	0.0
+Minimum score per column  	-20
+Minimum coverage          	0
+Select N most diverse seqs	1000
+Preload mode              	0
+Threads                   	80
+Compressed                	0
+Verbosity                 	3
+
+Query database size: 1 type: Aminoacid
+Target database size: 214683829 type: Aminoacid
+[=================================================================] 1 0s 0ms
+Time for merging to msa: 0h 0m 0s 0ms
+Time for processing: 0h 0m 16s 364ms
+Create directory msa_output
+unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0 
+
+MMseqs Version: 	941cd33ff0771cd2e3f144e3293e22a2b87e9fda
+Unpack name mode	0
+Unpack suffix   	a3m
+Threads         	80
+Verbosity       	3
+
+[=================================================================] 1 0s 1ms
+Time for processing: 0h 0m 0s 2ms
+  Activating project at `/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update`
+[ Info: Running Foldseek
+[ Info: Creating folder /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/fullpdb_results
+[ Info: Creating folder /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/fullpdb_results/aligned_structures
+[ Info: Creating folder /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/afdb_up_results
+[ Info: Creating folder /store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/afdb_up_results/aligned_structures
+[ Info: Merge MSAS
+[ Info: 1 msa
+[ Info: Getting the aligned structures
+[ Info: Adding known conformations
+[ Info: Measuring RMSDs
+[ Info: Clustering structures
+[ Info: get_target2sequence
+[ Info: cluster_structures
+[ Info: get_cluster2targets
+[ Info: get_cluster2seqnames
+[ Info: get_cluster2msa
+[ Info: get_cluster2structures
+[ Info: Create folder
+No Matches in `/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update/Project.toml`
+REF_PDB = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_C.pdb"
+/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer
+db_name = "fullpdb"
+out_folder_db = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/fullpdb_results"
+db_name = "afdb_up"
+out_folder_db = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/6r17_AlphaConformer/afdb_up_results"
+size(merged_table) = (3, 13)
+size(merged_table) = (3, 13)
+table (3, 13)
+("starts ", first(starts, 20)) = ("starts ", Tuple{InlineStrings.String15, Int64, Float64}[("6HK9.pdb_B", 147, 0.968), ("6R17.pdb_C", 214, 1.0), ("6HK8.pdb_B", 175, 1.0)])
+("targets ", first(targets, 5)) = ("targets ", InlineStrings.String15["6HK9.pdb_B", "6R17.pdb_C", "6HK8.pdb_B"])
+("shape msas ", size(msas)) = ("shape msas ", (1,))
+(" msa ", size(msa)) = (" msa ", (4, 63))
+("shape seqnames ", length(seqnames)) = ("shape seqnames ", 3)
+("shape selected ", length(seqnames)) = ("shape selected ", 3)
+("Nombre unique d'IDs :", length(unique(seqnames))) = ("Nombre unique d'IDs :", 3)
+("shape msa ", size(msa)) = ("shape msa ", (4, 63))
+("msa_target ", length(msa_targets)) = ("msa_target ", 3)
+length(unique(msa_targets)) = 3
+0
+Set{Any}()
+duplicated_msa_targets = Set{Any}()
+("shape selected ", length(selected)) = ("shape selected ", 4)
+("shape msa ", size(msa)) = ("shape msa ", (4, 63))
+("Nombre de true dans selected : ", count(selected)) = ("Nombre de true dans selected : ", 4)
+first(msa, 5) = MIToS.MSA.Residue[K, K, K, K, D]
+("shape msas ", length(msas)) = ("shape msas ", 1)
+size(merged_msa) = (4, 63)
+length(structures) = 3
+first(cluster_labels, 5) = ["6HK9.pdb_B" => 3, "6R17.pdb_C" => 1, "6HK8.pdb_B" => 2]
+length(cluster2seqnames) = 3
+length(cluster2msa) = 3
+length(cluster2structures) = 3
+clust = 1
+clust = 2
+clust = 3
+"End" = "End"

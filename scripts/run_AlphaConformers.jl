@@ -11,7 +11,7 @@
 
 
 import Pkg
-Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
+Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update")
 Pkg.status("MIToS")
 
 # Load necessary packages 
@@ -47,7 +47,7 @@ Can change the parameter of ALphaConformer to reduce the number of cluster
 """
 ########################## Information to fill #################################
 # Path to the main directory containing the apo and holo files and where to save the result
-const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
+const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/"
 cd(PATH)
 # Path to the PDB files
 const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
@@ -76,7 +76,7 @@ REF_PDB = joinpath(PATH, filename) #Get the query path
 #output_dir = joinpath(PATH, apo_pdb)
 output_dir = joinpath(PATH, apo_pdb*"_AlphaConformer")
 
-#=
+
 if isdir(output_dir)
     rm(output_dir; recursive=true, force=true)
 end
@@ -86,7 +86,7 @@ println(output_dir)
 #Run AlphaConformers
 
 AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db=db,evalue_cutoff=NaN, cutoff=1.0)
-=#
+
 #=
 ## Code to have only one run AF2 ##
 #Create a folder to gather all the a3m files
@@ -134,7 +134,7 @@ AlphaConformers.run_alphafold_one_run(output_dir, colabfold_path=COLABFOLD_PATH)
 =#
 ###################################################
 
-AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)   
+#AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)   
          
 
 @show "End"
