@@ -11,8 +11,17 @@
 
 
 import Pkg
+
+
 Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_320")
 Pkg.status("MIToS")
+
+using AlphaConformers
+@show pathof(AlphaConformers)
+#Pkg.develop(path="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers")
+
+
+
 
 # Load necessary packages 
 using MIToS
@@ -20,7 +29,6 @@ using MIToS.PDB
 using DataFrames
 import CSV
 using Revise
-using AlphaConformers
 using Glob
 using Statistics
 
@@ -57,7 +65,8 @@ const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
 #const ALPHAFOLD_DB = nothing
 # Path to the ColabFold script
-const COLABFOLD_PATH = "/opt/alphafold/scripts/runcolabfold_v2.py"
+const SIF_PATH=expanduser("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/ColabFold/scratch/images/colabfold-1.5.5-cuda12.2.2-organize.sif")
+const CACHE_DIR="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/ColabFold/cache"
 #BDD use for Foldseek
 db=[FOLDSEEK_DB,ALPHAFOLD_DB]
 ####################################################################################
@@ -74,9 +83,9 @@ REF_PDB = joinpath(PATH, filename) #Get the query path
 #Create the output directory
 #output_dir = joinpath(PATH, apo_pdb*"_No_AFDB")
 #output_dir = joinpath(PATH, apo_pdb)
-output_dir = joinpath(PATH, apo_pdb*"_AlphaConformer")
+output_dir = joinpath(PATH, apo_pdb*"_AlphaConformer_onejob")
 
-
+#=
 if isdir(output_dir)
     rm(output_dir; recursive=true, force=true)
 end
@@ -86,55 +95,8 @@ println(output_dir)
 #Run AlphaConformers
 
 AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db=db,evalue_cutoff=NaN, cutoff=1.0)
-
-#=
-## Code to have only one run AF2 ##
-#Create a folder to gather all the a3m files
-a3m_folder = joinpath(output_dir, "All_a3m")
-if isdir(a3m_folder)
-    rm(a3m_folder; recursive=true, force=true)
-end
-mkdir(a3m_folder)
-
-#Create a folder to gather all the a3m files
-template_all_folder = joinpath(output_dir, "All_templates")
-if isdir(template_all_folder)
-    rm(template_all_folder; recursive=true, force=true)
-end
-mkdir(template_all_folder)
-
-#Get the cluster folders
-cluster_folders = filter!(
-        dir -> occursin("cluster_", dir), 
-        readdir(clusters_folder, join=true))
-@show cluster_folders
-#Copy the a3m files in the new folder
-for folder in cluster_folders
-    a3m_file = joinpath(folder, "sequences.a3m")
-    @show a3m_file
-    if isfile()
-        cp(a3m_file, joinpath(a3m_folder, "msa_"*folder[end]*".a3m"))
-    else
-        @warn "No a3m file found in $folder"
-    end
-    template_folder = joinpath(folder, "templates")
-    @show template_folder
-    if isfolder()
-        for file in readdir(template_folder)
-            if !isfile(joinpath(template_all_folder, file))
-                cp(joinpath(template_folder, file), joinpath(template_all_folder, file))
-            end
-        end
-    else
-        @warn "No template folder found in $folder"
-    end
-end
-
-AlphaConformers.run_alphafold_one_run(output_dir, colabfold_path=COLABFOLD_PATH)   
 =#
-###################################################
-
-#AlphaConformers.run_alphafold(output_dir, colabfold_path=COLABFOLD_PATH)   
+AlphaConformers.run_alphafold_one_run(output_dir, SIF_PATH, CACHE_DIR)   
          
 
 @show "End"

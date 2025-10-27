@@ -58,7 +58,7 @@ version = "1.1.3"
 
 [[deps.AlphaConformers]]
 deps = ["BioAlignments", "BioSequences", "BioStructures", "CSV", "Clustering", "Combinatorics", "DataFrames", "Distributed", "Downloads", "Foldseek_jll", "MAFFT_jll", "MIToS", "OrderedCollections", "PairwiseListMatrices", "ProgressMeter", "TestItems", "USalign_jll"]
-path = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl"
+path = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers"
 uuid = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
 version = "0.1.0"
 

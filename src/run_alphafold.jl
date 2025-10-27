@@ -40,26 +40,58 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
     end
 end
 
-function run_alphafold_one_run(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
-    if isempty(colabfold_path)
-        throw(ErrorException("The path to ColabFold is not defined, please set the COLABFOLD_PATH environment variable or the colabfold_path keyword argument."))
+# === FONCTIONS UTILITAIRES ===
+function timestamp()
+    Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS")
+end
+
+function run_cmd(cmd::Cmd)
+    println("▶️  $(timestamp()) → $(join(cmd.exec, " "))")
+    try
+        run(cmd)
+        println("✅  $( timestamp()) end without error\n")
+    catch e
+        @warn "⚠️ Error of execution for : $e"
     end
-    if isempty(cluster_folders)
+end
+
+function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_DIR::String)
+    ### Check input directories
+    if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
     end
-    msas_dir = joinpath(clusters_folder, "All_a3m")
-    templates_dir = joinpath(clusters_folder, "All_templates")
-    output_dir=mkdir(joinpath(clusters_folder, "AlphaFold_OneRun"))
-    # remember the current working directory
-    current_dir = pwd()
-    try
-        # run AlphaFold for each cluster
-        af_command = `$COLABFOLD_PATH $msas_dir $output_dir --msa-input --use-templates 1 --custom-template-path $templates_dir --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
-        @info "Running AlphaFold command: $af_command"
-        run(af_command)
-                
-    finally
-        # return to the original working directory
-        cd(current_dir)
+    input_dirs = sort(
+        filter(
+            d -> isdir(d) && startswith(basename(d), "cluster_"),
+            readdir(clusters_folder; join=true)
+        )
+    )
+
+    println("📂 Number of folder found: ", length(input_dirs))
+    
+    for input_dir in input_dirs
+        name = basename(input_dir)
+        output_dir = joinpath(input_dir, "af")
+        @show "Output directory: $output_dir"
+        if isdir(output_dir)
+            rm(output_dir; recursive=true, force=true)
+        end
+        mkdir(output_dir)
+
+        println("🚀 [$(timestamp())] Start $name ...")
+
+        cmd = `apptainer exec --nv --no-home --cleanenv \
+            --bind $input_dir:/mnt/input \
+            --bind $output_dir:/mnt/output \
+            --bind $CACHE_DIR:/cache \
+            $SIF_PATH \
+            bash -c "colabfold_batch /mnt/input/sequences.a3m /mnt/output \
+                    --custom-template-path /mnt/input/templates/ \
+                    --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results && \
+                    python /usr/local/bin/organize_file.py --output-dir /mnt/output"`
+
+        run_cmd(cmd)
     end
+
+    println("🎉 All the ColabFold run are finish !")
 end

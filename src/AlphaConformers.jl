@@ -15,7 +15,10 @@ import Distributed
 import ProgressMeter
 import Combinatorics
 
+import Printf
+
 using TestItems
+using Dates
 
 export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,
