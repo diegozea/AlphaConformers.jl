@@ -7,6 +7,8 @@
 #SBATCH --job-name=foldseek_test
 #SBATCH --chdir=/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers
 
+#=
 /home/julie.daniel/.julia/juliaup/julia-1.11.7+0.x64.linux.gnu/bin/julia \
   --project=/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers \
   -e 'using TestItems, TestItemRunner; include("test/foldseek.jl"); @run_package_tests verbose=true'
+=#

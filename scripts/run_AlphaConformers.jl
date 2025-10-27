@@ -11,7 +11,7 @@
 
 
 import Pkg
-Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update")
+Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_320")
 Pkg.status("MIToS")
 
 # Load necessary packages 
@@ -57,7 +57,7 @@ const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
 const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
 #const ALPHAFOLD_DB = nothing
 # Path to the ColabFold script
-const COLABFOLD_PATH = "/opt/alphafold/scripts/runcolabfold.py"
+const COLABFOLD_PATH = "/opt/alphafold/scripts/runcolabfold_v2.py"
 #BDD use for Foldseek
 db=[FOLDSEEK_DB,ALPHAFOLD_DB]
 ####################################################################################
