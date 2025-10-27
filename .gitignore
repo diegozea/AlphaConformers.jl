@@ -4,6 +4,7 @@
 /Manifest.toml
 /docs/build/
 
+data/
 # VSCode
 .vscode
 
@@ -22,3 +23,8 @@ test/data/.*
 
 # SIFTS
 pdb_chain_uniprot.csv.gz
+
+#PDB 
+*.pdb
+
+*.csv
