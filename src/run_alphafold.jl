@@ -41,15 +41,11 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
 end
 
 # === FONCTIONS UTILITAIRES ===
-function timestamp()
-    Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS")
-end
 
 function run_cmd(cmd::Cmd)
-    println("▶️  $(timestamp()) → $(join(cmd.exec, " "))")
     try
         run(cmd)
-        println("✅  $( timestamp()) end without error\n")
+        println("✅ end without error\n")
     catch e
         @warn "⚠️ Error of execution for : $e"
     end
@@ -78,7 +74,7 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
         end
         mkdir(output_dir)
 
-        println("🚀 [$(timestamp())] Start $name ...")
+        println("🚀Start $name ...")
 
         cmd = `apptainer exec --nv --no-home --cleanenv \
             --bind $input_dir:/mnt/input \

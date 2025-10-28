@@ -6,6 +6,7 @@
 #SBATCH --time=900:00:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=20
+#SBATCH --gres=gpu:1
 #SBATCH --output=run_AlphaConformers.jl.o%j.out
 =#
 
