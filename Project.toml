@@ -1,7 +1,7 @@
 name = "AlphaConformers"
 uuid = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
 authors = ["Diego Javier Zea <diegozea@gmail.com> and contributors"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 BioAlignments = "00701ae9-d1dc-5365-b64a-a3a3ebf5695e"
@@ -25,7 +25,7 @@ USalign_jll = "927da072-87df-5aff-817c-c070e1bdca98"
 
 [compat]
 Dates = "1.11.0"
-MIToS = "2.15"
+MIToS = "3.2.1"
 Printf = "1.11.0"
 TestItemRunner = "1.1.0"
 TestItems = "1.0.0"
