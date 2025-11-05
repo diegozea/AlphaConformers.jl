@@ -15,6 +15,9 @@ import Distributed
 import ProgressMeter
 import Combinatorics
 
+using ArgParse
+using Glob
+using FilePathsBase
 using TestItems
 
 
@@ -40,7 +43,8 @@ export  foldseek_search, # foldseek.jl
         create_pdb_lists,
         create_msa_and_templates,
         create_alpha_fold_inputs,
-        run_alphafold # run_alphafold.jl
+        run_alphafold, # run_alphafold.jl
+        organize_files
 
 
 include("utils.jl")
@@ -51,5 +55,6 @@ include("clustering.jl")
 include("sifts.jl")
 include("af_input.jl")
 include("run_alphafold.jl")
+include("organize_files.jl")
 
 end

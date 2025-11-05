@@ -4,22 +4,52 @@
 function _read_pdb_chain(file::String, chain_code) # MIToS.PDB.All
     # assume that the chain_code is All if it is not a string
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    try
-        read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
-    catch err
-        @error "Error reading the PDB file $file: $err"
-        nothing
+    extension=split(basename(file),'.')
+    if extension[end]=="cif" || extension[end]=="mmcif"
+        # Read the chain specified by chain_code from the mmcif file
+        try 
+            file=read(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
+        catch err
+            @error "Error reading the MMCIF file $file: $err"
+            nothing
+        end
+    else 
+        try
+            file=read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+        catch err
+            @error "Error reading the PDB file $file: $err"
+            nothing
+        end
     end
+    return file
 end
 
 function _read_pdb_chain(file::String, chain_code::String)
+    extension=split(basename(file),'.')
+    if extension[end]=="cif" || extension[end]=="mmcif"
+        try
+            # read the whole file
+            res = read(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
+        catch err
+            @error "Error reading the MMCIF file $file: $err"
+            return nothing
+        end
+        
     # Read the chain specified by chain_code from the PDB file
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    try
-        # read the whole file
-        res = read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
-        # note that auth chains can be lower case, so test the lowercase one if 
-        # the uppercase one is not found. For example, 7ADD has lowercase chains.
+    else 
+        try
+            # read the whole file
+            res = read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+            # note that auth chains can be lower case, so test the lowercase one if 
+            # the uppercase one is not found. For example, 7ADD has lowercase chains.
+            
+        catch err
+            @error "Error reading the PDB file $file: $err"
+            nothing
+        end
+    end
+    try 
         chains = Set{String}(r.id.chain for r in res)
         if chain_code in chains
             MIToS.PDB.residues(res, MIToS.PDB.All, chain_code)
@@ -32,8 +62,8 @@ function _read_pdb_chain(file::String, chain_code::String)
             nothing
         end
     catch err
-        @error "Error reading the PDB file $file: $err"
-        nothing
+        @error "Error extracting chain $chain_code from the PDB file $file: $err"
+        nothing     
     end
 end
 

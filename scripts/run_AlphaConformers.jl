@@ -14,7 +14,7 @@
 import Pkg
 
 
-Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_320")
+Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_321")
 Pkg.status("MIToS")
 
 using AlphaConformers
@@ -59,15 +59,15 @@ Can change the parameter of ALphaConformer to reduce the number of cluster
 const PATH = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/data/"
 cd(PATH)
 # Path to the PDB files
-const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
+const PDB_FOLDER = "/alpha/database/pdb/mmcif_files"
 # Path to the Foldseek database
-const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb"
+const FOLDSEEK_DB = "/alpha/database/pdb/fullpdb_mmcif_files"
 # Path to the AlphaFold database
-const ALPHAFOLD_DB = "/alpha/database/afdb/afdb_up"
+const ALPHAFOLD_DB = "/alpha/database/afdb_v6/fullafdb_v6"
 #const ALPHAFOLD_DB = nothing
 # Path to the ColabFold script
-const SIF_PATH=expanduser("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/ColabFold/scratch/images/colabfold-1.5.5-cuda12.2.2-organize.sif")
-const CACHE_DIR="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/ColabFold/cache"
+const SIF_PATH=expanduser("/store/EQUIPES/AMIG/SCRIPTS/sif_images/ColabFold_AF2_1-5-5/colabfold-1.5.5-cuda12.2.2.sif")
+const CACHE_DIR="/store/EQUIPES/AMIG/SCRIPTS/sif_images/ColabFold_AF2_1-5-5/cache"
 #BDD use for Foldseek
 db=[FOLDSEEK_DB,ALPHAFOLD_DB]
 ####################################################################################
@@ -84,9 +84,9 @@ REF_PDB = joinpath(PATH, filename) #Get the query path
 #Create the output directory
 #output_dir = joinpath(PATH, apo_pdb*"_No_AFDB")
 #output_dir = joinpath(PATH, apo_pdb)
-output_dir = joinpath(PATH, apo_pdb*"_AlphaConformer_onejob")
+output_dir = joinpath(PATH, apo_pdb*"_AlphaConformer_new_bdd")
 
-#=
+
 if isdir(output_dir)
     rm(output_dir; recursive=true, force=true)
 end
@@ -96,7 +96,7 @@ println(output_dir)
 #Run AlphaConformers
 
 AlphaConformers.alphaconformers(REF_PDB, PDB_FOLDER, output_dir; db=db,evalue_cutoff=NaN, cutoff=1.0)
-=#
+
 AlphaConformers.run_alphafold_one_run(output_dir, SIF_PATH, CACHE_DIR)   
          
 

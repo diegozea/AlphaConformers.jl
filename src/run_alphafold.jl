@@ -81,12 +81,13 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
             --bind $output_dir:/mnt/output \
             --bind $CACHE_DIR:/cache \
             $SIF_PATH \
-            bash -c "colabfold_batch /mnt/input/sequences.a3m /mnt/output \
-                    --custom-template-path /mnt/input/templates/ \
-                    --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results && \
-                    python /usr/local/bin/organize_file.py --output-dir /mnt/output"`
+            colabfold_batch /mnt/input/sequences.a3m /mnt/output \
+                --custom-template-path /mnt/input/templates/ \
+                --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
 
         run_cmd(cmd)
+         
+        organize_files(output_dir)
     end
 
     println("🎉 All the ColabFold run are finish !")
