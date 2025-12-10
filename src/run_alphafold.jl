@@ -16,7 +16,6 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
     end
     # remember the current working directory
-    current_dir = pwd()
     try
         # run AlphaFold for each cluster
         for folder in cluster_folders
@@ -36,7 +35,7 @@ function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, 
         end
     finally
         # return to the original working directory
-        cd(current_dir)
+        cd(clusters_folder)
     end
 end
 

@@ -136,7 +136,7 @@ function run_foldseek(pdb_file::AbstractString,
             # convertalis to aligned_structures
             prefix = joinpath(aligned_structures_folder, "aln_")
             run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`))
-            isfile(prefix) && rm(prefix)
+            isfile(prefix) && rm(prefix, recursive=true)
 
             # run result2msa
             run(pipeline(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6`))
@@ -144,7 +144,7 @@ function run_foldseek(pdb_file::AbstractString,
             run(pipeline(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0`))
             if isfile(msa_file)
                 @warn "$msa_file already exists. It will be overwritten."
-                rm(msa_file)
+                rm(msa_file, recursive=true)
             end
             isfile("msa_output/0a3m") && cp("msa_output/0a3m", msa_file)
         end
@@ -282,18 +282,24 @@ function _find_duplicates(lst)
     return duplicates
 end
 
-function merge_msas(table::DataFrames.DataFrame)
-    println("table ",size(table))
-    out_folders = dirname.(unique(table.file))
+function merge_msas(table)
+    if table isa DataFrames.DataFrame
+        println("table ",size(table))
+        out_folders = dirname.(unique(table.file))
+        starts = Set((row.target, row.bits, row.fident) for row in eachrow(table))
+        targets = Set(row.target for row in eachrow(table))
+        @show "starts ",first(starts,20)
+        @show "targets ",first(targets,5)
+        
+    else
+        out_folders = table
+    end
+    
     msas = [MIToS.MSA.read_file(joinpath(folder, "msa.a3m"), MIToS.MSA.FASTA, generatemapping=true)
             for folder in out_folders]
     # Select only the matched sequences by using bits and fident to identify the matches.
     # Apply this filter only when there are duplicated names to prevent losing elements 
     # due to numerical differences in comparisons.
-    starts = Set((row.target, row.bits, row.fident) for row in eachrow(table))
-    targets = Set(row.target for row in eachrow(table))
-    @show "starts ",first(starts,20)
-    @show "targets ",first(targets,5)
     @show "shape msas ",size(msas)
     if size(msas)[1] == 0
         @error "No MSAs found in the provided table."
@@ -532,10 +538,19 @@ function structural_alignment(conformation_a, conformation_b,
         @warn "One of the structures has no 'CA' atoms: $len_a, $len_b"
         return nothing
     end
+    
     try
        # get the sequences
-        seq_a = first(values(MIToS.PDB.modelled_sequences(clean_a)))
-        seq_b = first(values(MIToS.PDB.modelled_sequences(clean_b)))
+        seqs_a = MIToS.PDB.modelled_sequences(clean_a)
+        seqs_b = MIToS.PDB.modelled_sequences(clean_b)
+
+        if isempty(seqs_a) || isempty(seqs_b)
+            @warn "No modelled sequences could be extracted (empty sequences)"
+            return nothing
+        end
+
+        seq_a = first(values(seqs_a))
+        seq_b = first(values(seqs_b))
         # align the sequences
         aln = BioAlignments.alignment(BioAlignments.pairalign(aln_type, seq_a, seq_b, aln_model))
         # get the stats
@@ -596,6 +611,10 @@ function find_best_match!(
         conformation_a = structures[target_a]
         sorted_targets = sort([target, target_a])
         key = (sorted_targets[1], sorted_targets[2])
+        if conformation_a === nothing
+            @warn "Structure for target $target_a is missing."
+            return
+        end
         aln = structural_alignment(conformation_a, conformation_b)
         if aln !== nothing
             push!(alignment_list, key => aln)
@@ -698,6 +717,11 @@ function fill_rmsds!(rmsds::Dict{Tuple{String,String},Float64},
         end
         struct_a = structures[row_i.target]
         struct_b = structures[row_j.target]
+        if struct_a === nothing || struct_b === nothing
+            @warn "Structure for target $(row_i.target) or $(row_j.target) is missing."
+            rmsds[key] = nothing
+            continue
+        end
         aln = structural_alignment(struct_a, struct_b,
             BioAlignments.GlobalAlignment(),
             BioAlignments.AffineGapScoreModel(BioAlignments.BLOSUM62,
@@ -770,7 +794,7 @@ function hobohm_clustering(
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
     rmsd_threshold::Float64
 )
-    rmsds = Dict{Tuple{String,String},Float64}()
+    rmsds = Dict{Tuple{String,String},Union{Float64,Nothing}}()
     n = DataFrames.nrow(table)
     targets = [table[i, :target] for i in 1:n]
     clustered = Set{String}()
@@ -786,18 +810,24 @@ function hobohm_clustering(
         cluster_labels[target_i] = cluster_index
         push!(clustered, target_i)
         struct_i = structures[target_i]
-
+        if struct_i === nothing
+            @warn "Structure for target $target_i is missing."
+            continue
+        end
         for j in (i+1):n
             target_j = targets[j]
             if target_j in clustered
                 continue
             end
-
             sorted_ids = sort([target_i, target_j])
             key = (sorted_ids[1], sorted_ids[2])
 
             if !haskey(rmsds, key)
                 struct_j = structures[target_j]
+                if struct_j === nothing
+                    @warn "Structure for target $target_j is missing."
+                    continue
+                end
                 aln = structural_alignment(struct_i, struct_j,
                     BioAlignments.GlobalAlignment(),
                     BioAlignments.AffineGapScoreModel(BioAlignments.BLOSUM62,
