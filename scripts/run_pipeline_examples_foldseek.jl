@@ -1,4 +1,4 @@
-#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
+#!/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
 
 #=
 #PBS -l host=node48
@@ -12,7 +12,7 @@ using Revise
 using CSV, DataFrames
 using AlphaConformers
 
-const PATH = "/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/talk_subset"
+const PATH = "/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/talk_subset"
 cd(PATH)
 
 const DATA = DataFrame(CSV.File(joinpath(PATH, "selected_examples.csv")))

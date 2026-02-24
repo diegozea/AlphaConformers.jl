@@ -1,4 +1,4 @@
-#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
+#!/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
 #PBS -l ncpus=20
@@ -37,8 +37,8 @@ const sifts_up_data = CSV.File("pdb_chain_uniprot.csv.gz", comment="#") |> DataF
 # FUNCTIONS
 
 function run_foldseek_search(pdb_file)
-    foldseek = "/store/EQUIPES/AMIG/PROGRAMMES/foldseek/bin/foldseek"
-    # db = "/store/EQUIPES/AMIG/MEMBERS/carla.martins/foldseek/db_pdb/pdb"
+    foldseek = "/stockage/EQUIPES/AMIG/PROGRAMMES/foldseek/bin/foldseek"
+    # db = "/stockage/EQUIPES/AMIG/MEMBERS/carla.martins/foldseek/db_pdb/pdb"
     db = "/alpha/database/pdb"
     tmp_folder = mktempdir()
     out_file = "$(pdb_file)_results.m8"
@@ -207,7 +207,7 @@ function run_tmalign_and_cluster(local_pdb_folder::String, filename_prefix::Stri
     stdout_path = filename_prefix * ".out"
     stderr_path = filename_prefix * ".err"
     
-    run(pipeline(`/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path -fast`, 
+    run(pipeline(`/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path -fast`, 
         stdout=stdout_path, stderr=stderr_path))
     tmalign_out = read(stdout_path, String)
     

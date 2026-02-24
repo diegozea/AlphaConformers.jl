@@ -87,7 +87,7 @@ function get_residues_and_sequence(pdb_file;
     res = _read_pdb_chain(pdb_file, chain)
     if res !== nothing
         actual_chain = first(res).id.chain # chain can be lowercase
-        query_res = MIToS.PDB.residues(res, model, actual_chain, "ATOM")
+        query_res = MIToS.PDB.residues(res, model, actual_chain)
         if !isempty(query_res)
             sequences = MIToS.PDB.modelled_sequences(query_res)
             @assert !isempty(sequences) "The are no residues in the pdb file: $(pdb_file) (chain: $actual_chain)"    
@@ -306,4 +306,22 @@ function create_alpha_fold_inputs(path::String, ref_pdb::String,
     end
     # Return the path to the created folders 
     (clusters=clusters_folder, pdb=pdb_folder)
+end
+
+function read_a3m(path)
+    ids = String[]
+    seqs = String[]
+    current_seq = ""
+
+    for line in eachline(path)
+        if startswith(line, '>')
+            push!(ids, strip(line[2:end]))
+            push!(seqs, "")
+        else
+            # A3M: on enlève les minuscules (colonnes insertions)
+            clean = replace(line, r"[a-z]" => "")
+            seqs[end] *= clean
+        end
+    end
+    return ids, seqs
 end

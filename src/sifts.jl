@@ -41,11 +41,17 @@ function as its first positional argument, `data`.
 function get_uniprot_acc(data::DataFrames.DataFrame,
     pdb::String, chain::Union{String,Type{MIToS.PDB.All}}=MIToS.PDB.All)
     pdb_code = lowercase(pdb)
+    
+    if startswith(pdb_code,"af")
+        return nothing
+    end
+    
     if chain !== MIToS.PDB.All
         ups = data[(data.PDB.==pdb_code).&(data.CHAIN.==chain), :SP_PRIMARY]
     else
         ups = data[data.PDB.==pdb_code, :SP_PRIMARY]
     end
+
     String.(unique(ups))
 end
 
@@ -129,19 +135,22 @@ and PDB formats are considered for matches.
     This function is useful when testing the pipeline to avoid having the known 
     conformations of the query protein in the search results.
 """
-function delete_query_from_target!(search_results::DataFrames.DataFrame,
+function delete_query_from_target(search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame,
     query_pdb_code::String, query_chain_code::String)
     query_uniprots = get_uniprot_acc(sifts_uniprot_mapping, query_pdb_code, query_chain_code)
+    @show query_uniprots
     for query_uniprot in query_uniprots
         # AFDB
-        filter!(m -> !occursin("AF-$(query_uniprot)-", m.target), search_results)
+        #filter!(m -> !occursin("AF-$(query_uniprot)-", m.target), search_results)
         # PDB
-        query_structures = get_pdb_codes(sifts_uniprot_mapping, query_uniprot)
+        query_structures = get_pdb_codes(sifts_uniprot_mapping, String(query_uniprot))
         for row in eachrow(query_structures)
             pdb = String(row.PDB)
             chain = String(row.CHAIN)
-            filter!(m -> !_is_chain(String(m.target), pdb, chain), search_results)
+            name = uppercase(pdb)*".cif_"*uppercase(chain)
+            filter!(row -> row.target != name, search_results)
+            filter!(row -> !startswith(uppercase(row.target), uppercase(pdb)), search_results)
         end
     end
     search_results
@@ -169,7 +178,10 @@ function uniprots_from_results(search_results::DataFrames.DataFrame,
             push!(target2uniprot, target => afdb_up.captures[1])
         else # assume PDB if it is not AFDB
             pdb_code, chain_code = _get_pdb_and_chain(target)
-            ups = get_uniprot_acc(sifts_uniprot_mapping, pdb_code, chain_code)
+            if chain_code != MIToS.PDB.All
+                chain_code=String(chain_code)
+            end
+            ups = get_uniprot_acc(sifts_uniprot_mapping, String(pdb_code), chain_code)
             for up in ups
                 push!(target2uniprot,  target => up)
             end
@@ -190,20 +202,43 @@ This function checks for new known structures by consulting the
 (formatted as "PDB.pdb_CHAIN") for inclusion in the search results. It also updates the
 `target2uniprot` dictionary with the new targets.
 """
-function known_uniprot_structures!(target2uniprot::Dict{String,String},
-    sifts_uniprot_mapping::DataFrames.DataFrame,
+function known_uniprot_structures(sifts_uniprot_mapping::DataFrames.DataFrame,
     search_results::DataFrames.DataFrame)::Set{String}
     new_targets = Set{String}()
-    uniprots = unique(values(target2uniprot))
-    for up in uniprots
-        pdbs = get_pdb_codes(sifts_uniprot_mapping, up)
-        for row in eachrow(pdbs)
+    #get all the pdb id 
+    pdb_ids_from_foldseek = unique(search_results.target)
+    for pdb_id in pdb_ids_from_foldseek
+        if startswith(pdb_id,"AF")
+            break
+        end
+        #for each pdb 
+        pdb=String(split(pdb_id,".")[1])
+        chain_check=split(pdb_id,"_")
+        if length(chain_check)==2
+            chain= String(chain_check[2])
+        else 
+            chain = MIToS.PDB.All
+        end
+        #get uniprot ID
+        uni= get_uniprot_acc(sifts_uniprot_mapping,pdb, chain)
+        if uni === nothing || isempty(uni)
+            continue   # ⚠️ surtout PAS break
+        end
+        
+        #Get all the conformation of that uniprot 
+        all_pdbs_uni = get_pdb_codes(sifts_uniprot_mapping, String(uni[1]))
+        for row in eachrow(all_pdbs_uni)
             pdb = String(row.PDB)
-            chain = String(row.CHAIN)
-            if !any(target -> _is_chain(String(target), pdb, chain), search_results.target)
-                target_name = "$(pdb).pdb_$(chain)" # Using the FoldSeek target format
-                push!(new_targets, target_name)
-                push!(target2uniprot, target_name => up)
+            chain = row.CHAIN
+            pdb_row_id = uppercase(pdb)*".cif"
+            if chain != MIToS.PDB.All
+                pdb_row_id=pdb_row_id*"_"*uppercase(String(chain))
+            end
+            if !any(target -> target == pdb_row_id, search_results.target)
+                if !(pdb_row_id in new_targets)
+                    push!(new_targets, pdb_row_id)
+                end
+
             end
         end
     end
@@ -225,12 +260,65 @@ a set of PDB codes and chains that are not currently included in the results.
     then identifies new PDB codes and chains associated with these accessions, 
     and returns these new targets.
 """
-function list_known_conformations(search_results::DataFrames.DataFrame,
-    sifts_uniprot_mapping::DataFrames.DataFrame)
-    target2uniprot = uniprots_from_results(search_results, sifts_uniprot_mapping)
-    new_targets = known_uniprot_structures!(
-        target2uniprot, sifts_uniprot_mapping,  search_results)
-    target2uniprot, new_targets
+function get_unknown_conformations(search_results::DataFrames.DataFrame,
+    sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder,input_pdb)
+    
+    #get all the alternative structure that was not found by foldseek 
+    new_targets = known_uniprot_structures(sifts_uniprot_mapping, search_results)
+    
+    cwd = pwd()
+    try 
+        mktempdir() do tmp_folder
+            cd(tmp_folder)
+            # Create a foldseek database 
+            tmp_targets_dir = joinpath(tmp_folder,"tmp_targets_dir")
+            isdir(tmp_targets_dir) && rm(tmp_targets_dir; recursive=true, force=true)
+            mkdir(tmp_targets_dir)
+
+            for fname in new_targets
+                prot_name=String(split(fname,"_")[1])
+                chain_code=String(split(fname,"_")[2])
+                input_cif = joinpath(pdb_folder, prot_name)
+                if !isfile(input_cif)
+                    @warn "Fichier manquant : $input_cif"
+                    continue
+                end
+                #isfile(input_cif) || error("Fichier manquant : $input_cif")
+                structure=MIToS.PDB.read_file(input_cif, MIToS.PDB.MMCIFFile,
+                    chain=chain_code, model="1", onlyheavy=true, occupancyfilter=true)
+                if isempty(structure) 
+                    structure=MIToS.PDB.read_file(input_cif, MIToS.PDB.MMCIFFile, model="1", onlyheavy=true, occupancyfilter=true)
+                    chain_list = unique(res.id.chain for res in structure)
+                    structure=MIToS.PDB.read_file(input_cif, MIToS.PDB.MMCIFFile, chain=chain_list[1], model="1", onlyheavy=true, occupancyfilter=true)
+                end
+                isempty(structure) && error("Chaîne $chain_code absente dans $input_cif")
+                file_name_to_save=basename(prot_name)*".cif"
+                output_cif=joinpath(tmp_targets_dir, file_name_to_save)
+                MIToS.PDB.write_file(output_cif, structure, MIToS.PDB.MMCIFFile)
+                
+            end
+            @assert isdir(tmp_targets_dir)
+            @assert length(readdir(tmp_targets_dir)) > 0
+            @show length(readdir(tmp_targets_dir))
+            target_db=joinpath(out_folder,"target_db")
+            run(`$(Foldseek_jll.foldseek()) createdb $tmp_targets_dir $target_db`)
+        end
+    finally
+        cd(cwd)
+    end
+    @info "Foldseek database created"
+    target_db=joinpath(out_folder,"target_db")
+    @assert isfile(target_db)
+    #Run foldseek to align all the structure 
+    output_vector = Vector{String}()
+    output = run_foldseek(input_pdb, target_db; out_folder=out_folder, filtrage=false)
+    for item in output
+        push!(output_vector, item.table_file)  # Ajouter au vecteur
+    end
+    # Fusionner les tables
+    new_target_result = merge_tables(output_vector)
+    
+    new_target_result
 end
 
 """
@@ -244,11 +332,11 @@ a tuple with a Dict from the protein targets' identifiers to UniProt accession a
 updated `search_results` table.
 """
 function add_known_conformations!(search_results::DataFrames.DataFrame,
-    sifts_uniprot_mapping::DataFrames.DataFrame)
-    target2uniprot, new_targets = list_known_conformations(search_results, sifts_uniprot_mapping)
-    to_add = DataFrames.DataFrame(target=collect(new_targets))
-    DataFrames.append!(search_results, to_add, cols=:union)
-    target2uniprot, search_results
+    sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder::String,input_pdb)
+    new_target_result = get_unknown_conformations(search_results, sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb)
+    DataFrames.append!(search_results, new_target_result, cols=:union)
+    @show size(search_results)
+    search_results
 end
 
 
