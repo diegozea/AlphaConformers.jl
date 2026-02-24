@@ -1,7 +1,7 @@
 # Functions to run Foldseek inside the pipeline
 
 const _M8_COL_NAMES = ["query", "target", "fident", "alnlen", "mismatch", "gapopen",
-    "qstart", "qend", "tstart", "tend", "evalue", "bits"]
+    "qstart", "qend", "tstart", "tend", "evalue", "bits","qtmscore", "ttmscore", "alntmscore", "rmsd", "prob"]
 
 
 
@@ -29,7 +29,7 @@ The function operates in a temporary directory that is automatically cleaned up 
 """
 function foldseek_search(pdb_file::AbstractString;
     db_path::String=get(ENV, "FOLDSEEK_DB_PATH", ""),
-    format_output::String="query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend, evalue,bits"
+    format_output::String="query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,alntmscore"
 )
     isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " *
                               "the db_path keyword argument to the path of the Foldseek database.")
@@ -92,7 +92,9 @@ end
 
 function run_foldseek(pdb_file::AbstractString,
     db_path::String=get(ENV, "FOLDSEEK_DB_PATH", "");
-    out_folder::String=dirname(abspath(pdb_file)))
+    out_folder::String=dirname(abspath(pdb_file)),
+    filtrage::Bool=true,
+    format_output::String="query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob")
     # get the path to the target database
     isempty(db_path) && error("Please set the FOLDSEEK_DB_PATH environment variable or " *
                               "the db_path keyword argument to the path of the Foldseek database.")
@@ -117,7 +119,7 @@ function run_foldseek(pdb_file::AbstractString,
     aligned_structures_folder = joinpath(out_folder_db, "aligned_structures")
     _create_empty_folder(aligned_structures_folder)
     cwd = pwd()
-
+    
     try
         mktempdir() do tmp_folder
             cd(tmp_folder)
@@ -128,10 +130,13 @@ function run_foldseek(pdb_file::AbstractString,
 
             # run the search using -a to be able to recover the alignment
             # --prefilter-mode 1 to use less RAM when searching the AFDB, needing ~35 Gb
-            run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 `, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
-
+            if filtrage 
+                run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 `, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
+            else 
+                run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 1 --max-seqs 1000000 -e inf --prefilter-mode 0 `, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
+            end
             # convertalis to m8
-            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file`))
+            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file --format-output $format_output --exact-tmscore 1`))
 
             # convertalis to aligned_structures
             prefix = joinpath(aligned_structures_folder, "aln_")
@@ -417,28 +422,27 @@ function merge_msas(table)
     #                  for name in MIToS.MSA.sequencename_iterator(msa_a)]
     @show length(unique(cleaned_names))
     if length(cleaned_names) != length(unique(cleaned_names))
-        @info "Pas de nom unique"
-        # Dictionnaire pour suivre le nombre d'occurrences de chaque nom
-        name_counts = Dict{String, Int}()
+        @info "Noms dupliqués détectés → suppression des doublons"
 
-        # Liste des nouveaux noms uniques
-        unique_names = String[]
+        seen = Set{String}()
+        selected = trues(length(cleaned_names))
 
-        for name in cleaned_names
-            if haskey(name_counts, name)
-                name_counts[name] += 1
-                @show name
-
-                #new_name = "$(name_counts[name])-$(name)"
+        for (i, name) in enumerate(cleaned_names)
+            if name in seen
+                selected[i] = false   # on supprime le doublon
             else
-                name_counts[name] = 1
-                new_name = name
+                push!(seen, name)
             end
         end
-        @assert length(unique_names) == length(unique(unique_names))  # Vérification
-        cleaned_names = unique_names
+
+        # Filtrer le MSA
+        msa_a = msa_a[selected, :]
+
+        # Mettre à jour les noms nettoyés
+        cleaned_names = cleaned_names[selected]
     end
   
+    @assert size(msa_a, 1) == length(cleaned_names)
 
     # Renommer les séquences avec les nouveaux noms uniques
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
@@ -854,6 +858,64 @@ function hobohm_clustering(
     return cluster_labels, clusters
 end
 
+function classical_clustering(
+    table::DataFrames.DataFrame,
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    rmsd_threshold::Float64
+)
+
+    targets = collect(table.target)
+    n = length(targets)
+
+    # Matrice de distances
+    dist_matrix = fill(0.0, n, n)
+
+    for i in 1:n
+        struct_i = structures[targets[i]]
+        if struct_i === nothing
+            @warn "Structure for $(targets[i]) missing"
+            continue
+        end
+
+        for j in i+1:n
+            struct_j = structures[targets[j]]
+            if struct_j === nothing
+                @warn "Structure for $(targets[j]) missing"
+                continue
+            end
+
+            aln = structural_alignment(
+                struct_i, struct_j,
+                BioAlignments.GlobalAlignment(),
+                BioAlignments.AffineGapScoreModel(
+                    BioAlignments.BLOSUM62,
+                    gap_open=-10,
+                    gap_extend=-1
+                )
+            )
+
+            if aln !== nothing
+                rmsd = aln[4]
+                dist_matrix[i,j] = rmsd
+                dist_matrix[j,i] = rmsd
+            else
+                dist_matrix[i,j] = Inf
+                dist_matrix[j,i] = Inf
+            end
+        end
+    end
+
+    # Clustering hiérarchique
+    hc = Clustering.hclust(dist_matrix, linkage=:average)
+
+    # Découpe selon seuil RMSD
+    cluster_ids = Clustering.cutree(hc, h=rmsd_threshold)
+
+    cluster_labels = Dict(targets[i] => cluster_ids[i] for i in 1:n)
+
+    return cluster_labels, cluster_ids
+end
+
 
 
 function get_target2sequence(expanded_table, msa)
@@ -883,8 +945,17 @@ function get_cluster2targets(targets, clusters)
     cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
     cluster_numbers = unique(clusters)
     for cluster in cluster_numbers
-        cluster2targets[cluster] = [name for (name, cl) in targets if cl == cluster]
+        cluster2targets[cluster] = String[]
+        for (name, cl) in targets
+            if cl == cluster
+                if name in cluster2targets[cluster]
+                    continue
+                end
+                push!(cluster2targets[cluster], name)
+            end
+        end
     end
+
     cluster2targets, length(cluster2targets)
 
 end
@@ -968,6 +1039,9 @@ function get_cluster2msa(msa, cluster2seqnames)
                 @warn "No MSA for cluster $cluster"
                 continue
             end
+            @show length(all_name)
+            all_name = unique(all_name)
+            @show length(all_name)
             cluster2msa[cluster] = msa[all_name, :]
         catch err
             @error "Error ($err) getting the MSA for cluster $cluster"
@@ -981,14 +1055,50 @@ function get_cluster2msa(msa, cluster2seqnames)
 end
 
 function get_cluster2structures(structures, cluster2targets)
-    cluster2structures = OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}}()
+    # dictionnaire final
+    cluster2structures = OrderedCollections.OrderedDict{Int, Dict{String, Vector{MIToS.PDB.PDBResidue}}}()
+
+    # pour tracker les targets déjà assignés
+    used_targets = Set{String}()
+
     for (cluster, targets) in cluster2targets
-        cluster2structures[cluster] = Dict{String,Vector{MIToS.PDB.PDBResidue}}(
-            target => structures[target] for target in targets)
+        # on filtre les targets déjà utilisés
+        available_targets = filter(t -> !(t in used_targets), targets)
+        
+        # on choisit les sous-targets
+        subtargets = String[]
+        n = length(available_targets)
+
+        if n == 0
+            @warn "Cluster $cluster has no available targets left after filtering"
+            continue
+        elseif n < 8
+            subtargets = available_targets[1:min(4, n)]
+        else
+            step = max(1, div(n, 4))
+            for i in 1:4
+                idx = i * step
+                if idx <= n
+                    push!(subtargets, available_targets[idx])
+                end
+            end
+        end
+
+        # marquer ces targets comme utilisés
+        foreach(t -> push!(used_targets, t), subtargets)
+
+        # construire cluster2structures
+        cluster2structures[cluster] = Dict(
+            t => structures[t] for t in subtargets
+        )
     end
+
     @show length(cluster2structures)
+
     cluster2structures
 end
+
+
 function create_template_clusters_hobohm(
     expanded_table::DataFrames.DataFrame,
     msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
@@ -1013,33 +1123,27 @@ function create_template_clusters_hobohm(
 end
 
 
-function create_template_clusters(rmsds::Dict{Tuple{String,String},Float64},
+function create_template_clusters(
     expanded_table::DataFrames.DataFrame,
     msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
-    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}})
+    structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
+    cutoff::Float64)
     @info "get_target2sequence"
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
-    
-    targets, clustering_result = cluster_structures(rmsds, targets)
-    large_clusters = Clustering.cutree(clustering_result, h=1)
-    small_clusters = Clustering.cutree(clustering_result, h=0.5)
-
+    targets, clusters =classical_clustering(expanded_table, structures,cutoff)
     @info "get_cluster2targets"
-    
-    large_cluster2targets = AlphaConformers.get_cluster2targets(targets, large_clusters)
-    small_cluster2targets = AlphaConformers.get_cluster2targets(targets, small_clusters)
+    cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets(targets, clusters)
+    #cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets_concatenate(targets, clusters)
     
     @info "get_cluster2seqnames"
-    large_cl2seq = AlphaConformers.get_cluster2seqnames(large_cluster2targets, target2sequence)
-    # small_cl2seq = AlphaConformers.get_cluster2seqnames(small_cluster2targets, target2sequence)
+    cl2seq = AlphaConformers.get_cluster2seqnames(cluster2targets, target2sequence)
     @info "get_cluster2msa"
-    large_cl2msa = AlphaConformers.get_cluster2msa(msa, large_cl2seq)
+    cl2msa = AlphaConformers.get_cluster2msa(msa, cl2seq)
     @info "get_cluster2structures"
-    small_cl2pdb = AlphaConformers.get_cluster2structures(structures, small_cluster2targets)
-    large_small_pairs = zip(large_clusters, small_clusters) |> unique |> sort
-    (large_small_pairs, large_cl2msa, small_cl2pdb)
+    cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
+    (nb_cluster, cl2msa, cl2pdb)
 end
 
 function create_folder_structure_hobohm(clusters,
@@ -1047,6 +1151,8 @@ function create_folder_structure_hobohm(clusters,
     cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
     out_folder::String=mktempdir())
     #unique_cluster=unique(clusters)
+    calpha_template = String[]
+
     for clust in 1:clusters
         # MSA
         @show clust
@@ -1054,22 +1160,48 @@ function create_folder_structure_hobohm(clusters,
         cluster_folder = mkdir(joinpath(out_folder, "cluster_$(clust)"))
         msa_file = joinpath(cluster_folder, "sequences.a3m")
         MIToS.MSA.write_file(msa_file, cl2msa[clust], MIToS.MSA.FASTA)
+
         # Structures
-        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates"))
+        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_adaptative"))
         for (target, structure) in cl2pdb[clust]
             #Get the right extension 
-            base_name = replace(target, ".pdb" => "")
-            if startswith(base_name, "AF")
-                upper_file = joinpath(cluster_template_folder, uppercase(base_name) * ".pdb")
-                MIToS.PDB.write_file(upper_file, structure, MIToS.PDB.PDBFile)
+            base_name = split(target, ".")[1]
+            if startswith(basename(base_name),"AF") 
+                name_cif_file=basename(base_name)*".pdb"
+                try 
+                    MIToS.Utils.download_file("https://alphafold.ebi.ac.uk/files/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+                catch e
+                    @warn "Problem to download for AFDB the complete template file: "*base_name
+                    out_cif = joinpath(cluster_template_folder, name_cif_file)
+                    MIToS.PDB.write_file(out_cif, structure, MIToS.PDB.PDBFile)
+                    push!(calpha_template, out_cif)
+
+                    continue
+                end
+                
             else 
-                # lowercase and uppercase file 
-                lower_file = joinpath(cluster_template_folder, lowercase(base_name) * ".pdb")
-                MIToS.PDB.write_file(lower_file, structure, MIToS.PDB.PDBFile)
+                pdbcode = split(basename(base_name), '.')[1]
+                pdbcode = split(basename(pdbcode), '_')[1]
+                chain_id = lowercase(split(basename(base_name), '_')[end])
+                @show pdbcode
+                name_cif_file=pdbcode*".cif"
+                try 
+                    MIToS.Utils.download_file("https://files.rcsb.org/download/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+
+                catch e
+                    @warn "Problem to download from PDB the template file: "*base_name
+                    out_cif = joinpath(cluster_template_folder, name_cif_file)
+                    MIToS.PDB.write_file(out_cif, structure, MIToS.PDB.MMCIFFile)
+                    push!(calpha_template, out_cif)
+                    continue
+                end
+                
             end
         end
         
     end
+    CSV.write(joinpath(out_folder, "calpha_template.csv"),
+              (; file = calpha_template))
     out_folder
 end
 
@@ -1098,6 +1230,101 @@ function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
         end
     end
     out_folder
+end
+
+#Clean the file name in the MSA and prep the template file for AlphaFold (.cif + good name)
+function clean_msa_template_names(clusters,out_folder;cluster_name::String="templates_adaptative")
+
+    for clust in 1:clusters
+        corresponding_name=DataFrames.DataFrame(Ref_name=String[],New_name_msa=String[],New_name_template=String[]) # Create an empty DF
+
+        # MSA
+        @show clust
+
+        cluster_folder = joinpath(out_folder, "cluster_$(clust)")
+        msa_path = joinpath(cluster_folder, "sequences.a3m")
+
+        #1- read the msa
+        ids, sequences = read_a3m(msa_path)
+        query_id = ids[1]
+        query_seq = sequences[1]
+        
+        #2 - Clean name
+        clean_ids=String[]
+        for name in ids
+            if name == query_id
+                push!(clean_ids, query_id)
+            elseif startswith(basename(name), "AF")
+                push!(clean_ids, uppercase(name))
+            else
+                pdb_id = split(basename(name), ".")[1]
+                chain_id = split(basename(name), "_")
+                if length(chain_id) > 1
+                    chain_id = chain_id[end]
+                    
+                else
+                    chain_id = "a"
+                end
+                push!(clean_ids, lowercase("$(pdb_id)_$(chain_id)"))
+            end
+        end
+        
+        #=
+        #3- Rewrite MSA with clean names
+        open(msa_path, "w") do io
+            for (id, seq) in zip(clean_ids, sequences)
+                println(io, ">$id")
+                println(io, seq)
+            end
+        end
+        =#
+        cluster_template_folder = joinpath(cluster_folder, "templates_complete")
+        if isdir(joinpath(cluster_folder, cluster_name))
+            @info "Folder already clean"
+            continue
+        end
+        cluster_template_clean_folder = mkdir(joinpath(cluster_folder, cluster_name))
+        
+        templates = glob("*",cluster_template_folder)
+        isempty(templates) && error("No templates found in $cluster_template_folder")
+        i=0
+        for template in templates 
+            i+=1
+            #4- Change template name 
+            if startswith(basename(template), "AF")
+                clean_template_name = "t00$(i)_a"
+                file_name="t00$(i).pdb"
+                push!(corresponding_name,(basename(template),clean_template_name,file_name))
+                name=split(basename(template), ".")[1]
+                for i in 1:length(clean_ids)
+                    if clean_ids[i]== uppercase(name)
+                        clean_ids[i] = clean_template_name
+                    end
+                end
+            else
+                clean_template_name = basename(template)
+                checks = split(clean_template_name, "_")
+                name=split(clean_template_name, "_")[1]
+                if length(checks) < 2
+                    clean_template_name = name*"_a"
+                end
+                base_name = replace(name, ".cif" => "")
+                file_name=lowercase(base_name)*".cif"
+            end
+            cp(template, joinpath(cluster_template_clean_folder,file_name); force=true)
+        end    
+
+        
+        #5- Rewrite MSA with clean names
+        open(msa_path, "w") do io
+            for (id, seq) in zip(clean_ids, sequences)
+                println(io, ">$id")
+                println(io, seq)
+            end
+        end
+            
+        CSV.write(cluster_folder*"/corresponding_name_template.csv", corresponding_name) 
+    end
 end
 
 function write_a3m(filename::String, mafft_msa::Vector{Any})
@@ -1166,7 +1393,8 @@ end
 function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
         evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0, mafft::Bool=false)
     @info "Running Foldseek"
-    
+    query_pdb_code = split(basename(input_pdb),"_")[1]
+    query_chain_code = split(input_pdb,"_")[2]
     output = run_foldseek(input_pdb, db , out_folder=out_folder) 
     # Initialiser un vecteur vide de String
     output_vector = Vector{String}()
@@ -1181,7 +1409,6 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
     # Fusionner les tables
     merged_table = merge_tables(output_vector)
     @show size(merged_table)
-    
     if !isnan(evalue_cutoff)
         filter!(row -> row.evalue < evalue_cutoff, merged_table)
     end
@@ -1191,21 +1418,30 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
         @error "No results found after filtering with e-value cutoff: $evalue_cutoff"
         return
     end
+    @info "Adding known conformations"
+    @show size(merged_table)
+    sifts_uniprot_mapping = get_uniprot_mapping()
+    clean_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb)
+    @show size(clean_table)
+
+    expanded_table=delete_query_from_target(deepcopy(clean_table),sifts_uniprot_mapping,String(query_pdb_code),String(query_chain_code))
+    @show size(expanded_table)
+    isempty(expanded_table) && error("No targets remaining after removing query from targets.")
+    CSV.write(joinpath(out_folder,"expanded_table.csv"),expanded_table)
+    
     @info "Merge MSAS"
-    merged_msa = merge_msas(merged_table)
-    #MIToS.MSA.write_file(joinpath(out_folder, "sequence.a3m"), merged_msa, MIToS.MSA.A3M)
+    merged_msa = merge_msas(expanded_table)
+    MIToS.MSA.write_file(joinpath(out_folder, "all_sequence.a3m"), merged_msa, MIToS.MSA.A3M)
     @show size(merged_msa)
 
     #merged_msa = merge_msas(merged_table)
     @info "Getting the aligned structures"
-    structures = _get_aligned_structures(merged_table)
+    structures = _get_aligned_structures(expanded_table)
     @show length(structures)
 
-    @info "Adding known conformations"
-    #sifts_uniprot_mapping = get_uniprot_mapping()
-    #target2uniprot, expanded_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping)
+    
     #uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
-    #@show size(expanded_table)
+    @show size(expanded_table)
     
     @info "Measuring RMSDs"
     #rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
@@ -1214,12 +1450,13 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
     
     
     @info "Clustering structures"
-    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(merged_table, merged_msa, structures,cutoff)
-    #large_small_pairs, large_cl2msa, small_cl2pdb = create_template_clusters(rmsds,expanded_table, merged_msa, structures)
+    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(expanded_table, merged_msa, structures,cutoff)
+    #clusters, cl2msa, cl2pdb = create_template_clusters(expanded_table, merged_msa, structures,cutoff)
     @info "Create folder"
     #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
     
     create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
+    clean_msa_template_names(clusters,out_folder)
 end
 
 # USAGE EXAMPLE

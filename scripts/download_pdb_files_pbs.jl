@@ -1,4 +1,4 @@
-#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
+#!/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
 #PBS -l host=node48

@@ -1,4 +1,4 @@
-#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
+#!/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia110
 
 #=
 #SBATCH --nodelist=node48
@@ -8,7 +8,7 @@
 #SBATCH --output=output_AlphaConformers.jl.o%j.out
 =#
 import Pkg
-Pkg.activate("/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
+Pkg.activate("/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
 
 
 # Analyse output of AlphaConformer
@@ -135,8 +135,8 @@ Need to change the plot to color by pLLDT
 """
 ########################## Information to fill #################################
 #Path to the folder where apo and holo file are save 
-folder_path ="/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-folder_model = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"*query*"_AlphaConformer"
+folder_path ="/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
+folder_model = "/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"*query*"_AlphaConformer"
 #OR file name 
 query="6akl"
 ################################################################################

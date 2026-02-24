@@ -1,6 +1,7 @@
 module AlphaConformers
 
 import BioAlignments
+import BioStructures
 import MIToS
 import Foldseek_jll
 import MAFFT_jll
@@ -19,7 +20,8 @@ using ArgParse
 using Glob
 using FilePathsBase
 using TestItems
-
+using JSON3
+using YAML
 
 export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,
@@ -44,8 +46,17 @@ export  foldseek_search, # foldseek.jl
         create_msa_and_templates,
         create_alpha_fold_inputs,
         run_alphafold, # run_alphafold.jl
-        organize_files
-
+        organize_files,
+        run_alphafold3,
+        organize_files_af3,
+        run_boltz2,
+        organize_files_boltz,
+        patch_mmcif_for_alphafolds,
+        read_a3m,
+        clean_msa_template_names,
+        get_residues_and_sequence,
+        structural_alignment,
+        _read_pdb_chain
 
 include("utils.jl")
 include("foldseek.jl")

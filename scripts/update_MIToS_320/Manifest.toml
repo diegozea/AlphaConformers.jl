@@ -4,6 +4,11 @@ julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "14d4fe028d9d8528ecb129aab25f93d92e709371"
 
+[[deps.AbstractTrees]]
+git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.4.5"
+
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
 git-tree-sha1 = "9876e1e164b144ca45e9e3198d0b689cadfed9ff"
@@ -11,10 +16,10 @@ uuid = "66dad0bd-aa9a-41b7-9441-69ab47430ed8"
 version = "1.1.3"
 
 [[deps.AlphaConformers]]
-deps = ["BioAlignments", "CSV", "Clustering", "Combinatorics", "DataFrames", "Dates", "Distributed", "Downloads", "Foldseek_jll", "MAFFT_jll", "MIToS", "OrderedCollections", "PairwiseListMatrices", "Printf", "ProgressMeter", "TestItemRunner", "TestItems", "USalign_jll"]
-path = "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers"
+deps = ["ArgParse", "BioAlignments", "BioStructures", "CSV", "Clustering", "Combinatorics", "DataFrames", "Dates", "Distributed", "Downloads", "FilePathsBase", "Foldseek_jll", "Glob", "JSON3", "MAFFT_jll", "MIToS", "OrderedCollections", "PairwiseListMatrices", "Printf", "ProgressMeter", "TestItemRunner", "TestItems", "USalign_jll", "YAML"]
+path = "/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers"
 uuid = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
-version = "0.1.0"
+version = "0.2.0"
 
 [[deps.ArgParse]]
 deps = ["Logging", "TextWrap"]
@@ -53,9 +58,34 @@ version = "0.1.5"
 
 [[deps.BioSequences]]
 deps = ["BioSymbols", "PrecompileTools", "Random", "Twiddle"]
-git-tree-sha1 = "3997810d996142e62aa426deed5bd858339e2332"
+git-tree-sha1 = "74bd40d3dfb74945a0fa40efcd073d5e3dc5a131"
 uuid = "7e6ae17a-c86d-528c-b3b9-7f778a29fe59"
-version = "3.5.0"
+version = "3.5.1"
+
+[[deps.BioStructures]]
+deps = ["BioGenerics", "BioSymbols", "CodecZlib", "Downloads", "Format", "LinearAlgebra", "PrecompileTools", "RecipesBase", "Statistics"]
+git-tree-sha1 = "4b6ea6c4ba4a2673caed4e8e22faaaba9cb6d02b"
+uuid = "de9282ab-8554-53be-b2d6-f6c222edabfc"
+version = "4.7.1"
+
+    [deps.BioStructures.extensions]
+    BioStructuresBioAlignmentsExt = ["BioSequences", "BioAlignments"]
+    BioStructuresBioSequencesExt = "BioSequences"
+    BioStructuresDSSPExt = "DSSP_jll"
+    BioStructuresDataFramesExt = "DataFrames"
+    BioStructuresGraphsExt = ["Graphs", "MetaGraphs"]
+    BioStructuresMMTFExt = "MMTF"
+    BioStructuresSTRIDEExt = "STRIDE_jll"
+
+    [deps.BioStructures.weakdeps]
+    BioAlignments = "00701ae9-d1dc-5365-b64a-a3a3ebf5695e"
+    BioSequences = "7e6ae17a-c86d-528c-b3b9-7f778a29fe59"
+    DSSP_jll = "74334e00-59ce-546d-b517-81f3b7e1d491"
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
+    MMTF = "259c3a9c-12c3-507f-b21f-68ecc40fcda4"
+    MetaGraphs = "626554b9-1ddb-594c-aa3c-2596fe9399a5"
+    STRIDE_jll = "850473c1-9ef0-5df9-a957-757f4cde8b8b"
 
 [[deps.BioSymbols]]
 deps = ["PrecompileTools"]
@@ -71,9 +101,9 @@ version = "1.0.9+0"
 
 [[deps.CSV]]
 deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "PrecompileTools", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings", "WorkerUtilities"]
-git-tree-sha1 = "deddd8725e5e1cc49ee205a1964256043720a6c3"
+git-tree-sha1 = "8d8e0b0f350b8e1c91420b5e64e5de774c2f0f4d"
 uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-version = "0.10.15"
+version = "0.10.16"
 
 [[deps.Clustering]]
 deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "Random", "SparseArrays", "Statistics", "StatsBase"]
@@ -88,9 +118,9 @@ uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
 version = "0.7.8"
 
 [[deps.Combinatorics]]
-git-tree-sha1 = "8010b6bb3388abe68d95743dcbea77650bb2eddf"
+git-tree-sha1 = "c761b00e7755700f9cdf5b02039939d1359330e1"
 uuid = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
-version = "1.0.3"
+version = "1.1.0"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
@@ -125,9 +155,9 @@ version = "1.8.1"
 
 [[deps.DataStructures]]
 deps = ["OrderedCollections"]
-git-tree-sha1 = "6c72198e6a101cccdd4c9731d3985e904ba26037"
+git-tree-sha1 = "e357641bb3e0638d353c4b29ea0e40ea644066a6"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.19.1"
+version = "0.19.3"
 
 [[deps.DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -217,6 +247,11 @@ git-tree-sha1 = "0085ccd5ec327c077ec5b91a5f937b759810ba62"
 uuid = "92fee26a-97fe-5a0c-ad85-20a5f3185b63"
 version = "0.6.2"
 
+[[deps.Glob]]
+git-tree-sha1 = "83cb0092e2792b9e3a865b6655e88f5b862607e2"
+uuid = "c27321d9-0574-5035-807b-f59d2c89b15c"
+version = "1.4.0"
+
 [[deps.InlineStrings]]
 git-tree-sha1 = "8f3d257792a522b4601c24a577954b0a8cd7334d"
 uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
@@ -260,6 +295,18 @@ deps = ["Artifacts", "Preferences"]
 git-tree-sha1 = "0533e564aae234aff59ab625543145446d8b6ec2"
 uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
 version = "1.7.1"
+
+[[deps.JSON]]
+deps = ["Dates", "Logging", "Parsers", "PrecompileTools", "StructUtils", "UUIDs", "Unicode"]
+git-tree-sha1 = "b3ad4a0255688dcb895a52fafbaae3023b588a90"
+uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+version = "1.4.0"
+
+    [deps.JSON.extensions]
+    JSONArrowExt = ["ArrowTypes"]
+
+    [deps.JSON.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
 
 [[deps.JSON3]]
 deps = ["Dates", "Mmap", "Parsers", "PrecompileTools", "StructTypes", "UUIDs"]
@@ -357,10 +404,20 @@ uuid = "72a4bdf2-be5e-5c84-b157-f1dc2927f791"
 version = "7.525.0+0"
 
 [[deps.MIToS]]
-deps = ["ArgParse", "AutoHashEquals", "Clustering", "CodecZlib", "Dates", "Distributed", "Downloads", "FastaIO", "Format", "JSON3", "LightXML", "LinearAlgebra", "Logging", "Markdown", "NamedArrays", "OrderedCollections", "PairwiseListMatrices", "Pkg", "ProgressMeter", "Random", "RecipesBase", "Requires", "Serialization", "StaticArrays", "Statistics", "StatsBase", "TranscodingStreams"]
-git-tree-sha1 = "5ce9f66b290a727488b16995ff4e9dd1eb0a4247"
+deps = ["AutoHashEquals", "BioStructures", "CodecZlib", "Dates", "DelimitedFiles", "Downloads", "FastaIO", "Format", "JSON", "LightXML", "LinearAlgebra", "Logging", "Markdown", "NamedArrays", "OrderedCollections", "PairwiseListMatrices", "Random", "RecipesBase", "Serialization", "StaticArrays", "Statistics", "StatsBase", "TranscodingStreams"]
+git-tree-sha1 = "28d46235d8b50c36d717d0b1c51e87652013e3e6"
 uuid = "51bafb47-8a16-5ded-8b04-24ef4eede0b5"
-version = "2.22.0"
+version = "3.9.0"
+
+    [deps.MIToS.extensions]
+    MIToSBioAlignmentsExt = "BioAlignments"
+    MIToSClusteringExt = "Clustering"
+    MIToSROCAnalysisExt = "ROCAnalysis"
+
+    [deps.MIToS.weakdeps]
+    BioAlignments = "00701ae9-d1dc-5365-b64a-a3a3ebf5695e"
+    Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+    ROCAnalysis = "f535d66d-59bb-5153-8d2b-ef0a426c6aff"
 
 [[deps.Markdown]]
 deps = ["Base64"]
@@ -393,10 +450,10 @@ uuid = "86f7a689-2022-50b4-a561-43c23ac3c673"
 version = "0.10.5"
 
 [[deps.NearestNeighbors]]
-deps = ["Distances", "StaticArrays"]
-git-tree-sha1 = "ca7e18198a166a1f3eb92a3650d53d94ed8ca8a1"
+deps = ["AbstractTrees", "Distances", "StaticArrays"]
+git-tree-sha1 = "e2c3bba08dd6dedfe17a17889131b885b8c082f0"
 uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
-version = "0.4.22"
+version = "0.4.27"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -447,15 +504,21 @@ version = "1.2.1"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "0f27480397253da18fe2c12a4ba4eb9eb208bf3d"
+git-tree-sha1 = "522f093a29b31a93e34eaea17ba055d850edea28"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.5.0"
+version = "1.5.1"
 
 [[deps.PrettyTables]]
 deps = ["Crayons", "LaTeXStrings", "Markdown", "PrecompileTools", "Printf", "REPL", "Reexport", "StringManipulation", "Tables"]
-git-tree-sha1 = "6b8e2f0bae3f678811678065c09571c1619da219"
+git-tree-sha1 = "211530a7dc76ab59087f4d4d1fc3f086fbe87594"
 uuid = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
-version = "3.1.0"
+version = "3.2.3"
+
+    [deps.PrettyTables.extensions]
+    PrettyTablesTypstryExt = "Typstry"
+
+    [deps.PrettyTables.weakdeps]
+    Typstry = "f0ed7684-a786-439e-b1e3-3b82803b501e"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -469,9 +532,9 @@ uuid = "92933f4c-e287-5a05-a399-4b506db050ca"
 version = "1.11.0"
 
 [[deps.PtrArrays]]
-git-tree-sha1 = "1d36ef11a9aaf1e8b74dacc6a731dd1de8fd493d"
+git-tree-sha1 = "4fbbafbc6251b883f4d2705356f3641f3652a7fe"
 uuid = "43287f4e-b6f4-7ad1-bb20-aadabca52c3d"
-version = "1.3.0"
+version = "1.4.0"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "StyledStrings", "Unicode"]
@@ -506,9 +569,9 @@ version = "0.7.0"
 
 [[deps.SentinelArrays]]
 deps = ["Dates", "Random"]
-git-tree-sha1 = "712fb0231ee6f9120e005ccd56297abbc053e7e0"
+git-tree-sha1 = "ebe7e59b37c400f694f52b58c93d26201387da70"
 uuid = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
-version = "1.4.8"
+version = "1.4.9"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -531,9 +594,9 @@ version = "1.11.0"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
-git-tree-sha1 = "b8693004b385c842357406e3af647701fe783f98"
+git-tree-sha1 = "0f529006004a8be48f1be25f3451186579392d47"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "1.9.15"
+version = "1.9.17"
 
     [deps.StaticArrays.extensions]
     StaticArraysChainRulesCoreExt = "ChainRulesCore"
@@ -560,27 +623,47 @@ weakdeps = ["SparseArrays"]
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "9d72a13a3f4dd3795a195ac5a44d7d6ff5f552ff"
+git-tree-sha1 = "178ed29fd5b2a2cfc3bd31c13375ae925623ff36"
 uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
-version = "1.7.1"
+version = "1.8.0"
 
 [[deps.StatsBase]]
-deps = ["AliasTables", "DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "a136f98cefaf3e2924a66bd75173d1c891ab7453"
+deps = ["AliasTables", "DataAPI", "DataStructures", "IrrationalConstants", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
+git-tree-sha1 = "aceda6f4e598d331548e04cc6b2124a6148138e3"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.34.7"
+version = "0.34.10"
+
+[[deps.StringEncodings]]
+deps = ["Libiconv_jll"]
+git-tree-sha1 = "b765e46ba27ecf6b44faf70df40c57aa3a547dcb"
+uuid = "69024149-9ee7-55f6-a4c4-859efe599b68"
+version = "0.3.7"
 
 [[deps.StringManipulation]]
 deps = ["PrecompileTools"]
-git-tree-sha1 = "725421ae8e530ec29bcbdddbe91ff8053421d023"
+git-tree-sha1 = "a3c1536470bf8c5e02096ad4853606d7c8f62721"
 uuid = "892a3eda-7b42-436c-8928-eab12a02cf0e"
-version = "0.4.1"
+version = "0.4.2"
 
 [[deps.StructTypes]]
 deps = ["Dates", "UUIDs"]
 git-tree-sha1 = "159331b30e94d7b11379037feeb9b690950cace8"
 uuid = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
 version = "1.11.0"
+
+[[deps.StructUtils]]
+deps = ["Dates", "UUIDs"]
+git-tree-sha1 = "28145feabf717c5d65c1d5e09747ee7b1ff3ed13"
+uuid = "ec057cc2-7a8d-4b58-b3b3-92acb9f63b42"
+version = "2.6.3"
+
+    [deps.StructUtils.extensions]
+    StructUtilsMeasurementsExt = ["Measurements"]
+    StructUtilsTablesExt = ["Tables"]
+
+    [deps.StructUtils.weakdeps]
+    Measurements = "eff96d63-e80a-5855-80a2-b1b0885c5ab7"
+    Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -620,9 +703,9 @@ version = "1.11.0"
 
 [[deps.TestItemRunner]]
 deps = ["Pkg", "TOML", "Test", "TestItems", "UUIDs"]
-git-tree-sha1 = "068c8f3e8d2f3b5948a85f11412f047cbab4e6c0"
+git-tree-sha1 = "76f275a3f3d83ece88ec69d73058048de5acb1dc"
 uuid = "f8b46487-2199-4994-9208-9a1283c18c0a"
-version = "1.1.0"
+version = "1.1.4"
 
 [[deps.TestItems]]
 git-tree-sha1 = "42fd9023fef18b9b78c8343a4e2f3813ffbcefcb"
@@ -635,13 +718,9 @@ uuid = "b718987f-49a8-5099-9789-dcd902bef87d"
 version = "1.0.2"
 
 [[deps.TranscodingStreams]]
-git-tree-sha1 = "d73336d81cafdc277ff45558bb7eaa2b04a8e472"
+git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
-version = "0.10.10"
-weakdeps = ["Random", "Test"]
-
-    [deps.TranscodingStreams.extensions]
-    TestExt = ["Test", "Random"]
+version = "0.11.3"
 
 [[deps.Twiddle]]
 git-tree-sha1 = "29509c4862bfb5da9e76eb6937125ab93986270a"
@@ -679,6 +758,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
 git-tree-sha1 = "5c959b708667b34cb758e8d7c6f8e69b94c32deb"
 uuid = "02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
 version = "2.15.1+0"
+
+[[deps.YAML]]
+deps = ["Base64", "Dates", "Printf", "StringEncodings"]
+git-tree-sha1 = "a1c0c7585346251353cddede21f180b96388c403"
+uuid = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
+version = "0.4.16"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
