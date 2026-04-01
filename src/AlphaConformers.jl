@@ -15,6 +15,7 @@ import PairwiseListMatrices
 import Distributed
 import ProgressMeter
 import Combinatorics
+import Plots as plt
 
 using ArgParse
 using Glob
@@ -22,6 +23,13 @@ using FilePathsBase
 using TestItems
 using JSON3
 using YAML
+using PyCall
+using DataFrames
+using Statistics
+using LinearAlgebra
+using FileIO
+
+
 
 export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,

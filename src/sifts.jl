@@ -135,25 +135,50 @@ and PDB formats are considered for matches.
     This function is useful when testing the pipeline to avoid having the known 
     conformations of the query protein in the search results.
 """
-function delete_query_from_target(search_results::DataFrames.DataFrame,
+function delete_query_from_target(
+    search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame,
-    query_pdb_code::String, query_chain_code::String)
-    query_uniprots = get_uniprot_acc(sifts_uniprot_mapping, query_pdb_code, query_chain_code)
-    @show query_uniprots
-    for query_uniprot in query_uniprots
-        # AFDB
-        #filter!(m -> !occursin("AF-$(query_uniprot)-", m.target), search_results)
-        # PDB
-        query_structures = get_pdb_codes(sifts_uniprot_mapping, String(query_uniprot))
-        for row in eachrow(query_structures)
-            pdb = String(row.PDB)
-            chain = String(row.CHAIN)
-            name = uppercase(pdb)*".cif_"*uppercase(chain)
-            filter!(row -> row.target != name, search_results)
-            filter!(row -> !startswith(uppercase(row.target), uppercase(pdb)), search_results)
-        end
-    end
-    search_results
+    query_pdb_code::String,
+    query_chain_code::String
+)
+    @show query_pdb_code, query_chain_code
+
+    query_uniprot = only(get_uniprot_acc(
+        sifts_uniprot_mapping,
+        query_pdb_code,
+        query_chain_code
+    ))
+
+    @show query_uniprot
+
+    query_structures = get_pdb_codes(
+        sifts_uniprot_mapping,
+        String(query_uniprot)
+    )
+
+    @show query_structures
+
+    # 👉 colonnes directement
+    pdbs   = String.(query_structures.PDB)
+    chains = String.(query_structures.CHAIN)
+
+    # 👉 construction vectorisée
+    pdb_names = Set(uppercase.(pdbs) .* ".cif_" .* uppercase.(chains))
+    pdb_prefixes_upper = Set(uppercase.(pdbs))
+    pdb_prefixes_lower = Set(lowercase.(pdbs))
+
+    af_pattern = "AF-$(query_uniprot)-"
+
+    filter!(row -> begin
+        t = row.target
+
+        !occursin(af_pattern, t) &&
+        !(t in pdb_names) &&
+        !any(startswith(t, p) for p in pdb_prefixes_upper) &&
+        !any(startswith(t, p) for p in pdb_prefixes_lower)
+    end, search_results)
+
+    return search_results
 end
 
 # Functions to look for known conformations of the proteins in the FoldSeek search results
@@ -261,10 +286,12 @@ a set of PDB codes and chains that are not currently included in the results.
     and returns these new targets.
 """
 function get_unknown_conformations(search_results::DataFrames.DataFrame,
-    sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder,input_pdb)
+    sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder,input_pdb,n_threads)
     
     #get all the alternative structure that was not found by foldseek 
     new_targets = known_uniprot_structures(sifts_uniprot_mapping, search_results)
+    #Check if alternative structure have been found 
+    isempty(new_targets) && return nothing
     
     cwd = pwd()
     try 
@@ -301,7 +328,7 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
             @assert length(readdir(tmp_targets_dir)) > 0
             @show length(readdir(tmp_targets_dir))
             target_db=joinpath(out_folder,"target_db")
-            run(`$(Foldseek_jll.foldseek()) createdb $tmp_targets_dir $target_db`)
+            run(`$(Foldseek_jll.foldseek()) createdb $tmp_targets_dir $target_db --threads $n_threads`)
         end
     finally
         cd(cwd)
@@ -311,7 +338,7 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
     @assert isfile(target_db)
     #Run foldseek to align all the structure 
     output_vector = Vector{String}()
-    output = run_foldseek(input_pdb, target_db; out_folder=out_folder, filtrage=false)
+    output = run_foldseek(input_pdb, target_db,n_threads; out_folder=out_folder, filtrage=false)
     for item in output
         push!(output_vector, item.table_file)  # Ajouter au vecteur
     end
@@ -332,9 +359,11 @@ a tuple with a Dict from the protein targets' identifiers to UniProt accession a
 updated `search_results` table.
 """
 function add_known_conformations!(search_results::DataFrames.DataFrame,
-    sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder::String,input_pdb)
-    new_target_result = get_unknown_conformations(search_results, sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb)
-    DataFrames.append!(search_results, new_target_result, cols=:union)
+    sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder::String,input_pdb,n_threads)
+    new_target_result = get_unknown_conformations(search_results, sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb,n_threads)
+    if new_target_result !== nothing 
+        DataFrames.append!(search_results, new_target_result, cols=:union)
+    end
     @show size(search_results)
     search_results
 end

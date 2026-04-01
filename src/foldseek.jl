@@ -91,6 +91,7 @@ function read_foldseek_search_results(file::AbstractString; colonnes::Vector{Str
 end
 
 function run_foldseek(pdb_file::AbstractString,
+    n_threads::Int,
     db_path::String=get(ENV, "FOLDSEEK_DB_PATH", "");
     out_folder::String=dirname(abspath(pdb_file)),
     filtrage::Bool=true,
@@ -102,7 +103,7 @@ function run_foldseek(pdb_file::AbstractString,
     # if there is more than one database, run the function for each one
     if occursin(',', db_path)
         db_path_vector = String.(split(db_path, ','))
-        return run_foldseek(pdb_file, db_path_vector, out_folder=out_folder)
+        return run_foldseek(pdb_file, n_threads, db_path_vector, out_folder=out_folder)
     end
 
     # if there is only one database, continue
@@ -126,27 +127,27 @@ function run_foldseek(pdb_file::AbstractString,
             run(`$(Foldseek_jll.foldseek()) version`)
 
             # createdb for the query file
-            run(pipeline(`$(Foldseek_jll.foldseek()) createdb $pdb_file query_db`))
+            run(pipeline(`$(Foldseek_jll.foldseek()) createdb $pdb_file query_db --threads $n_threads`))
 
             # run the search using -a to be able to recover the alignment
             # --prefilter-mode 1 to use less RAM when searching the AFDB, needing ~35 Gb
             if filtrage 
-                run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 `, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
+                run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 --threads $n_threads`, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
             else 
-                run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 1 --max-seqs 1000000 -e inf --prefilter-mode 0 `, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
+                run(pipeline(`$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 1 --max-seqs 1000000 -e inf --prefilter-mode 0 --threads $n_threads`, stdout=joinpath(out_folder_db,"output"), stderr=joinpath(out_folder_db,"error")))
             end
             # convertalis to m8
-            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file --format-output $format_output --exact-tmscore 1`))
+            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $table_file --format-output $format_output --exact-tmscore 1 --threads $n_threads`))
 
             # convertalis to aligned_structures
             prefix = joinpath(aligned_structures_folder, "aln_")
-            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5`))
+            run(pipeline(`$(Foldseek_jll.foldseek()) convertalis query_db $db_path results $prefix --format-mode 5 --threads $n_threads`))
             isfile(prefix) && rm(prefix, recursive=true)
 
             # run result2msa
-            run(pipeline(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6`))
+            run(pipeline(`$(Foldseek_jll.foldseek()) result2msa query_db $db_path results msa --msa-format-mode 6 --threads $n_threads`))
             # unpack the msa
-            run(pipeline(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0`))
+            run(pipeline(`$(Foldseek_jll.foldseek()) unpackdb msa msa_output --unpack-suffix a3m --unpack-name-mode 0 --threads $n_threads`))
             if isfile(msa_file)
                 @warn "$msa_file already exists. It will be overwritten."
                 rm(msa_file, recursive=true)
@@ -178,10 +179,10 @@ function run_foldseek(pdb_file::AbstractString,
     [(; table_file, msa_file, aligned_structures_folder)]
 end
 
-function run_foldseek(pdb_file::AbstractString, db_path::Vector{String};
+function run_foldseek(pdb_file::AbstractString,n_threads::Int,db_path::Vector{String};
     out_folder::String=dirname(abspath(pdb_file)))
     map(db_path) do db
-        only(run_foldseek(pdb_file, db, out_folder=out_folder))
+        only(run_foldseek(pdb_file, n_threads, db, out_folder=out_folder))
     end
 end
 
@@ -1108,7 +1109,10 @@ function create_template_clusters_hobohm(
     target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
-    targets, clusters =hobohm_clustering(expanded_table, structures,cutoff)
+    #targets, clusters =hobohm_clustering(expanded_table, structures,cutoff)
+    output=MIToS.MSA.hobohmI(MIToS.PDB.superimpose, structures, cutoff; threads=true)
+    @show output
+    return
     @info "get_cluster2targets"
     cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets(targets, clusters)
     #cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets_concatenate(targets, clusters)
@@ -1144,6 +1148,144 @@ function create_template_clusters(
     @info "get_cluster2structures"
     cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
     (nb_cluster, cl2msa, cl2pdb)
+end
+function prepare_embedding_matrix(df_input, features)
+
+    df = copy(df_input)
+    feats = copy(features)
+
+    # log transform evalue
+    if :evalue in names(df)
+        df.log_evalue = -log10.(df.evalue .+ 1e-300)
+    end
+
+    # coverage
+    if (:qend in feats) && (:alnlen in feats)
+        query_length = maximum(df.qend)
+        df.coverage = df.alnlen ./ query_length
+        push!(feats, :coverage)
+    end
+
+    numeric_features = [f for f in feats if eltype(df[!,f]) <: Number]
+
+    X = Matrix(df[:, numeric_features])
+
+    μ = mean(X, dims=1)
+    σ = std(X, dims=1)
+    σ[σ .== 0] .= 1
+
+    X = (X .- μ) ./ σ
+
+    return X
+end
+
+function umap_emb(df_umap; 
+    features=[:query,:target,:fident,:alnlen,:qend,:mismatch,:gapopen,:bits,:evalue,:qtmscore,:ttmscore,:alntmscore,:rmsd], 
+    params_umap...)
+
+    X = prepare_embedding_matrix(df_umap, features)
+
+    # normalisation robuste
+    μ = mean(X, dims=1)
+    σ = std(X, dims=1)
+
+    σ[σ .== 0] .= 1   # éviter division par 0
+
+    X = (X .- μ) ./ σ
+
+    # UMAP
+    umap = pyimport("umap")
+    embedding = umap.UMAP(;params_umap...).fit_transform(X)
+
+    @info "UMAP embedding completed with $(size(X,1)) samples and $(size(X,2)) features"
+
+    return embedding
+
+end
+function plot_dbscan_cluster(embedding)
+    
+    hdbscan = pyimport("hdbscan")
+    @show size(embedding)   # doit être (N, 2)
+
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=5
+    )
+
+    fit = clusterer.fit(embedding)
+    labels = fit.labels_
+    
+    p = plt.scatter(
+        embedding[:, 1], embedding[:, 2],embedding[:,3],
+        c = :turbo,
+        marker_z = labels,     # IMPORTANT
+        colorbar = true,
+        alpha = 0.25,
+        markerstrokewidth = 0,
+        markerstrokealpha = 0,
+        markersize = 4,
+        xlabel = "UMAP 1",
+        ylabel = "UMAP 2",
+        zlabel = "UMAP 3",
+        size = (1000, 800),
+        legend = false
+    )
+    plt.scatter!(p,
+        [embedding[1, 1]],
+        [embedding[1, 2]],
+        [embedding[1, 3]],
+        color = :orange, 
+        markerstrokewidth = 0,
+        markerstrokealpha = 0,
+        markersize = 8
+    )
+    return p, labels
+end
+
+function cluster_creation(df_expanded_table,labels)
+
+    unique_clusters = sort(filter(x -> x != -1, unique(labels)))
+
+    println("Clusters found: ", unique_clusters)
+
+    dic_cluster = Dict{Int, Vector{String}}()
+
+    for cid in unique_clusters
+
+        members_idx = findall(labels .== cid)
+
+        println("Cluster $cid size: ", length(members_idx))
+
+        dic_cluster[cid] = String.(df_expanded_table[members_idx, :].target)
+
+    end
+
+    return dic_cluster
+end
+
+function create_umap_clusters(
+    output_folder::String,
+    expanded_table::DataFrame;
+    n_neighbors::Int = 15,
+    min_dist::Float64 = 0.3
+)
+
+    mkpath(output_folder)
+
+    params = (
+        n_neighbors = n_neighbors,
+        min_dist = min_dist,
+        n_components = 3
+    )
+
+    embedding = umap_emb(expanded_table; params...)
+
+    plot1, labels = plot_dbscan_cluster(embedding)
+
+    save(joinpath(output_folder, "UMAP_plot.png"), plot1)
+
+    dic_cluster = cluster_creation(expanded_table, labels)
+
+    return dic_cluster
 end
 
 function create_folder_structure_hobohm(clusters,
@@ -1204,6 +1346,179 @@ function create_folder_structure_hobohm(clusters,
               (; file = calpha_template))
     out_folder
 end
+
+function write_new_msa(new_msa_path,query_id,query_seq,cluster_ids,cluster_seqs)
+    open(new_msa_path, "w") do io
+        println(io, ">$query_id")
+        println(io, query_seq)
+        for (id, seq) in zip(cluster_ids, cluster_seqs)
+            println(io, ">$id")
+            println(io, seq)
+        end
+    end
+end
+
+
+function get_new_template(cluster_ids)
+    # on choisit les sous-targets
+    templates = String[]
+    n = length(cluster_ids)
+
+    if n == 0
+        @warn "Cluster $cluster has no available targets left after filtering"
+        return nothing
+    elseif n < 8
+        templates = cluster_ids[1:min(4, n)]
+    else
+        step = max(1, div(n, 4))
+        for i in 1:4
+            idx = i * step
+            if idx <= n
+                push!(templates, cluster_ids[idx])
+            end
+        end
+    end
+
+    return templates
+end
+
+
+function download_template(cluster_folder,templates)
+    cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
+    for target in templates
+        #Get the right extension 
+        base_name = split(target, ".")[1]
+        if startswith(basename(base_name),"AF") 
+            new_name= replace(basename(base_name), "MODEL_V6" => "model_v6")
+            name_cif_file=basename(new_name)*".pdb"
+            try 
+                MIToS.Utils.download_file("https://alphafold.ebi.ac.uk/files/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+            catch e
+                @warn "Problem to download for AFDB the complete template file: "*name_cif_file
+                continue
+            end
+        else 
+            pdbcode = split(basename(base_name), '.')[1]
+            pdbcode = split(basename(pdbcode), '_')[1]
+            chain_id = lowercase(split(basename(base_name), '_')[end])
+            @show pdbcode
+            name_cif_file=pdbcode*".cif"
+            try 
+                MIToS.Utils.download_file("https://files.rcsb.org/download/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+
+            catch e
+                @warn "Problem to download from PDB the template file: "*name_cif_file
+                continue
+            end
+            
+        end
+    end
+    
+end
+
+function get_files_cluster(new_cluster,query_id,query_seq,cluster_ids,cluster_seqs)
+    new_msa_path=joinpath(new_cluster,"sequences.a3m")
+    write_new_msa(new_msa_path,query_id,query_seq,cluster_ids,cluster_seqs)
+
+    #Create template folder
+    template_names=get_new_template(cluster_ids)
+    download_template(new_cluster,template_names)
+end
+
+
+function chunk_sequences(seqs,
+                         ids;
+                         min_size::Int = 5,
+                         max_size::Int = 10)
+
+    
+    n = length(seqs)
+    if n == 0
+        return Vector{Vector{String}}(), Vector{Vector{String}}()
+    end
+
+
+    # nombre minimal de clusters pour ne pas dépasser max_size
+    n_clusters = ceil(Int, n / max_size)
+
+    # taille de base de chaque cluster
+    base_size = div(n, n_clusters)
+
+    # combien de clusters auront +1 élément
+    remainder = n % n_clusters
+
+    cluster_seqs = Vector{Vector{String}}()
+    cluster_ids  = Vector{Vector{String}}()
+
+    i = 1
+
+    for c in 1:n_clusters
+
+        size = base_size + (c <= remainder ? 1 : 0)
+
+        push!(cluster_seqs, seqs[i:i+size-1])
+        push!(cluster_ids,  ids[i:i+size-1])
+
+        i += size
+    end
+
+    return cluster_seqs, cluster_ids
+end
+
+function create_folder_structure_subdivide(clusters,main_new_folder)
+    all_seq_a3m_path=joinpath(main_new_folder, "all_sequence.a3m")
+    ids,sequences =read_a3m(all_seq_a3m_path)
+    query_id=ids[1]
+    query_seq=sequences[1]
+    cluster_id=1
+    check_files=[]
+    for (cid, members) in clusters
+        @show cid
+        @show members
+        if length(members) >= 4 && length(members) <= 9
+            
+            #If have the right number of sequences => keep cluster as it is 
+            new_cluster=joinpath(main_new_folder,"cluster_$cluster_id")
+            mkdir(new_cluster)
+            idx = findall(id -> id in members, ids)
+
+            cluster_seqs = sequences[idx]
+            @show length(cluster_seqs)
+            @show length(members)
+            get_files_cluster(new_cluster,query_id,query_seq,members,cluster_seqs)
+            cluster_id=cluster_id+1
+
+        elseif length(members)>9
+            #If have more sequence => divide to be between 5 and 10
+            idx = findall(id -> id in members, ids)
+
+            cluster_all_seqs = sequences[idx]
+            cluster_seqs,cluster_ids=chunk_sequences(cluster_all_seqs,members,min_size=4,max_size=9)
+            
+            #recreate the cluster
+            for i in 1:length(cluster_ids)
+                new_cluster=joinpath(main_new_folder,"cluster_$cluster_id")
+                mkdir(new_cluster)
+                get_files_cluster(new_cluster,query_id,query_seq,cluster_ids[i],cluster_seqs[i])
+                cluster_id=cluster_id+1
+            end
+        else 
+            append!(check_files,members)
+        end
+    end
+    idx_outlier = findall(id -> id in check_files, ids)
+    cluster_all_seqs = sequences[idx_outlier]
+    cluster_seqs,cluster_ids=chunk_sequences(cluster_all_seqs,check_files,min_size=4,max_size=9)
+    for i in 1:length(cluster_ids)
+        new_cluster=joinpath(main_new_folder,"cluster_$cluster_id")
+        mkdir(new_cluster)
+        get_files_cluster(new_cluster,query_id,query_seq,cluster_ids[i],cluster_seqs[i])
+        cluster_id=cluster_id+1
+    end
+
+    return cluster_id-1
+end 
+
 
 function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
     large_cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
@@ -1389,23 +1704,89 @@ function align_mafft(msa_file::String, pdb_dir::String)
     MIToS.MSA.write_file(msa_file, aligned_msa, MIToS.MSA.A3M)
 end
 
+function get_res_beg_end(pdb_file::String)
+    res_ids = Int[]
+
+    open(pdb_file, "r") do io
+        for line in eachline(io)
+            if startswith(line, "ATOM")
+                raw = strip(line[23:26])
+
+                # 👉 garder uniquement les chiffres
+                num = match(r"\d+", raw)
+
+                if num !== nothing
+                    push!(res_ids, parse(Int, num.match))
+                end
+            end
+        end
+    end
+
+    return minimum(res_ids), maximum(res_ids)
+end
+
+function align_full_seq(full_seq::String, msa::Vector{String})
+    ref_seq = msa[1]
+
+    aligned_ref = ""
+    mapping = Int[]  # positions dans ref_seq ou 0 si gap
+
+    i = 1  # index ref_seq
+
+    for c in full_seq
+        if i <= length(ref_seq) && c == ref_seq[i]
+            push!(mapping, i)
+            i += 1
+        else
+            push!(mapping, 0)  # gap
+        end
+    end
+
+    # Construire nouveau MSA
+    new_msa = String[]
+
+    # 1️⃣ première ligne = full_seq (ta référence propre)
+    push!(new_msa, full_seq)
+
+    # 2️⃣ autres séquences
+    for seq in msa[2:end]
+        new_seq = ""
+        for pos in mapping
+            if pos == 0
+                new_seq *= "-"
+            else
+                new_seq *= seq[pos]
+            end
+        end
+        push!(new_msa, new_seq)
+    end
+
+    return new_msa
+end
+
 #faire pour ajouter n pdb et les concaténer dans foldseek 
-function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
-        evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0, mafft::Bool=false)
+function alphaconformers(input_pdb, pdb_folder, out_folder,n_threads; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
+        evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0, mafft::Bool=false,
+        umap::Bool=false,n_neighbors::Int = 15,min_dist::Float64 = 0.3,
+        test_analyse::Bool=false,
+        full_seq::String=nothing
+        )
     @info "Running Foldseek"
     query_pdb_code = split(basename(input_pdb),"_")[1]
-    query_chain_code = split(input_pdb,"_")[2]
-    output = run_foldseek(input_pdb, db , out_folder=out_folder) 
+    query_chain_code = split(split(basename(input_pdb),"_")[2],".")[1]
+    
+    output = run_foldseek(input_pdb, n_threads, db, out_folder=out_folder) 
     # Initialiser un vecteur vide de String
     output_vector = Vector{String}()
-
+    
     # Boucle correcte sur les éléments de `output`
     for item in output
-        if mafft 
+        if mafft ## Align MSA on sequence and not on structure 
             align_mafft(item.msa_file,pdb_folder)  # Aligner les séquences MSA
         end 
         push!(output_vector, item.table_file)  # Ajouter au vecteur
     end
+    
     # Fusionner les tables
     merged_table = merge_tables(output_vector)
     @show size(merged_table)
@@ -1421,41 +1802,66 @@ function alphaconformers(input_pdb, pdb_folder, out_folder; db::Vector{String}=[
     @info "Adding known conformations"
     @show size(merged_table)
     sifts_uniprot_mapping = get_uniprot_mapping()
-    clean_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb)
+    clean_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb,n_threads)
     @show size(clean_table)
-
-    expanded_table=delete_query_from_target(deepcopy(clean_table),sifts_uniprot_mapping,String(query_pdb_code),String(query_chain_code))
-    @show size(expanded_table)
-    isempty(expanded_table) && error("No targets remaining after removing query from targets.")
-    CSV.write(joinpath(out_folder,"expanded_table.csv"),expanded_table)
+    
+    if test_analyse
+        expanded_table=delete_query_from_target(deepcopy(clean_table),sifts_uniprot_mapping,String(query_pdb_code),String(query_chain_code))
+        @show size(expanded_table)
+        isempty(expanded_table) && error("No targets remaining after removing query from targets.")
+        CSV.write(joinpath(out_folder,"expanded_table_delete.csv"),expanded_table)
+    else 
+        expanded_table=deepcopy(clean_table)
+    end
     
     @info "Merge MSAS"
     merged_msa = merge_msas(expanded_table)
     MIToS.MSA.write_file(joinpath(out_folder, "all_sequence.a3m"), merged_msa, MIToS.MSA.A3M)
     @show size(merged_msa)
 
-    #merged_msa = merge_msas(merged_table)
-    @info "Getting the aligned structures"
-    structures = _get_aligned_structures(expanded_table)
-    @show length(structures)
+    ### Align sequence on AFDB sequences - to not have missing residues 
+    if full_seq !== nothing
+        res_beg,res_end=get_res_beg_end(input_pdb)
+        @show res_beg,res_end
+        same_sull_seq=full_seq[res_beg:res_end]
+        @show length(full_seq)
+        @show length(same_sull_seq)
+        align_merged_msa=align_full_seq(same_sull_seq,merged_msa)
+        MIToS.MSA.write_file(joinpath(out_folder, "all_sequence_align_uniprot_seq.a3m"), align_merged_msa, MIToS.MSA.A3M)
+    else
+        align_merged_msa=deepcopy(merged_msa)
+    end
+    return
+    if !umap
+        #merged_msa = merge_msas(merged_table)
+        @info "Getting the aligned structures"
+        structures = _get_aligned_structures(expanded_table)
+        @show length(structures)
 
-    
-    #uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
-    @show size(expanded_table)
-    
-    @info "Measuring RMSDs"
-    #rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
-    #@show size(expanded_table)
-    #fill_rmsds!(rmsds, expanded_table, structures)
-    
-    
-    @info "Clustering structures"
-    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(expanded_table, merged_msa, structures,cutoff)
-    #clusters, cl2msa, cl2pdb = create_template_clusters(expanded_table, merged_msa, structures,cutoff)
-    @info "Create folder"
-    #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
-    
-    create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
+        
+        #uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
+        @show size(expanded_table)
+        
+        @info "Measuring RMSDs"
+        #rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
+        #@show size(expanded_table)
+        #fill_rmsds!(rmsds, expanded_table, structures)
+        
+        
+        @info "Clustering structures"
+        clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(expanded_table, align_merged_msa, structures,cutoff)
+        #clusters, cl2msa, cl2pdb = create_template_clusters(expanded_table, merged_msa, structures,cutoff)
+        @info "Create folder"
+        #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
+        
+        create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
+    else 
+
+        @info "Clustering with UMAP"
+        dic_clusters=create_umap_clusters(out_folder,expanded_table;n_neighbors,min_dist)
+        clusters=create_folder_structure_subdivide(dic_clusters,out_folder)
+    end
+
     clean_msa_template_names(clusters,out_folder)
 end
 
