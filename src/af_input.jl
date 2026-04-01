@@ -8,14 +8,14 @@ function _read_pdb_chain(file::String, chain_code) # MIToS.PDB.All
     if extension[end]=="cif" || extension[end]=="mmcif"
         # Read the chain specified by chain_code from the mmcif file
         try 
-            file=read(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
+            file=read_file(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
         catch err
             @error "Error reading the MMCIF file $file: $err"
             nothing
         end
     else 
         try
-            file=read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+            file=read_file(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
         catch err
             @error "Error reading the PDB file $file: $err"
             nothing
@@ -29,7 +29,7 @@ function _read_pdb_chain(file::String, chain_code::String)
     if extension[end]=="cif" || extension[end]=="mmcif"
         try
             # read the whole file
-            res = read(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
+            res = read_file(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
         catch err
             @error "Error reading the MMCIF file $file: $err"
             return nothing
@@ -40,7 +40,7 @@ function _read_pdb_chain(file::String, chain_code::String)
     else 
         try
             # read the whole file
-            res = read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+            res = read_file(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
             # note that auth chains can be lower case, so test the lowercase one if 
             # the uppercase one is not found. For example, 7ADD has lowercase chains.
             
@@ -49,6 +49,7 @@ function _read_pdb_chain(file::String, chain_code::String)
             nothing
         end
     end
+    
     try 
         chains = Set{String}(r.id.chain for r in res)
         if chain_code in chains
