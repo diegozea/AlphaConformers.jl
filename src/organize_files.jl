@@ -34,10 +34,11 @@ function organize_files(output_dir::AbstractString)
     # Dossier sequences
     seq_dir = joinpath(predictions_dir, "sequences")
     mkdir(seq_dir)
-
-    mv("sequences.a3m", joinpath(seq_dir, "sequences.a3m"))
-    mv("sequences.done.txt", joinpath(seq_dir, "sequences.done.txt"))
-
+    if isfile("sequences.a3m") || isfile("sequences.done.txt")
+        mv("sequences.a3m", joinpath(seq_dir, "sequences.a3m"))
+        mv("sequences.done.txt", joinpath(seq_dir, "sequences.done.txt"))
+    end
+    
     # Dossier models
     models_dir = joinpath(seq_dir, "models")
     mkdir(models_dir)

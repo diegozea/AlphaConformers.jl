@@ -82,7 +82,7 @@ uuid = "66dad0bd-aa9a-41b7-9441-69ab47430ed8"
 version = "1.1.3"
 
 [[deps.AlphaConformers]]
-deps = ["ArgParse", "BioAlignments", "BioStructures", "CSV", "Clustering", "Combinatorics", "DataFrames", "Dates", "Distributed", "Downloads", "FileIO", "FilePathsBase", "Foldseek_jll", "Glob", "JSON3", "LinearAlgebra", "MAFFT_jll", "MIToS", "OrderedCollections", "PairwiseListMatrices", "Plots", "Printf", "ProgressMeter", "PyCall", "Statistics", "TestItemRunner", "TestItems", "USalign_jll", "YAML"]
+deps = ["ArgParse", "BioAlignments", "BioStructures", "CSV", "Clustering", "Combinatorics", "DataFrames", "Dates", "Distributed", "Downloads", "FileIO", "FilePathsBase", "Foldseek_jll", "Glob", "HTTP", "JSON3", "LinearAlgebra", "MAFFT_jll", "MIToS", "OrderedCollections", "PairwiseListMatrices", "Plots", "Printf", "ProgressMeter", "PyCall", "Statistics", "TestItemRunner", "TestItems", "USalign_jll", "YAML"]
 path = "/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers"
 uuid = "bb6f5dab-4685-4239-97c4-a07b2fb9983d"
 version = "0.2.0"
@@ -1347,9 +1347,9 @@ version = "7.525.0+0"
 
 [[deps.MIToS]]
 deps = ["AutoHashEquals", "BioStructures", "CodecZlib", "Dates", "DelimitedFiles", "Downloads", "FastaIO", "Format", "JSON", "LightXML", "LinearAlgebra", "Logging", "Markdown", "NamedArrays", "OrderedCollections", "PairwiseListMatrices", "Random", "RecipesBase", "Serialization", "StaticArrays", "Statistics", "StatsBase", "TranscodingStreams"]
-git-tree-sha1 = "28d46235d8b50c36d717d0b1c51e87652013e3e6"
+git-tree-sha1 = "5c47e81b223e5749303f00757376f7563ad77718"
 uuid = "51bafb47-8a16-5ded-8b04-24ef4eede0b5"
-version = "3.9.0"
+version = "3.10.0"
 
     [deps.MIToS.extensions]
     MIToSBioAlignmentsExt = "BioAlignments"
