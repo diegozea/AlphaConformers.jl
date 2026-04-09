@@ -16,7 +16,7 @@ import Distributed
 import ProgressMeter
 import Combinatorics
 import Plots as plt
-
+import HTTP
 using ArgParse
 using Glob
 using FilePathsBase
@@ -64,7 +64,9 @@ export  foldseek_search, # foldseek.jl
         clean_msa_template_names,
         get_residues_and_sequence,
         structural_alignment,
-        _read_pdb_chain
+        _read_pdb_chain,
+        get_msa_sequence_afdb,
+        run_alphafold_input_structure
 
 include("utils.jl")
 include("foldseek.jl")

@@ -91,7 +91,7 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
             colabfold_batch \
                 /mnt/input/sequences.a3m /mnt/output \
                 --templates \
-                --custom-template-path /mnt/input/templates_adaptative_2/ \
+                --custom-template-path /mnt/input/templates_adaptative/ \
                 --random-seed $seed \
                 --num-seeds 5 \
                 --use-dropout \
@@ -104,6 +104,121 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
     end
 
     println("🎉 All the ColabFold run are finish !")
+end
+
+function get_msa_sequence_afdb(uniprot_id::String,output_dir::String)
+    
+    json_result = nothing
+    try 
+        json_result = MIToS.PDB.query_alphafolddb(uniprot_id)
+    catch e
+        if occursin("multiple elements", sprint(showerror, e))
+            println("⚠️ Multiple AlphaFold entries found for $uniprot_id. Using the first one.")
+            resp = HTTP.get("https://alphafold.ebi.ac.uk/api/prediction/$uniprot_id")
+            data = JSON3.read(resp.body)
+            json_result = data[1]
+        else 
+            @warn "Error querying AlphaFold DB for $uniprot_id : ", e
+            return nothing
+        end
+    end
+    if json_result === nothing
+        @warn "No AlphaFold data available for $uniprot_id"
+        return nothing
+    end
+    if !haskey(json_result, "msaUrl")
+        @warn "No msaUrl for $uniprot_id"
+        return nothing
+    end
+    msa_url = json_result["msaUrl"]
+    
+    msa_path_save=joinpath(output_dir, "$(uppercase(uniprot_id))_msa.a3m")
+    msa_file = MIToS.Utils.download_file(msa_url,msa_path_save)
+    return msa_path_save
+
+end
+
+function parse_line(line::String)
+    @show line
+    m = match(r"(rank_[^ ]+).*pLDDT=(\d+\.\d+).*pTM=(\d+\.\d+)", line)
+    @show m
+    if m !== nothing
+        return (
+            rank = m.captures[1],
+            pLDDT = parse(Float64, m.captures[2]),
+            pTM = parse(Float64, m.captures[3])
+        )
+    else
+        return nothing
+    end
+end
+
+
+function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_PATH::String, CACHE_DIR::String)
+    ## Get afdb a3M 
+    msa_path_save=get_msa_sequence_afdb(uniprot,output_path)
+
+    ## Run colabfold with the msa 
+    output_dir = joinpath(output_path, "af_input")
+    @show "Output directory: $output_dir"
+    if isdir(output_dir)
+        if isdir(joinpath(output_dir,"predictions","sequences","models"))
+            @show "Folder already process"
+            return
+        else
+            rm(output_dir; recursive=true, force=true)
+        end
+    end
+    mkdir(output_dir)
+
+    seed = rand(10_000:99_999)
+    cmd = `apptainer exec --nv --no-home --cleanenv \
+        --bind $output_path:/mnt/input \
+        --bind $output_dir:/mnt/output \
+        --bind $CACHE_DIR:/cache \
+        $SIF_PATH \
+        colabfold_batch \
+            /mnt/input/$(basename(msa_path_save)) /mnt/output \
+            --random-seed $seed \
+            --num-seeds 5 \
+            --use-dropout \
+            --num-models 5 \
+            --overwrite-existing-results`
+
+    run_cmd(cmd)
+        
+    organize_files(output_dir)
+
+    ## Create score file 
+    log_file = joinpath(output_dir, "predictions", "log.txt")
+
+    parsed_data = []
+    for line in readlines(log_file)
+        if occursin("rank_", line)
+            parsed = parse_line(line)
+            @show parsed
+            if parsed !== nothing
+                push!(parsed_data, parsed)
+            end
+        end
+    end
+
+    df = DataFrame(parsed_data)
+    @show df
+    # trier par pLDDT décroissant
+    sort!(df, :pLDDT, rev=true)
+
+    CSV.write(joinpath(output_dir, "predictions", "scores.csv"), df)
+
+    ## Select the best model
+    best_model = df[1, :rank]
+    file_name="$(uniprot)_msa_unrelaxed_$(best_model).pdb"
+    src = joinpath(output_dir, "predictions", "sequences", "models", file_name)
+    dst = joinpath(output_path, "best_model.pdb")
+
+    cp(src, dst; force=true)
+
+    return dst
 end
 
 ### Fonction AlphaFold3 ###

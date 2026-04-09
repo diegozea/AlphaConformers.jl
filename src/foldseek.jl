@@ -859,6 +859,11 @@ function hobohm_clustering(
     return cluster_labels, clusters
 end
 
+function within_cluster(item1,item2,threshold)
+    _,_,_,rmsd_holo,coverage,_=AlphaConformers.structural_alignment(item1, item2)
+    return rmsd_holo <= threshold
+end
+
 function classical_clustering(
     table::DataFrames.DataFrame,
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
@@ -1110,11 +1115,23 @@ function create_template_clusters_hobohm(
     targets = Set{String}(expanded_table.target)
     @info "cluster_structures"
     #targets, clusters =hobohm_clustering(expanded_table, structures,cutoff)
-    output=MIToS.MSA.hobohmI(MIToS.PDB.superimpose, structures, cutoff; threads=true)
-    @show output
-    return
+
+    names = collect(keys(structures))
+    struct_list = collect(values(structures))
+    output=MIToS.MSA.hobohmI(within_cluster, struct_list, cutoff,threads=true)
+    @show fieldnames(typeof(output))
+    assignments = output.clusters
+    @show assignments
+    cluster_labels = Dict{String, Int}()
+
+    for (name, cluster_id) in zip(names, assignments)
+        cluster_labels[name] = cluster_id
+    end
+
+    clusters = [cluster_labels[t] for t in targets]
+    @show cluster_labels
     @info "get_cluster2targets"
-    cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets(targets, clusters)
+    cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets(cluster_labels, clusters)
     #cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets_concatenate(targets, clusters)
     
     @info "get_cluster2seqnames"
@@ -1304,7 +1321,7 @@ function create_folder_structure_hobohm(clusters,
         MIToS.MSA.write_file(msa_file, cl2msa[clust], MIToS.MSA.FASTA)
 
         # Structures
-        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_adaptative"))
+        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
         for (target, structure) in cl2pdb[clust]
             #Get the right extension 
             base_name = split(target, ".")[1]
@@ -1725,10 +1742,28 @@ function get_res_beg_end(pdb_file::String)
     return minimum(res_ids), maximum(res_ids)
 end
 
-function align_full_seq(full_seq::String, msa::Vector{String})
-    ref_seq = msa[1]
+function vector_to_msa(seqs::Vector{String})
+    names = ["seq_$(i)" for i in 1:length(seqs)]
 
-    aligned_ref = ""
+    tmpfile = tempname() * ".fasta"
+
+    open(tmpfile, "w") do io
+        for (name, seq) in zip(names, seqs)
+            println(io, ">$name")
+            println(io, seq)
+        end
+    end
+
+    msa = read(tmpfile, FASTA)
+
+    return msa
+end
+
+function align_full_seq(full_seq, msa)
+    
+    ref_seq = msa[1]  # la première séquence de l'MSA est la référence
+    @show ref_seq
+    @show full_seq
     mapping = Int[]  # positions dans ref_seq ou 0 si gap
 
     i = 1  # index ref_seq
@@ -1741,7 +1776,7 @@ function align_full_seq(full_seq::String, msa::Vector{String})
             push!(mapping, 0)  # gap
         end
     end
-
+    @show mapping
     # Construire nouveau MSA
     new_msa = String[]
 
@@ -1750,27 +1785,32 @@ function align_full_seq(full_seq::String, msa::Vector{String})
 
     # 2️⃣ autres séquences
     for seq in msa[2:end]
+        seq_string=seq
         new_seq = ""
         for pos in mapping
             if pos == 0
                 new_seq *= "-"
             else
-                new_seq *= seq[pos]
+                new_seq *= seq_string[pos]
             end
         end
         push!(new_msa, new_seq)
     end
-
+    @show length(new_msa)
     return new_msa
 end
 
+
+
 #faire pour ajouter n pdb et les concaténer dans foldseek 
-function alphaconformers(input_pdb, pdb_folder, out_folder,n_threads; db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
+function alphaconformers(input_pdb, pdb_folder, out_folder,n_threads; 
+        db::Vector{String}=["/alpha/database/pdb/fullpdb"], 
         evalue_cutoff::Float64=1e-5,cutoff::Float64=1.0, mafft::Bool=false,
         umap::Bool=false,n_neighbors::Int = 15,min_dist::Float64 = 0.3,
-        test_analyse::Bool=false,
-        full_seq::String=nothing
+        test_analyse::Bool=false,keep_query::Bool=true,
+        full_seq::Union{Missing,String} = missing
         )
+    @info "Threads disponibles" n_threads=Threads.nthreads() 
     @info "Running Foldseek"
     query_pdb_code = split(basename(input_pdb),"_")[1]
     query_chain_code = split(split(basename(input_pdb),"_")[2],".")[1]
@@ -1805,11 +1845,19 @@ function alphaconformers(input_pdb, pdb_folder, out_folder,n_threads; db::Vector
     clean_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb,n_threads)
     @show size(clean_table)
     
-    if test_analyse
+    if test_analyse 
+        @info "Remove know structure from query uniprot from targets (keep query itself in targets)"
+        query_found=filter(row -> startswith(row.target, uppercase(query_pdb_code)) && endswith(row.target, uppercase(query_chain_code)), clean_table)
+        @show query_found
         expanded_table=delete_query_from_target(deepcopy(clean_table),sifts_uniprot_mapping,String(query_pdb_code),String(query_chain_code))
         @show size(expanded_table)
+        if keep_query 
+            expanded_table=vcat(query_found,expanded_table)
+            @show size(expanded_table)
+        end
         isempty(expanded_table) && error("No targets remaining after removing query from targets.")
         CSV.write(joinpath(out_folder,"expanded_table_delete.csv"),expanded_table)
+        
     else 
         expanded_table=deepcopy(clean_table)
     end
@@ -1818,49 +1866,45 @@ function alphaconformers(input_pdb, pdb_folder, out_folder,n_threads; db::Vector
     merged_msa = merge_msas(expanded_table)
     MIToS.MSA.write_file(joinpath(out_folder, "all_sequence.a3m"), merged_msa, MIToS.MSA.A3M)
     @show size(merged_msa)
-
+    
+    @info "Aligning MSA on full sequence if provided"
+    ids,seqs=read_a3m(joinpath(out_folder, "all_sequence.a3m"))
     ### Align sequence on AFDB sequences - to not have missing residues 
-    if full_seq !== nothing
-        res_beg,res_end=get_res_beg_end(input_pdb)
+    if full_seq !== missing
+        @show first(sifts_uniprot_mapping,5)
+        row_query=filter!(row -> row.PDB == query_pdb_code && row.CHAIN == query_chain_code, sifts_uniprot_mapping)
+        res_beg=row_query[1,:SP_BEG]
+        res_end=row_query[1,:SP_END]
         @show res_beg,res_end
+        @show full_seq
         same_sull_seq=full_seq[res_beg:res_end]
         @show length(full_seq)
         @show length(same_sull_seq)
-        align_merged_msa=align_full_seq(same_sull_seq,merged_msa)
-        MIToS.MSA.write_file(joinpath(out_folder, "all_sequence_align_uniprot_seq.a3m"), align_merged_msa, MIToS.MSA.A3M)
+        align_seqs=align_full_seq(same_sull_seq,seqs)
+        align_msa_path=joinpath(out_folder, "all_sequence_align_uniprot_seq.a3m")
+        open(align_msa_path, "w") do io
+            for (id, align_seq) in zip(ids, align_seqs)
+                    println(io, ">$id")
+                    println(io, align_seq)
+            end
+        end
+        
     else
-        align_merged_msa=deepcopy(merged_msa)
+        align_msa_path=joinpath(out_folder, "all_sequence.a3m")
     end
-    return
-    if !umap
-        #merged_msa = merge_msas(merged_table)
-        @info "Getting the aligned structures"
-        structures = _get_aligned_structures(expanded_table)
-        @show length(structures)
-
-        
-        #uniprot2targets = get_uniprot2targets(target2uniprot, expanded_table)
-        @show size(expanded_table)
-        
-        @info "Measuring RMSDs"
-        #rmsds = process_known_conformations!(structures, expanded_table, target2uniprot, uniprot2targets, pdb_folder=pdb_folder)
-        #@show size(expanded_table)
-        #fill_rmsds!(rmsds, expanded_table, structures)
-        
-        
-        @info "Clustering structures"
-        clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(expanded_table, align_merged_msa, structures,cutoff)
-        #clusters, cl2msa, cl2pdb = create_template_clusters(expanded_table, merged_msa, structures,cutoff)
-        @info "Create folder"
-        #create_folder_structure(large_small_pairs, large_cl2msa, small_cl2pdb, out_folder=out_folder)
-        
-        create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
-    else 
-
-        @info "Clustering with UMAP"
-        dic_clusters=create_umap_clusters(out_folder,expanded_table;n_neighbors,min_dist)
-        clusters=create_folder_structure_subdivide(dic_clusters,out_folder)
-    end
+    align_merged_msa = MIToS.MSA.read_file(align_msa_path,MIToS.MSA.A3M)
+    
+    
+    @info "Getting the aligned structures"
+    structures = _get_aligned_structures(expanded_table)
+    @show length(structures)
+    
+    @info "Clustering structures"
+    clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(expanded_table, align_merged_msa, structures,cutoff)
+    
+    @info "Create folder"
+    create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder=out_folder)
+    
 
     clean_msa_template_names(clusters,out_folder)
 end

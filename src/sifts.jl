@@ -338,7 +338,7 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
     @assert isfile(target_db)
     #Run foldseek to align all the structure 
     output_vector = Vector{String}()
-    output = run_foldseek(input_pdb, target_db,n_threads; out_folder=out_folder, filtrage=false)
+    output = run_foldseek(input_pdb, n_threads, target_db; out_folder=out_folder, filtrage=false)
     for item in output
         push!(output_vector, item.table_file)  # Ajouter au vecteur
     end
