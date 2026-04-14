@@ -29,3 +29,10 @@ pdb_chain_uniprot.csv.gz
 *.pdb
 
 *.csv
+
+#Script no use 
+src/additional_function.jl
+src/af_input.jl
+src/foldseek_api_curl.jl
+src/pdb_folders.jl
+src/usalign.jl

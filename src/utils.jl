@@ -173,3 +173,21 @@ function patch_mmcif_for_alphafold(infile::AbstractString, outfile::AbstractStri
 
     return outfile
 end
+
+function read_a3m(path)
+    ids = String[]
+    seqs = String[]
+    current_seq = ""
+
+    for line in eachline(path)
+        if startswith(line, '>')
+            push!(ids, strip(line[2:end]))
+            push!(seqs, "")
+        else
+            # A3M: on enlève les minuscules (colonnes insertions)
+            clean = replace(line, r"[a-z]" => "")
+            seqs[end] *= clean
+        end
+    end
+    return ids, seqs
+end

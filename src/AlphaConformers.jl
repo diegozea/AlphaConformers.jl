@@ -4,8 +4,6 @@ import BioAlignments
 import BioStructures
 import MIToS
 import Foldseek_jll
-import MAFFT_jll
-import USalign_jll
 import CSV
 import DataFrames
 import Clustering
@@ -23,7 +21,6 @@ using FilePathsBase
 using TestItems
 using JSON3
 using YAML
-using PyCall
 using DataFrames
 using Statistics
 using LinearAlgebra
@@ -66,16 +63,21 @@ export  foldseek_search, # foldseek.jl
         structural_alignment,
         _read_pdb_chain,
         get_msa_sequence_afdb,
-        run_alphafold_input_structure
+        run_alphafold_input_structure,
+        found_best_prediction,
+        alphaconformers,
+        add_known_conformations!,
+        create_template_clusters_hobohm,
+        create_folder_structure_hobohm,
+        clean_msa_template_names,
+        read_a3m
 
 include("utils.jl")
 include("foldseek.jl")
-include("pdb_folders.jl")
-include("usalign.jl")
 include("clustering.jl")
 include("sifts.jl")
-include("af_input.jl")
 include("run_alphafold.jl")
 include("organize_files.jl")
+include("run_alphaconformers.jl")
 
 end
