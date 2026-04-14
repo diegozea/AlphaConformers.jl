@@ -290,6 +290,7 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
     
     #get all the alternative structure that was not found by foldseek 
     new_targets = known_uniprot_structures(sifts_uniprot_mapping, search_results)
+    println("New targets to add: ", new_targets)
     #Check if alternative structure have been found 
     isempty(new_targets) && return nothing
     
@@ -324,20 +325,25 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
                 MIToS.PDB.write_file(output_cif, structure, MIToS.PDB.MMCIFFile)
                 
             end
-            @assert isdir(tmp_targets_dir)
-            @assert length(readdir(tmp_targets_dir)) > 0
-            @show length(readdir(tmp_targets_dir))
+            if !isdir(tmp_targets_dir) || isempty(readdir(tmp_targets_dir))
+                @warn "No additional structures found for the targets"
+                return nothing
+            end
+            
+            println("Number of target structures: ", length(readdir(tmp_targets_dir)))
             target_db=joinpath(out_folder,"target_db")
+            println("Creating Foldseek database")
             run(`$(Foldseek_jll.foldseek()) createdb $tmp_targets_dir $target_db --threads $n_threads`)
         end
     finally
         cd(cwd)
     end
-    @info "Foldseek database created"
+    println("Foldseek database created")
     target_db=joinpath(out_folder,"target_db")
     @assert isfile(target_db)
     #Run foldseek to align all the structure 
     output_vector = Vector{String}()
+    println("Running Foldseek to align all the structures")
     output = run_foldseek(input_pdb, n_threads, target_db; out_folder=out_folder, filtrage=false)
     for item in output
         push!(output_vector, item.table_file)  # Ajouter au vecteur

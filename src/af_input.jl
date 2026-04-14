@@ -309,20 +309,3 @@ function create_alpha_fold_inputs(path::String, ref_pdb::String,
     (clusters=clusters_folder, pdb=pdb_folder)
 end
 
-function read_a3m(path)
-    ids = String[]
-    seqs = String[]
-    current_seq = ""
-
-    for line in eachline(path)
-        if startswith(line, '>')
-            push!(ids, strip(line[2:end]))
-            push!(seqs, "")
-        else
-            # A3M: on enlève les minuscules (colonnes insertions)
-            clean = replace(line, r"[a-z]" => "")
-            seqs[end] *= clean
-        end
-    end
-    return ids, seqs
-end
