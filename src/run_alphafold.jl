@@ -154,10 +154,14 @@ function parse_line(line::String)
 end
 
 
-function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_PATH::String, CACHE_DIR::String)
+function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_PATH::String, CACHE_DIR::String;msa_path_save::Union{String, Missing} = missing)
     ## Get afdb a3M 
-    msa_path_save=get_msa_sequence_afdb(uniprot,output_path)
-    @show "Saved MSA path: $msa_path_save"
+    if ismissing(msa_path_save)
+        msa_path_save=get_msa_sequence_afdb(uniprot,output_path)
+        @show "Saved MSA path: $msa_path_save"
+    else 
+        cp(msa_path_save,joinpath(output_path,uniprot*"_msa.a3m"))
+    end
     ## Run colabfold with the msa 
     output_dir = joinpath(output_path, "af_input")
     @show "Output directory: $output_dir"
