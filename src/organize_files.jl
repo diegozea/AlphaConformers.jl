@@ -188,11 +188,16 @@ function compare_struct(dic_pred_struct::Dict, query_struct::String,cutoff_min::
     end
     
     for (name, structure) in dic_pred_struct
-        aligned_a, aligned_b, matches, rmsd, coverage, identity=structural_alignment(query_structure, structure)
+        try 
+            aligned_a, aligned_b, matches, rmsd, coverage, identity=structural_alignment(query_structure, structure)
         
-        if (rmsd < cutoff_max) && (rmsd > cutoff_min)
-            
-            cluster_close_query[name]=(rmsd)
+            if (rmsd < cutoff_max) && (rmsd > cutoff_min)
+                
+                cluster_close_query[name]=(rmsd)
+            end
+        catch e
+            @warn "Error comparing $name to query structure: $e"
+            continue
         end
     end
     @show "Number of predictions close to query: ", length(cluster_close_query)
@@ -301,19 +306,15 @@ end
 function found_best_prediction(output_dir::String,query_struct::String,sifts_uniprot_mapping,folder_af2_result)
     dic_pred_struct,dic_pred_ptm=get_all_predictions(output_dir,folder_af2_result)
     
-    cluster_close_query=compare_struct(dic_pred_struct, query_struct,0.0,4.0)
-    if !isempty(cluster_close_query)
-        if length(cluster_close_query) > 10
-            cluster_close_query = Dict(sort(collect(cluster_close_query), by = x -> x[2])[1:10])
-        end
-        keyset = Set(keys(cluster_close_query))
-        dic_pred_ptm_close_query = Dict(
-            k => v for (k, v) in dic_pred_ptm if k in keyset
-        )
-    else 
-        dic_pred_ptm_close_query=Dict()
+    if isempty(dic_pred_struct)
+        @warn "No predictions found in $output_dir for folder $folder_af2_result"
+        return Dict(), Dict()
     end
-    
+ 
+    full_m8file=glob("*.m8",joinpath(output_dir,"fullpdb_mmcif_files_results")) 
+    @show "Reading foldseek all_search results PDB from ", full_m8file[1]
+    all_search_results=read_foldseek_search_results(full_m8file[1])
+    all_alternative_files=known_uniprot_structures(sifts_uniprot_mapping,all_search_results)
     if isdir(joinpath(output_dir,"target_db_results"))
         @show "Comparing to known structures in target_db_results folder"
         m8file=glob("*.m8",joinpath(output_dir,"target_db_results")) 
@@ -323,62 +324,41 @@ function found_best_prediction(output_dir::String,query_struct::String,sifts_uni
             
             alternative_files=known_uniprot_structures(sifts_uniprot_mapping,search_results)
             
-            full_m8file=glob("*.m8",joinpath(output_dir,"fullpdb_mmcif_files_results")) 
-            @show "Reading foldseek all_search results PDB from ", full_m8file[1]
-            all_search_results=read_foldseek_search_results(full_m8file[1])
-            
-            for fname in alternative_files
-                
-                filtered_results=filter(r -> r.target == fname, all_search_results)
-                append!(search_results, filtered_results)
-            end
-            
-            if nrow(search_results) < 2
-                @warn "No alternative structures found in foldseek results. Skipping foldseek comparison."
-                return cluster_close_query, dic_pred_ptm_close_query, Dict(), Dict()
-            end
-            @show "Comparing alternative structures to query structure"
-            @show "Number of alternative structures found: ", nrow(search_results)
-            output= compare_alternative_structures(search_results,sifts_uniprot_mapping,output_dir)
-            if isempty(output)
-                return cluster_close_query, Dict()
-            else 
-                min_rmsd, max_rmsd =output
-            end
-            cluster_close_objectif=compare_struct(dic_pred_struct, query_struct,min_rmsd-0.5,max_rmsd+0.5)
-            #Keep only the one with a good pTM 
-            if length(cluster_close_objectif) > 40
-                cluster_list=[]
-                name_to_keep=[]
-                for name in keys(cluster_close_objectif)
-                    cluster_id = parse(Int, split(name, "_")[2])
-                    if !(cluster_id in cluster_list)
-                        push!(name_to_keep,name)
-                    end
-                end
-
-                cluster_close_objectif_filter = Dict(
-                    k => v for (k, v) in cluster_close_objectif if k in name_to_keep
-                )
-
-                dic_pred_ptm_close_objectif = Dict(
-                    k => v for (k, v) in dic_pred_ptm if k in name_to_keep
-                )
-
-                
-                return cluster_close_query,dic_pred_ptm_close_query, cluster_close_objectif_filter, dic_pred_ptm_close_objectif
-            end
-            keyset =Set(keys(cluster_close_objectif))
-            dic_pred_ptm_close_objectif_all = Dict(
-                k => v for (k, v) in dic_pred_ptm if k in keyset
-            )
-
-            dic_pred_ptm_close_objectif = sort(collect(dic_pred_ptm_close_objectif_all), by = x -> x[2], rev = true)
-            return cluster_close_query, dic_pred_ptm_close_query, cluster_close_objectif,dic_pred_ptm_close_objectif_all
-        else
-            @warn "No .m8 file found in target_db_results. Skipping foldseek results."
+            all_alternative_files=union(all_alternative_files, alternative_files)
         end
-        
     end
-    return cluster_close_query, dic_pred_ptm_close_query, Dict(), Dict()
+    if isempty(all_alternative_files)
+        @warn "No alternative structures found in foldseek results. Skipping foldseek comparison."
+        return Dict(), Dict()
+    end        
+    for fname in alternative_files
+        
+        filtered_results=filter(r -> r.target == fname, all_search_results)
+        append!(search_results, filtered_results)
+    end
+            
+    if nrow(search_results) < 2
+        @warn "No alternative structures found in foldseek results. Skipping foldseek comparison."
+        return Dict(), Dict()
+    end
+    @show "Comparing alternative structures to query structure"
+    @show "Number of alternative structures found: ", nrow(search_results)
+    output= compare_alternative_structures(search_results,sifts_uniprot_mapping,output_dir)
+    if isempty(output)
+        return Dict(), Dict()
+    else 
+        min_rmsd, max_rmsd =output
+    end
+    cluster_close_objectif=compare_struct(dic_pred_struct, query_struct,0.0,(max_rmsd+1))
+    if isempty(cluster_close_objectif)
+        @warn "No predictions close to query within $(max_rmsd+1). Returning empty results."
+        return Dict(), Dict()
+    end
+    keyset =Set(keys(cluster_close_objectif))
+    dic_pred_ptm_close_objectif_all = Dict(
+        k => v for (k, v) in dic_pred_ptm if k in keyset
+    )
+
+    return cluster_close_objectif,dic_pred_ptm_close_objectif_all
+        
 end

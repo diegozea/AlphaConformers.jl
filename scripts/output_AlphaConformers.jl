@@ -7,8 +7,9 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --output=output_AlphaConformers.jl.o%j.out
 =#
+
 import Pkg
-Pkg.activate("/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/scripts/update")
+Pkg.activate("/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_321")
 
 
 # Analyse output of AlphaConformer
@@ -22,6 +23,7 @@ using Glob
 using Clustering: randindex
 using Glob
 using Statistics
+using ArgParse
 
 ################################################# FUNCTIONS #############################################
 
@@ -81,21 +83,45 @@ function find_model(folder_model::String)
 end
 
 """
-Compare the model predicted to the apo and holo shape 
-Use find_model and compare_model function 
-Create a CSV and a scatter plot that is save in the output folder of ALphaConformer
+    analyse_output(query, folder_path, folder_model, objectif)
+
+Compare the models predicted by AlphaFold to the apo and holo conformations,
+then save a CSV and a scatter plot in the AlphaConformers output folder.
+
+Uses `find_model` to locate all predicted PDB models and `compare_model` to
+compute RMSD against both the apo and holo reference structures.
+
+# Arguments
+- `query::String`        : Name of the PDB entry being analysed (e.g. `"6akl"`).
+- `folder_path::String`  : Path to the folder containing the apo and holo reference files.
+- `folder_model::String` : Path to the AlphaConformers output folder.
+- `objectif::String`     : Basename used to locate `<objectif>_apo.pdb` and `<objectif>_holo.pdb`.
+
+# Outputs
+- A CSV file : `<folder_model>/rmsd_results_<query>.csv`
+- A PNG plot : `<folder_model>/rmsd_scatter_<query>.png`
+
+# Notes
+- TODO: color scatter points by pLDDT confidence score.
+- To compare two AlphaConformers runs (number of clusters, MSA lines, templates),
+  call this function on each folder separately and compare the resulting CSVs.
+
+# Example
+```julia
+analyse_output(
+    "6akl",
+    "/path/to/data/",
+    "/path/to/data/6akl_AlphaConformer",
+    "6akp"
+)
+```
 """
 #Created the visualization plot
-function analyse_output(query::String,folder_path::String,folder_model::String,df_info)
+function analyse_output(query::String,folder_path::String,folder_model::String,objectif::String)
     #Get the dev set file
-    
-    filtered_rows = filter(row -> occursin(query, row.PDB_apo), df_info)
-    row = first(filtered_rows, 1)  # Take the first row
 
-    #Extract the apo and holo shape
-    apo_pdb = string(row.PDB_apo[1], "_", row.CHAIN_apo[1],"_", row.INDEX_apo[1], ".pdb.gz")
-    holo_pdb = string(row.PDB_holo[1], "_", row.CHAIN_holo[1],"_", row.INDEX_holo[1], ".pdb.gz")
-
+    holo_pdb = objectif*"_holo.pdb"
+    apo_pdb = objectif*"_apo.pdb"
     #Found all the model predicted by AlphaFold
     model_files=find_model(folder_model::String) 
 
@@ -114,36 +140,44 @@ function analyse_output(query::String,folder_path::String,folder_model::String,d
     savefig(folder_model*"/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
 end
 
+#Get input parameter from command line
+function parse_commandline()
+    s = ArgParseSettings(description = "Analyse AlphaConformers output: compare predicted models to apo and holo structures.")
+
+    @add_arg_table! s begin
+        "--query", "-q"
+            help = "Name of the PDB entry to analyse (e.g. 6akl)"
+            arg_type = String
+            required = true
+        "--objectif", "-o"
+            help = "Basename for apo/holo reference files (e.g. 6akp)"
+            arg_type = String
+            required = true
+        "--folder_path", "-p"
+            help = "Path to the folder containing apo and holo PDB files"
+            arg_type = String
+            required = true
+        "--folder_model", "-m"
+            help = "Path to the AlphaConformers output folder (default: <folder_path>/<query>_AlphaConformer)"
+            arg_type = String
+            default = nothing
+    end
+
+    return parse_args(s)
+end
 
 ################################################ MAIN ################################################
-"""
-Analyse the output of AlphaConformers 
-Can be use to create he vsualization ad the csv to compre model predicted to apo and holo shape 
-Or can be use to compare the clustering created by AlphaConformer for two different folder
+#Run script with command line arguments, e.g.:
+#julia output_AlphaConformers.jl --query 6akl --objectif 6akp --folder_path /stockage/.../data/
+args = parse_commandline()
 
-Input : 
-- folder_path: Path to the folder where apo and holo file are save 
-- folder_model : Folder output path from ALphaConformers
-- file ou query : name of the pdb to analyse 
-Output : 
-Plot and CSV save in the ALphaConformers folder 
-and/or
-Number of cluster, ligne in MSA, template, and clustering for 2 AlphaConformer result 
+query        = args["query"]
+objectif     = args["objectif"]
+folder_path  = args["folder_path"]
+folder_model = something(args["folder_model"], folder_path * query * "_AlphaConformer")
 
-Analyse all our result with analyse_output function 
-Need to change the plot to color by pLLDT 
-"""
-########################## Information to fill #################################
-#Path to the folder where apo and holo file are save 
-folder_path ="/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"
-folder_model = "/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/AlphaConformers.jl/data/"*query*"_AlphaConformer"
-#OR file name 
-query="6akl"
-################################################################################
+analyse_output(query, folder_path, folder_model, objectif)
 
-#For one run 
-#Get the comparaison between every model and apo and hlo shape 
-analyse_output(query,folder_path,folder_model)
 
 ########################################### END ##############################################################
 
