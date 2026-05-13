@@ -129,7 +129,7 @@ function align_full_seq(full_seq, msa)
 end
 
 """
-This module contains the main function to run the whole pipeline of AlphaConformers, from running foldseek to creating the folders for AlphaFold2 input.
+This function run the whole pipeline of AlphaConformers, from running foldseek to creating the folders for AlphaFold2 input.
 Input : 
 - input_pdb: the path to the query pdb file, the name of the file must be in the format "PDBCODE_CHAIN.pdb", for example "1EX6_B.pdb"
 - pdb_folder: the path to the folder containing all the pdb files, this is used to create the foldseek database for the targets
@@ -143,7 +143,6 @@ Input :
 - full_seq: the full sequence of the query, this is used to align the MSA on the full sequence to not have missing residues, default is missing, if provided, the function will align the MSA on the full sequence and write the aligned MSA to the output folder
 Output: 
 - the function will create a folder for each cluster of templates, each folder will contain the aligned MSA and the pdb files of the templates in the cluster, the names of the templates in the MSA and the pdb files will be cleaned to be compatible with AlphaFold2 input
-
 """
 #Main function to run the whole pipeline of AlphaConformers
 function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::String;

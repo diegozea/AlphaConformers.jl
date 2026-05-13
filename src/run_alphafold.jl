@@ -161,6 +161,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
         @show "Saved MSA path: $msa_path_save"
     else 
         cp(msa_path_save,joinpath(output_path,uniprot*"_msa.a3m"))
+        msa_path_save=joinpath(output_path,uniprot*"_msa.a3m")
     end
     ## Run colabfold with the msa 
     output_dir = joinpath(output_path, "af_input")

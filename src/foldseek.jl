@@ -90,10 +90,10 @@ function run_foldseek(pdb_file::AbstractString,
     # if there is only one database, continue
     isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
     db_name = basename(db_path)
-    @show db_name
+    
     # IO paths
     out_folder_db = joinpath(out_folder, "$(db_name)_results")
-    @show out_folder_db
+    
     _create_empty_folder(out_folder_db)
     pdb_name = first(splitext(basename(pdb_file))) # filename without extension
     table_file = joinpath(out_folder_db, "$(pdb_name)_results.m8")
@@ -313,8 +313,6 @@ function merge_msas(table)
                  selected[index] = false
             elseif name in duplicated_msa_targets
                 key = _seq_name_to_key(seqname)  # ("1QGP.pdb_A", 56, 0.203)
-                
-
                 if key in starts
                     # Vérifie si une entrée du même nom existe déjà dans la liste `names`
                     found=nothing
@@ -325,38 +323,30 @@ function merge_msas(table)
                             found = kv
                         end
                     end
-
                     #found = findfirst(kv -> kv[1][1] == key[1], names)
                     if found !== nothing
                         existing_key = found[1]
                         existing_index = found[2]
-                        
                         # Comparaison sur la valeur du score (3e élément)
                         if key[3] < existing_key[3]
-                            
                             # Trouver la position de l'entrée à désélectionner
                             selected[existing_index] = false
                             selected[index] = true
                             names[key] = index
                             delete!(names, existing_key)  # key est la clé, pas la valeur
-
                         else
                             selected[index] = false
-                            
                         end
                     else
                         # Première fois qu'on voit ce nom
                         names[key] = index
                         selected[index] = true
-                        
                     end
                 else
                     selected[index] = false
-                    
                 end
             else
                 selected[index] = name in targets
-
             end
         end  
         msas[i] = msa[selected, :]
@@ -384,10 +374,8 @@ function merge_msas(table)
     
     if length(cleaned_names) != length(unique(cleaned_names))
         @info "Duplicate names found in the MSA. Removing duplicates by keeping the one with the best score."
-
         seen = Set{String}()
         selected = trues(length(cleaned_names))
-
         for (i, name) in enumerate(cleaned_names)
             if name in seen
                 selected[i] = false   # on supprime le doublon
@@ -395,20 +383,17 @@ function merge_msas(table)
                 push!(seen, name)
             end
         end
-
         # Filtrer le MSA
         msa_a = msa_a[selected, :]
-
         # Mettre à jour les noms nettoyés
         cleaned_names = cleaned_names[selected]
     end
-  
     @assert size(msa_a, 1) == length(cleaned_names)
-
     # Renommer les séquences avec les nouveaux noms uniques
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
-
     end
+
+    
 
 
 

@@ -16,10 +16,12 @@ function coverage_and_identity(aln)
     (matched_a / total_a, identities / matched_a)
 end
 
-function structural_alignment(conformation_a, conformation_b,
+function structural_alignment(conformation_a, conformation_b;
     aln_type=BioAlignments.OverlapAlignment(),
     aln_model=BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, gap_open=-2,
-        gap_extend=-1))
+        gap_extend=-1),
+    limit_residues_range::Union{UnitRange{Int}, Tuple{Int,Int}, Nothing}=nothing)
+    
     # only keep residues with 'CA' atom
     clean_a = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_a)
     clean_b = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_b)
@@ -31,7 +33,7 @@ function structural_alignment(conformation_a, conformation_b,
     end
     
     try
-       # get the sequences
+        # get the sequences
         seqs_a = MIToS.PDB.modelled_sequences(clean_a)
         seqs_b = MIToS.PDB.modelled_sequences(clean_b)
 
@@ -42,12 +44,36 @@ function structural_alignment(conformation_a, conformation_b,
 
         seq_a = first(values(seqs_a))
         seq_b = first(values(seqs_b))
+
         # align the sequences
         aln = BioAlignments.alignment(BioAlignments.pairalign(aln_type, seq_a, seq_b, aln_model))
         # get the stats
         coverage, identity = coverage_and_identity(aln)
         # get the aligned residues
         matches = get_aligned_positions(aln)
+
+        # filter matches to the requested residue range (positions in conformation_a)
+        if limit_residues_range !== nothing
+            start_res, stop_res = if limit_residues_range isa UnitRange{Int}
+                first(limit_residues_range), last(limit_residues_range)
+            else
+                limit_residues_range  # Tuple{Int,Int}
+                
+            end
+
+            if start_res < 1 || stop_res > len_a || start_res > stop_res
+                @warn "Invalid residue range ($start_res, $stop_res) for structure of length $len_a — ignoring range filter"
+            else
+                # matches is a vector of (index_in_a, index_in_b) pairs
+                matches = filter(m -> first(m) >= start_res && first(m) <= stop_res, matches)
+                
+                if isempty(matches)
+                    @warn "No aligned residues found in range ($start_res, $stop_res)"
+                    return nothing
+                end
+            end
+        end
+
         # structural superposition of the aligned residues
         aligned_a, aligned_b, rmsd = MIToS.PDB.superimpose(clean_a, clean_b, matches)
         return (aligned_a, aligned_b, matches, rmsd, coverage, identity)
@@ -58,8 +84,8 @@ function structural_alignment(conformation_a, conformation_b,
 end
 
 function within_cluster(item1,item2,threshold)
-    _,_,_,rmsd_holo,coverage,_=AlphaConformers.structural_alignment(item1, item2)
-    return rmsd_holo <= threshold
+    _,_,_,rmsd,coverage,_=AlphaConformers.structural_alignment(item1, item2)
+    return rmsd <= threshold
 end
 
 function get_target2sequence(expanded_table, msa)
@@ -190,7 +216,12 @@ function get_cluster2msa(msa, cluster2seqnames)
     end
     cluster2msa
 end
-
+"""
+We can only have 4 templates for each cluster to run AlphaFold with ColabFold
+To select those templates we divide the cluster in 4 equal part and select one template for each part to have a good representation of the cluster
+If less than 8 templates are available we take the four first one, if less than 4 we take all the templates
+"""
+#Select 4 template for each clusters
 function get_cluster2structures(structures, cluster2targets)
     # dictionnaire final
     cluster2structures = OrderedCollections.OrderedDict{Int, Dict{String, Vector{MIToS.PDB.PDBResidue}}}()

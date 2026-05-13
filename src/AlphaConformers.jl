@@ -39,6 +39,7 @@ export  foldseek_search, # foldseek.jl
         structural_clustering, # clustering.jl
         get_clustered_pdbs,
         get_uniprot_mapping, # sifts.jl
+        get_pfam_mapping,
         get_uniprot_acc,
         get_pdb_codes,
         delete_query_from_target!,
@@ -70,7 +71,8 @@ export  foldseek_search, # foldseek.jl
         create_template_clusters_hobohm,
         create_folder_structure_hobohm,
         clean_msa_template_names,
-        read_a3m
+        read_a3m,
+        run_cmd
 
 include("utils.jl")
 include("foldseek.jl")
