@@ -178,7 +178,7 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
         error("Le nom du fichier PDB doit être au format 'PDBCODE_CHAIN.pdb', par exemple '1EX6_B.pdb'")
     end
     query_pdb_code = parts[1]
-    query_chain_code = split(parts[2],".")[1]
+    query_chain_code=String(first(splitext(parts[2])))
     println("Query PDB code: $query_pdb_code, Query chain code: $query_chain_code")
 
     println("Running Foldseek")

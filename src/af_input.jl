@@ -1,11 +1,19 @@
 # These functions create the folder structure defining AlphaFold 2 inputs, including the 
 # the MSA, and the templates.
+"""
+    _read_pdb_chain(file) -> residues or nothing
 
-function _read_pdb_chain(file::String, chain_code) # MIToS.PDB.All
+Read all heavy atoms from a PDB or mmCIF file.
+Input : 
+- `file` : path to a `.pdb`, `.cif`, or `.mmcif` file.
+Output : 
+A residue array (MIToS), or `nothing` if the file cannot be read.
+"""
+function _read_pdb_chain(file::String) # MIToS.PDB.All
     # assume that the chain_code is All if it is not a string
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    extension=split(basename(file),'.')
-    if extension[end]=="cif" || extension[end]=="mmcif"
+    extension=lowercase(last(splitext(basename(file))))
+    if extension ==".cif" || extension ==".mmcif"
         # Read the chain specified by chain_code from the mmcif file
         try 
             file=read_file(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
@@ -24,9 +32,19 @@ function _read_pdb_chain(file::String, chain_code) # MIToS.PDB.All
     return file
 end
 
+"""
+    _read_pdb_chain(file, chain_code) -> residues or nothing
+
+Read a specific chain from a PDB or mmCIF file.
+Input : 
+- `file`       : path to a `.pdb`, `.cif`, or `.mmcif` file.
+- `chain_code` : chain identifier to extract (e.g. `"A"`).
+Output 
+A residue array for the requested chain, or `nothing` on error.
+"""
 function _read_pdb_chain(file::String, chain_code::String)
-    extension=split(basename(file),'.')
-    if extension[end]=="cif" || extension[end]=="mmcif"
+    extension=lowercase(last(splitext(basename(file))))
+    if extension ==".cif" || extension ==".mmcif"
         try
             # read the whole file
             res = read_file(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
@@ -88,6 +106,7 @@ function get_residues_and_sequence(pdb_file;
     res = _read_pdb_chain(pdb_file, chain)
     if res !== nothing
         actual_chain = first(res).id.chain # chain can be lowercase
+        #Select all the informations inside the pdb 
         query_res = MIToS.PDB.residues(res, model, actual_chain)
         if !isempty(query_res)
             sequences = MIToS.PDB.modelled_sequences(query_res)

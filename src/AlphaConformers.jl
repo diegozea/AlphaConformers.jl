@@ -36,8 +36,6 @@ export  foldseek_search, # foldseek.jl
         get_aligned_positions,
         create_pdb_folder, # pdb_folders.jl
         usalign, # usalign.jl
-        structural_clustering, # clustering.jl
-        get_clustered_pdbs,
         get_uniprot_mapping, # sifts.jl
         get_pfam_mapping,
         get_uniprot_acc,
@@ -50,17 +48,14 @@ export  foldseek_search, # foldseek.jl
         clean_msa,
         create_pdb_lists,
         create_msa_and_templates,
-        create_alpha_fold_inputs,
         run_alphafold, # run_alphafold.jl
         organize_files,
         run_alphafold3,
         organize_files_af3,
         run_boltz2,
         organize_files_boltz,
-        patch_mmcif_for_alphafolds,
         read_a3m,
         clean_msa_template_names,
-        get_residues_and_sequence,
         structural_alignment,
         _read_pdb_chain,
         get_msa_sequence_afdb,
@@ -70,9 +65,8 @@ export  foldseek_search, # foldseek.jl
         add_known_conformations!,
         create_template_clusters_hobohm,
         create_folder_structure_hobohm,
-        clean_msa_template_names,
-        read_a3m,
-        run_cmd
+        run_cmd,
+        run_alphafold_one_run
 
 include("utils.jl")
 include("foldseek.jl")
