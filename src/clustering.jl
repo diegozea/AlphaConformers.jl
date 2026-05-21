@@ -1,3 +1,19 @@
+"""
+    coverage_and_identity(aln) -> (coverage, identity)
+
+Compute the coverage and sequence identity of an pairwise alignment,
+from the perspective of sequence `a` (the query).  Gaps in `a` are ignored entirely, because we want to measure 
+how much of the *query* is covered by the subject `b`, not the reverse.
+Input : 
+- `aln`: an iterable of `(res_a, res_b)` residue pairs representing a pairwise alignment.
+Output : 
+A tuple `(coverage, identity)` where:
+- `coverage`  : fraction of query residues (non-gap in `a`) that are matched to a non-gap residue in `b`.
+- `identity`  : fraction of **matched positions** that are identical.
+Interpret result 
+- Low coverage + high identity → `b` aligns well but only on a small region of `a`.
+- High coverage + low identity → `b` spans most of `a` but with many mismatches.
+"""
 function coverage_and_identity(aln)
     total_a = 0
     matched_a = 0
@@ -15,7 +31,23 @@ function coverage_and_identity(aln)
     end
     (matched_a / total_a, identities / matched_a)
 end
+"""
+    structural_alignment(conformation_a, conformation_b; aln_type, aln_model, limit_residues_range)
+    -> (aligned_a, aligned_b, matches, rmsd, coverage, identity) or nothing
 
+Align two protein structures by sequence, then superimpose the matched residues.
+Input : 
+- `conformation_a` : query structure (vector of residues, e.g. from MIToS.PDB).
+- `conformation_b` : target structure to align onto `a`.
+Output : 
+A named tuple `(aligned_a, aligned_b, matches, rmsd, coverage, identity)` where:
+- `aligned_a`, `aligned_b` : superimposed residue arrays.
+- `matches`                : vector of `(index_in_a, index_in_b)` aligned residue pairs.
+- `rmsd`                   : RMSD after superposition (Å).
+- `coverage`, `identity`   : as defined in `coverage_and_identity` (query-relative).
+Returns `nothing` if either structure has no Cα atoms, sequences cannot be extracted,
+no residues fall within `limit_residues_range`, or an unexpected error occurs.
+"""
 function structural_alignment(conformation_a, conformation_b;
     aln_type=BioAlignments.OverlapAlignment(),
     aln_model=BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, gap_open=-2,
@@ -264,7 +296,22 @@ function get_cluster2structures(structures, cluster2targets)
     cluster2structures
 end
 
+"""
+    create_template_clusters_hobohm(expanded_table, msa, structures, cutoff)
+    -> (nb_cluster, cl2msa, cl2pdb)
 
+Cluster structural templates using the Hobohm I algorithm and build per-cluster
+MSAs and structure dictionaries.
+Input : 
+- `expanded_table` : DataFrame of Foldseek hits with at least a `target` column.
+- `msa`            : full MSA from which per-cluster sub-MSAs will be extracted.
+- `structures`     : ordered dict mapping target names to their residue arrays.
+- `cutoff`         : similarity cutoff for Hobohm I clustering.
+Output : 
+- `nb_cluster` : total number of clusters found.
+- `cl2msa`     : dict mapping cluster index → sub-MSA (query + cluster members).
+- `cl2pdb`     : dict mapping cluster index → dict of target name → residue array.
+"""
 function create_template_clusters_hobohm(
     expanded_table::DataFrames.DataFrame,
     msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
@@ -299,6 +346,26 @@ function create_template_clusters_hobohm(
     (nb_cluster, cl2msa, cl2pdb)
 end
 
+"""
+    create_folder_structure_hobohm(clusters, cl2msa, cl2pdb; out_folder)
+    -> out_folder
+
+Write per-cluster MSA and template files to disk, downloading full structure files
+from RCSB or AlphaFold DB when available.
+Input : 
+- `clusters` : total number of clusters (iterates from 1 to `clusters`).
+- `cl2msa`   : dict mapping cluster index → MSA (output of `create_template_clusters_hobohm`).
+- `cl2pdb`   : dict mapping cluster index → dict of target name → residue array.
+- `out_folder` : output directory (default: a temporary folder).
+Output : 
+out_folder/
+├── calpha_template.csv     ← list of templates written from Cα-only coordinates
+│                             (i.e. for which the full file download failed)
+└── cluster_N/
+    ├── sequences.a3m
+    └── templates_complete/
+        └── <template>.cif or .pdb
+"""
 function create_folder_structure_hobohm(clusters,
     cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
     cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
@@ -317,11 +384,11 @@ function create_folder_structure_hobohm(clusters,
         cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
         for (target, structure) in cl2pdb[clust]
             #Get the right extension 
-            base_name = split(target, ".")[1]
+            base_name=first(splitext(basename(target)))
             if startswith(basename(base_name),"AF") 
                 name_cif_file=basename(base_name)*".pdb"
                 try 
-                    MIToS.Utils.download_file("https://alphafold.ebi.ac.uk/files/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+                    MIToS.PDB.download_alphafold_structure(name_cif_file, joinpath(cluster_template_folder, name_cif_file))
                 catch e
                     @warn "Problem to download for AFDB the complete template file: "*base_name
                     out_cif = joinpath(cluster_template_folder, name_cif_file)
@@ -332,9 +399,8 @@ function create_folder_structure_hobohm(clusters,
                 end
                 
             else 
-                pdbcode = split(basename(base_name), '.')[1]
+                pdbcode=first(splitext(basename(base_name)))
                 pdbcode = split(basename(pdbcode), '_')[1]
-                chain_id = lowercase(split(basename(base_name), '_')[end])
                 name_cif_file=pdbcode*".cif"
                 try 
                     MIToS.Utils.download_file("https://files.rcsb.org/download/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
@@ -368,48 +434,25 @@ function write_new_msa(new_msa_path,query_id,query_seq,cluster_ids,cluster_seqs)
 end
 
 
-function get_new_template(cluster_ids)
-    # on choisit les sous-targets
-    templates = String[]
-    n = length(cluster_ids)
-
-    if n == 0
-        @warn "Cluster $cluster has no available targets left after filtering"
-        return nothing
-    elseif n < 8
-        templates = cluster_ids[1:min(4, n)]
-    else
-        step = max(1, div(n, 4))
-        for i in 1:4
-            idx = i * step
-            if idx <= n
-                push!(templates, cluster_ids[idx])
-            end
-        end
-    end
-
-    return templates
-end
 
 
 function download_template(cluster_folder,templates)
     cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
     for target in templates
         #Get the right extension 
-        base_name = split(target, ".")[1]
+        base_name = first(splitext(basename(target)))
         if startswith(basename(base_name),"AF") 
             new_name= replace(basename(base_name), "MODEL_V6" => "model_v6")
             name_cif_file=basename(new_name)*".pdb"
             try 
-                MIToS.Utils.download_file("https://alphafold.ebi.ac.uk/files/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+                MIToS.PDB.download_alphafold_structure(name_cif_file, joinpath(cluster_template_folder, name_cif_file))
             catch e
                 @warn "Problem to download for AFDB the complete template file: "*name_cif_file
                 continue
             end
         else 
-            pdbcode = split(basename(base_name), '.')[1]
+            pdbcode= first(splitext(basename(base_name)))
             pdbcode = split(basename(pdbcode), '_')[1]
-            chain_id = lowercase(split(basename(base_name), '_')[end])
             @show pdbcode
             name_cif_file=pdbcode*".cif"
             try 
@@ -425,43 +468,25 @@ function download_template(cluster_folder,templates)
     
 end
 
-function get_files_cluster(new_cluster,query_id,query_seq,cluster_ids,cluster_seqs)
-    new_msa_path=joinpath(new_cluster,"sequences.a3m")
-    write_new_msa(new_msa_path,query_id,query_seq,cluster_ids,cluster_seqs)
-
-    #Create template folder
-    template_names=get_new_template(cluster_ids)
-    download_template(new_cluster,template_names)
-end
-
-function create_folder_structure(large_small_pairs::Vector{Tuple{Int,Int}},
-    large_cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
-    small_cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
-    out_folder::String=mktempdir())
-    for (large, small) in large_small_pairs
-        # MSA
-        cluster_folder = mkdir(joinpath(out_folder, "cluster_$(large)_$(small)"))
-        msa_file = joinpath(cluster_folder, "sequences.a3m")
-        MIToS.MSA.write_file(msa_file, large_cl2msa[large], MIToS.MSA.FASTA)
-        # Structures
-        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates"))
-        for (target, structure) in small_cl2pdb[small]
-            #Get the right extension 
-            base_name = replace(target, ".pdb" => "")
-            if startswith(base_name, "AF")
-                upper_file = joinpath(cluster_template_folder, uppercase(base_name) * ".pdb")
-                MIToS.PDB.write_file(upper_file, structure, MIToS.PDB.PDBFile)
-            else 
-                # lowercase and uppercase file 
-                lower_file = joinpath(cluster_template_folder, lowercase(base_name) * ".pdb")
-                MIToS.PDB.write_file(lower_file, structure, MIToS.PDB.PDBFile)
-            end
-        end
-    end
-    out_folder
-end
-
 #Clean the file name in the MSA and prep the template file for AlphaFold (.cif + good name)
+"""
+    clean_msa_template_names(clusters, out_folder; cluster_name)
+
+Normalize sequence and template names across MSA and template files for all clusters,
+ensuring compatibility with downstream structure prediction tools (AlphaFold3, Boltz2).
+Input : 
+- `clusters`   : number of clusters to process (iterates from 1 to `clusters`).
+- `out_folder` : path to the folder containing `cluster_1/`, `cluster_2/`, ... subfolders.
+- `cluster_name` : name of the output subfolder for cleaned templates
+                   (default: `"templates_adaptative"`). Skipped if it already exists.
+Output : 
+For each cluster:
+1. Reads `sequences.a3m` and normalizes sequence names
+2. Copies templates from `templates_complete/` to `<cluster_name>/` with cleaned filenames,
+   and updates the corresponding MSA sequence names to match.
+3. Overwrites `sequences.a3m` with the cleaned names.
+4. Writes a `corresponding_name_template.csv` mapping original to cleaned names.
+"""
 function clean_msa_template_names(clusters,out_folder;cluster_name::String="templates_adaptative")
 
     for clust in 1:clusters
@@ -485,7 +510,7 @@ function clean_msa_template_names(clusters,out_folder;cluster_name::String="temp
             elseif startswith(basename(name), "AF")
                 push!(clean_ids, uppercase(name))
             else
-                pdb_id = split(basename(name), ".")[1]
+                pdb_id=first(splitext(basename(name)))
                 chain_id = split(basename(name), "_")
                 if length(chain_id) > 1
                     chain_id = chain_id[end]
@@ -514,7 +539,7 @@ function clean_msa_template_names(clusters,out_folder;cluster_name::String="temp
                 clean_template_name = "t00$(i)_a"
                 file_name="t00$(i).pdb"
                 push!(corresponding_name,(basename(template),clean_template_name,file_name))
-                name=split(basename(template), ".")[1]
+                name=first(splitext(basename(template)))
                 for i in 1:length(clean_ids)
                     if clean_ids[i]== uppercase(name)
                         clean_ids[i] = clean_template_name

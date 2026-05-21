@@ -71,6 +71,24 @@ function read_foldseek_search_results(file::AbstractString; colonnes::Vector{Str
     
 end
 
+"""
+    run_foldseek(pdb_file, n_threads, db_path; out_folder, filtrage, format_output)
+
+Run a Foldseek structural search for a query PDB file against one databases.
+Input
+- `pdb_file`   : path to the query PDB file.
+- `n_threads`  : number of threads to use.
+- `db_path`    : path to the Foldseek database file
+Output
+For each database, results are written to `out_folder/<db_name>_results/` and contain:
+- `<pdb_name>_results.m8`  : hit table.
+- `msa.a3m`                : multiple structure alignment in A3M format (lowercase insertion
+                             columns are stripped).
+- `aligned_structures/`    : aligned structures in PDB format.
+
+Returns a vector of named tuples `(; table_file, msa_file, aligned_structures_folder)`,
+one per database.
+"""
 function run_foldseek(pdb_file::AbstractString,
     n_threads::Int,
     db_path::String=get(ENV, "FOLDSEEK_DB_PATH", "");
@@ -159,6 +177,19 @@ function run_foldseek(pdb_file::AbstractString,
     [(; table_file, msa_file, aligned_structures_folder)]
 end
 
+"""
+    run_foldseek(pdb_file, n_threads, db_path; out_folder, filtrage, format_output)
+
+Run a Foldseek structural search for a query PDB file against several databases.
+Input : 
+- `pdb_file`   : path to the query PDB file.
+- `n_threads`  : number of threads to use.
+- `db_path`    : path to multiple Foldseek database file separated by , ["path1","path2"]
+Run each database separatly with previous function 
+Output :
+Returns a vector of named tuples `(; table_file, msa_file, aligned_structures_folder)`,
+one per database.
+"""
 function run_foldseek(pdb_file::AbstractString,n_threads::Int,db_path::Vector{String};
     out_folder::String=dirname(abspath(pdb_file)))
     map(db_path) do db
@@ -167,7 +198,17 @@ function run_foldseek(pdb_file::AbstractString,n_threads::Int,db_path::Vector{St
 end
 
 
+"""
+    merge_tables(table_files) -> DataFrame
 
+Merge Foldseek result tables from multiple databases into a single deduplicated DataFrame.
+Input
+- `table_files` : vector of paths to `.m8` result files (one per database).
+Output
+A single `DataFrame` with an added `file` column (absolute path of the source file),
+deduplicated on `(query, target, qstart, qend, tstart, tend)` to remove hits
+appearing in several databases.
+"""
 function merge_tables(table_files::Vector{String})
     tables = map(table_files) do file
         table = read_foldseek_search_results(file)
@@ -268,6 +309,21 @@ function _find_duplicates(lst)
     return duplicates
 end
 
+"""
+    merge_msas(table) -> MSA
+
+Merge and filter Foldseek MSA results from multiple databases into a single MSA.
+Input : 
+- `table` : either a `DataFrame` (output of `merge_tables`) containing hit metadata,
+            or a vector of folder paths containing `msa.a3m` files.
+Output : 
+A single MSA object 
+Notes :
+- The first row of each MSA is assumed to be the query sequence and is always kept.
+- When merging MSAs from multiple databases, columns are matched via the shared
+  query sequence to ensure positional consistency.
+- Sequences with `Unnamed` identifiers (malformed Foldseek output) are discarded.
+"""
 function merge_msas(table)
     if table isa DataFrames.DataFrame
         println("table ",size(table))
@@ -391,7 +447,7 @@ function merge_msas(table)
     @assert size(msa_a, 1) == length(cleaned_names)
     # Renommer les séquences avec les nouveaux noms uniques
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
-    end
+end
 
     
 

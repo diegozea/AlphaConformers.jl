@@ -174,20 +174,19 @@ function patch_mmcif_for_alphafold(infile::AbstractString, outfile::AbstractStri
     return outfile
 end
 
-function read_a3m(path)
-    ids = String[]
-    seqs = String[]
-    current_seq = ""
+"""
+    read_a3m(path) -> (ids, seqs)
 
-    for line in eachline(path)
-        if startswith(line, '>')
-            push!(ids, strip(line[2:end]))
-            push!(seqs, "")
-        else
-            # A3M: on enlève les minuscules (colonnes insertions)
-            clean = replace(line, r"[a-z]" => "")
-            seqs[end] *= clean
-        end
-    end
+Parse an A3M-formatted multiple sequence alignment file.
+Input : 
+- `path` : path to the `.a3m` file.
+Output : 
+- `ids`  : vector of sequence identifiers (header lines without the leading `>`).
+- `seqs` : vector of sequences, with lowercase insertion columns removed.
+"""
+function read_a3m(path)
+    msa = MIToS.MSA.read_file(path, MIToS.MSA.A3M)
+    ids = MIToS.MSA.sequencenames(msa)
+    seqs = [join(msa[i, :]) for i in 1:size(msa, 1)]
     return ids, seqs
 end

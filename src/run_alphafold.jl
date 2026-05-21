@@ -1,46 +1,14 @@
-"""
-    run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
 
-This function runs AlphaFold 2 (colabfold_batch) for each cluster in the 
-`clusters_folder`. The `colabfold_path` argument is the path to the colabfold_batch program.
-Alternatively, you can set the COLABFOLD_PATH environment variable.
-"""
-function run_alphafold(clusters_folder::String; colabfold_path::String=get(ENV, "COLABFOLD_PATH", ""))
-    if isempty(colabfold_path)
-        throw(ErrorException("The path to ColabFold is not defined, please set the COLABFOLD_PATH environment variable or the colabfold_path keyword argument."))
-    end
-    cluster_folders = filter!(
-        dir -> occursin("cluster_", dir), 
-        readdir(clusters_folder, join=true))
-    if isempty(cluster_folders)
-        throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
-    end
-    # remember the current working directory
-    try
-        # run AlphaFold for each cluster
-        for folder in cluster_folders
-            cd(folder)
-            @info "Running AlphaFold for $(abspath(folder))"
-            if isdir("templates")
-                if !isempty(readdir("templates"))
-                    af_command = `python3 $colabfold_path sequences.a3m af --use-templates 1 --msa-input --custom-template-path templates/ --num-seeds 5 --use-dropout --num-models 2 --overwrite-existing-results`
-                    @info "Running AlphaFold command: $af_command"
-                    success(run(af_command))
-                else
-                    @warn "No templates found in $(abspath("templates"))"
-                end
-            else
-                @warn "There is no templates folder in $(abspath(folder))"
-            end
-        end
-    finally
-        # return to the original working directory
-        cd(clusters_folder)
-    end
-end
 
 # === FONCTIONS UTILITAIRES ===
+"""
+    run_cmd(cmd)
 
+Run a shell command, logging a success message or a warning on failure.
+Input : 
+- `cmd` : a Julia `Cmd` object to execute.
+Errors are caught and logged as warnings so the calling code can continue.
+"""
 function run_cmd(cmd::Cmd)
     try
         run(cmd)
@@ -50,6 +18,17 @@ function run_cmd(cmd::Cmd)
     end
 end
 
+"""
+    run_alphafold_one_run(clusters_folder, SIF_PATH, CACHE_DIR)
+
+Run ColabFold structure predictions for all `cluster_*` subfolders, using
+custom structural templates from each cluster's `templates_adaptative/` folder.
+Run with .sif image for ColabFold 1.5.5
+Input : 
+- `clusters_folder` : path to the folder containing `cluster_*` subfolders.
+- `SIF_PATH`        : path to the ColabFold Apptainer `.sif` image.
+- `CACHE_DIR`       : path to the cache directory for Apptainer.
+"""
 function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_DIR::String)
     ### Check input directories
     if isempty(clusters_folder)
@@ -106,6 +85,17 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
     println("🎉 All the ColabFold run are finish !")
 end
 
+"""
+    get_msa_sequence_afdb(uniprot_id, output_dir) -> path or nothing
+
+Download the precomputed MSA for a UniProt entry from the AlphaFold Database.
+Input : 
+- `uniprot_id` : UniProt accession (e.g. `"P00533"`).
+- `output_dir` : folder where the `.a3m` file will be saved.
+Output : 
+The path to the saved `<UNIPROT_ID>_msa.a3m` file, or `nothing` if failed
+If multiple AlphaFold entries exist for the same UniProt ID, the first one is used.
+"""
 function get_msa_sequence_afdb(uniprot_id::String,output_dir::String)
     
     json_result = nothing
@@ -138,7 +128,7 @@ function get_msa_sequence_afdb(uniprot_id::String,output_dir::String)
 
 end
 
-function parse_line(line::String)
+function parse_plddt_info_in_line(line::String)
     @show line
     m = match(r"(rank_[^ ]+).*pLDDT=(\d+\.\d+).*pTM=(\d+\.\d+)", line)
     @show m
@@ -153,7 +143,28 @@ function parse_line(line::String)
     end
 end
 
+"""
+    run_alphafold_input_structure(uniprot, output_path, SIF_PATH, CACHE_DIR; msa_path_save)
+    -> path or nothing
 
+Run a ColabFold structure prediction for a UniProt entry using its AlphaFold DB MSA,
+and return the path to the best predicted model.
+Input : 
+- `uniprot`     : UniProt accession (e.g. `"P00533"`).
+- `output_path` : working directory where inputs and outputs are stored.
+- `SIF_PATH`    : path to the ColabFold Apptainer `.sif` image.
+- `CACHE_DIR`   : path to the cache directory for Apptainer.
+- `msa_path_save` : if provided, use this `.a3m` file instead of downloading from AlphaFold DB.
+                    The file is copied into `output_path` before the run.
+
+Downloads (or copies) the MSA to `output_path`
+Runs ColabFold with 5 models × 5 seeds and dropout enabled.
+Reorganizes output files with `organize_files`.
+Parses `log.txt` to extract pLDDT scores, saves them to `scores.csv`,
+   and copies the best-ranked model to `output_path/best_model.pdb`.
+Output : 
+Path to `best_model.pdb`, or `nothing` if the folder was already processed.
+"""
 function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_PATH::String, CACHE_DIR::String;msa_path_save::Union{String, Missing} = missing)
     ## Get afdb a3M 
     if ismissing(msa_path_save)
@@ -200,7 +211,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
     parsed_data = []
     for line in readlines(log_file)
         if occursin("rank_", line)
-            parsed = parse_line(line)
+            parsed = parse_plddt_info_in_line(line)
             @show parsed
             if parsed !== nothing
                 push!(parsed_data, parsed)
@@ -293,7 +304,25 @@ function aligned_indices(query_aln::String, template_aln::String)
     return query_indices, template_indices
 end
 
+"""
+    run_alphafold3(clusters_folder, SIF_IMAGE_PATH, MODEL_PARAMETERS_DIR, DB_DIR)
 
+Run AlphaFold3 predictions for all `cluster_*` subfolders in a given directory.
+Tested with version 22b9ab8
+Input : 
+- `clusters_folder`    : path to the folder containing `cluster_*` subfolders.
+- `SIF_IMAGE_PATH`     : path to the folder containing the `alphafold3.sif` Apptainer image.
+- `MODEL_PARAMETERS_DIR` : path to the AlphaFold3 model weights.
+- `DB_DIR`             : path to the AlphaFold3 genetic databases.
+Output : 
+For each `cluster_*` subfolder:
+1. Patches any `.cif` template files for AlphaFold3 compatibility.
+2. Skips folders that have already been processed (i.e. `af3/predictions/sequences/models/` exists).
+3. Reads the query sequence and MSA from `sequences.a3m`.
+4. Writes an `af3_config.json` input file with structural templates if a `templates/`
+   subfolder is present, without otherwise.
+5. Runs AlphaFold3 via Apptainer and reorganizes the output with `organize_files_af3`.
+"""
 function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_PARAMETERS_DIR::String, DB_DIR::String)
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
@@ -355,7 +384,7 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
             template_names=glob("*.cif",joinpath(input_dir, "templates"))
             for template_name in template_names
                 template_path = joinpath("/root/af_input/templates", basename(template_name))
-                split_name = split(basename(template_name), ".")[1]
+                split_name=String(first(splitext(basename(template_name))))
                 @show split_name
                 matches = [sequences[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]
                 if isempty(matches)
@@ -440,7 +469,24 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
 end
 
 #Run Boltz
+"""
+    run_boltz2(clusters_folder, SIF_IMAGE_PATH, CACHE_DIR_Boltz)
 
+Run Boltz2 structure predictions for all subfolders in a given directory.
+Tested with version fd69c81
+Input : 
+- `clusters_folder`  : path to the folder containing cluster subfolders.
+- `SIF_IMAGE_PATH`   : path to the Boltz2 Apptainer `.sif` image.
+- `CACHE_DIR_Boltz`  : path to the cache directory (Numba, Triton, CUDA, etc.).
+For each subfolder:
+1. Reads the query sequence and MSA from `sequences.a3m`.
+2. Writes a `boltz_config.yaml` input file with a structural template if a
+   `templates_complete/` subfolder is present, without otherwise.
+3. Skips folders where `bz/predictions/sequences/models/` is non-empty.
+4. Runs 5 seeds sequentially (from a shared base seed drawn once before the loop),
+   each in its own `bz/seed_<s>/` output subfolder.
+5. Reorganizes all seed outputs with `organize_files_boltz` after all seeds complete.
+"""
 function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_Boltz::String)
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
@@ -475,7 +521,7 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
         if isdir(joinpath(input_dir,"templates_complete"))
             template_name=glob("*.cif",joinpath(input_dir, "templates_complete"))[1]
             template_path = joinpath("/mnt/input/templates_complete", basename(template_name))
-            split_name = split(basename(template_name), ".")[1]
+            split_name =String(first(splitext(basename(template_name))))
             real_name = [ids[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]
             chain_template=split(real_name[1], "_")
             if length(chain_template) > 1

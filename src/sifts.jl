@@ -277,7 +277,7 @@ function known_uniprot_structures(sifts_uniprot_mapping::DataFrames.DataFrame,
             break
         end
         #for each pdb 
-        pdb=String(split(pdb_id,".")[1])
+        pdb=String(first(splitext(pdb_id)))
         chain_check=split(pdb_id,"_")
         if length(chain_check)==2
             chain= String(chain_check[2])
@@ -332,7 +332,7 @@ function known_pfam_structures(sifts_pfam_mapping::DataFrames.DataFrame,
             break
         end
         #for each pdb 
-        pdb=String(split(pdb_id,".")[1])
+        pdb=String(first(splitext(pdb_id)))
         chain_check=split(pdb_id,"_")
         if length(chain_check)==2
             chain= String(chain_check[2])

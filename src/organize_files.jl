@@ -1,11 +1,4 @@
 
-# Crée un dossier s'il n'existe pas
-function safe_mkdir(path::AbstractString)
-    if !isdir(path)
-        mkpath(path)
-    end
-end
-
 # Déplace les fichiers correspondant à un motif vers un dossier
 function safe_move(src_pattern::AbstractString, dst_dir::AbstractString)
     for src in glob(src_pattern)
@@ -18,7 +11,27 @@ function safe_move(src_pattern::AbstractString, dst_dir::AbstractString)
     end
 end
 
-# Fonction principale
+"""
+    organize_files(output_dir)
+
+Reorganize raw ColabFold output files into a structured directory hierarchy.
+
+# Arguments
+- `output_dir` : path to the folder containing raw ColabFold output files.
+
+# Output structure
+output_dir/
+└── predictions/
+    ├── config.json
+    ├── log.txt
+    ├── cite.bibtex
+    └── sequences/
+        ├── sequences.a3m
+        ├── sequences.done.txt
+        ├── models/       ← .pdb files
+        ├── plots/        ← .png files
+        └── scores/       ← .json files
+"""
 function organize_files(output_dir::AbstractString)
     println("📂 Réorganisation des fichiers dans $output_dir ...")
     cd(output_dir)
@@ -64,28 +77,51 @@ function organize_files(output_dir::AbstractString)
     println("\n✅ Réorganisation terminée !")
 end
 
+"""
+    organize_files_af3(output_dir, run_name)
+
+Reorganize raw AlphaFold3 output files into a structured directory hierarchy.
+Input : 
+- `output_dir` : path to the folder containing raw AlphaFold3 output.
+- `run_name`   : name of the run, used to locate AlphaFold3's output subfolder.
+Output : 
+output_dir/
+└── predictions/
+    ├── config.json              ← from <run_name>_data.json
+    ├── cite.bibtex              ← from TERMS_OF_USE.md
+    ├── ranking_scores.csv
+    └── sequences/
+        ├── <run_name>_model.cif
+        ├── scores/
+        │   ├── <run_name>_confidences.json
+        │   ├── <run_name>_summary_confidences.json
+        │   ├── seed_confidences.json        ← one per seed
+        │   └── seed_summary_confidences.json
+        └── models/
+        └── seed*.cif                     ← one per seed
+"""
 function organize_files_af3(output_dir::AbstractString,run_name::String)
     println("📂 Réorganisation des fichiers dans $output_dir ...")
     cd(output_dir)
     output_path=joinpath(output_dir,lowercase(run_name))
     # Dossier principal
     predictions_dir = joinpath(output_dir, "predictions")
-    safe_mkdir(predictions_dir)
+    mkpath(predictions_dir)
     cp(joinpath(output_path,lowercase(run_name)*"_data.json"), joinpath(predictions_dir, "config.json"); force=true)
     cp(joinpath(output_path,"TERMS_OF_USE.md"), joinpath(predictions_dir, "cite.bibtex"); force=true)
     cp(joinpath(output_path,"ranking_scores.csv"), joinpath(predictions_dir, "ranking_scores.csv"); force=true)
 
     seq_dir = joinpath(predictions_dir, "sequences")
-    safe_mkdir(seq_dir)
+    mkpath(seq_dir)
     cp(joinpath(output_path,lowercase(run_name)*"_model.cif"), joinpath(seq_dir, lowercase(run_name)*"_model.cif"); force=true)
 
     scores_dir = joinpath(seq_dir, "scores")
-    safe_mkdir(scores_dir)
+    mkpath(scores_dir)
     cp(joinpath(output_path,lowercase(run_name)*"_confidences.json"), joinpath(scores_dir, lowercase(run_name)*"_confidences.json"); force=true)
     cp(joinpath(output_path,lowercase(run_name)*"_summary_confidences.json"), joinpath(scores_dir, lowercase(run_name)*"_summary_confidences.json"); force=true)
 
     models_dir = joinpath(seq_dir, "models")
-    safe_mkdir(models_dir)
+    mkpath(models_dir)
 
     dirs=glob("seed*",output_path)
     for dir in dirs
@@ -96,26 +132,45 @@ function organize_files_af3(output_dir::AbstractString,run_name::String)
 
     println("\n✅ Réorganisation terminée !")
 end
+"""
+    organize_files_boltz(output_dir)
 
+Reorganize raw Boltz2 output files from multiple seeds into a structured directory hierarchy.
+
+# Arguments
+- `output_dir` : path to the folder containing `seed_*` subfolders (i.e. `bz/`).
+
+# Output structure
+output_dir/
+└── predictions/
+    ├── config.json       ← from processed/manifest.json (last seed)
+    ├── hparams.yaml      ← from lightning_logs/version_0/hparams.yaml (last seed)
+    └── sequences/
+        ├── models/       ← seed_.cif
+        ├── scores/       ← seed_.json
+        └── plots/        ← seed_.npz
+Each output file is prefixed with its seed folder name (e.g. `seed_12345_model.cif`)
+to avoid collisions across seeds.
+"""
 function organize_files_boltz(output_dir::AbstractString)
     println("📂 Réorganisation des fichiers dans $output_dir ...")
     cd(output_dir)
     
     # Dossier principal
     predictions_dir = joinpath(output_dir, "predictions")
-    safe_mkdir(predictions_dir)
+    mkpath(predictions_dir)
 
     seq_dir = joinpath(predictions_dir, "sequences")
-    safe_mkdir(seq_dir)
+    mkpath(seq_dir)
 
     scores_dir = joinpath(seq_dir, "scores")
-    safe_mkdir(scores_dir)
+    mkpath(scores_dir)
 
     models_dir = joinpath(seq_dir, "models")
-    safe_mkdir(models_dir)
+    mkpath(models_dir)
 
     plots_dir = joinpath(seq_dir, "plots")
-    safe_mkdir(plots_dir)
+    mkpath(plots_dir)
 
     seed_dir=glob("seed*",output_dir)
     for seed in seed_dir
@@ -158,7 +213,7 @@ function get_all_predictions(output_dir::String,folder_af2_result)
             structure=MIToS.PDB.read_file(pred, MIToS.PDB.PDBFile, group="ATOM")
             dic_pred_struct[name]=structure
             parts = split(basename(pred), "_")
-            json_name = "sequences_scores_" * split(join(parts[3:end], "_"), ".")[1] * ".json"
+            json_name = "sequences_scores_" * first(splitext(join(parts[3:end], "_")))* ".json"
 
             json_path = joinpath(clu, folder_af2_result, "predictions", "sequences", "scores",json_name)
 
@@ -181,11 +236,8 @@ end
 function compare_struct(dic_pred_struct::Dict, query_struct::String,cutoff_min::Float64,cutoff_max::Float64)
     cluster_close_query=Dict()
     @show "Read query structure"
-    if endswith(query_struct, ".cif")
-        query_structure=MIToS.PDB.read_file(query_struct, MIToS.PDB.MMCIFFile, group="ATOM")
-    else
-        query_structure=MIToS.PDB.read_file(query_struct, MIToS.PDB.PDBFile, group="ATOM")
-    end
+    file_format = endswith(query_struct, ".cif") ? MIToS.PDB.MMCIFFile : MIToS.PDB.PDBFile
+    query_structure=MIToS.PDB.read_file(query_struct, file_format, group="ATOM")
     
     for (name, structure) in dic_pred_struct
         try 
@@ -265,11 +317,10 @@ function compare_alternative_structures(search_results,sifts_uniprot_mapping,out
         end
         push!(file_analysed, file_name)
         parts=split(file_name,"_")
+        query_pdb_code=String(first(splitext(parts[1])))
         if length(parts)==2
-            query_pdb_code=String(split(parts[1],".")[1])
             query_chain_code=String(parts[end])
         else 
-            query_pdb_code=String(split(parts[1],".")[1])
             query_chain_code=missing
         end
         center_uniprot=found_uniprot_structure(search_results, sifts_uniprot_mapping, query_pdb_code, query_chain_code)
@@ -303,6 +354,31 @@ function compare_alternative_structures(search_results,sifts_uniprot_mapping,out
     return minimum(range_rmsd), maximum(range_rmsd)
 end
 
+"""
+    found_best_prediction(output_dir, query_struct, sifts_uniprot_mapping, folder_af2_result)
+    -> (cluster_close_objectif, dic_pred_ptm) 
+
+Identify the best structure predictions by comparing them to known experimental structures
+retrieved via Foldseek, and filtering to those structurally close to the query.
+Input : 
+- `output_dir`            : working directory containing Foldseek results and prediction folders.
+- `query_struct`          : path to the query structure (PDB file) used as structural reference.
+- `sifts_uniprot_mapping` : SIFTS mapping table linking UniProt accessions to PDB entries.
+- `folder_af2_result`     : subfolder name containing the AlphaFold2/ColabFold predictions.
+Behavior
+1. Loads all predictions and their pTM scores from `folder_af2_result`.
+2. Reads Foldseek hits from `fullpdb_mmcif_files_results/*.m8` and optionally
+   from `target_db_results/*.m8`, merging known UniProt structures from both.
+3. Computes the RMSD range of known alternative structures via `compare_alternative_structures`.
+4. Filters predictions to those within `(max_rmsd + 1)` Å of the query structure.
+5. Returns only predictions that pass the RMSD threshold, along with their pTM scores.
+Output : 
+A tuple `(cluster_close_objectif, dic_pred_ptm)` where:
+- `cluster_close_objectif` : dict mapping prediction names to their RMSD to the query.
+- `dic_pred_ptm`           : dict mapping the same prediction names to their pTM scores.
+Both dicts are empty if no predictions are found, no alternative structures are available,
+or no predictions fall within the RMSD threshold.
+"""
 function found_best_prediction(output_dir::String,query_struct::String,sifts_uniprot_mapping,folder_af2_result)
     dic_pred_struct,dic_pred_ptm=get_all_predictions(output_dir,folder_af2_result)
     
