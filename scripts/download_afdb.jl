@@ -1,4 +1,4 @@
-#!/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
+#!/stockage/EQUIPES/AMIG/MEMBERS/diego.zea/bin/julia19
 
 #=
 #PBS -l ncpus=40
@@ -10,4 +10,4 @@
 
 cd("/alpha/database/afdb")
 
-run(`/store/EQUIPES/AMIG/MEMBERS/carla.martins/foldseek/foldseek/bin/foldseek databases --compressed 1 -v 3 --threads 40 Alphafold/UniProt afdb_up tmp`)
+run(`/stockage/EQUIPES/AMIG/MEMBERS/carla.martins/foldseek/foldseek/bin/foldseek databases --compressed 1 -v 3 --threads 40 Alphafold/UniProt afdb_up tmp`)

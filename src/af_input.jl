@@ -1,25 +1,74 @@
 # These functions create the folder structure defining AlphaFold 2 inputs, including the 
 # the MSA, and the templates.
+"""
+    _read_pdb_chain(file) -> residues or nothing
 
-function _read_pdb_chain(file::String, chain_code) # MIToS.PDB.All
+Read all heavy atoms from a PDB or mmCIF file.
+Input : 
+- `file` : path to a `.pdb`, `.cif`, or `.mmcif` file.
+Output : 
+A residue array (MIToS), or `nothing` if the file cannot be read.
+"""
+function _read_pdb_chain(file::String) # MIToS.PDB.All
     # assume that the chain_code is All if it is not a string
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    try
-        read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
-    catch err
-        @error "Error reading the PDB file $file: $err"
-        nothing
+    extension=lowercase(last(splitext(basename(file))))
+    if extension ==".cif" || extension ==".mmcif"
+        # Read the chain specified by chain_code from the mmcif file
+        try 
+            file=read_file(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
+        catch err
+            @error "Error reading the MMCIF file $file: $err"
+            nothing
+        end
+    else 
+        try
+            file=read_file(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+        catch err
+            @error "Error reading the PDB file $file: $err"
+            nothing
+        end
     end
+    return file
 end
 
+"""
+    _read_pdb_chain(file, chain_code) -> residues or nothing
+
+Read a specific chain from a PDB or mmCIF file.
+Input : 
+- `file`       : path to a `.pdb`, `.cif`, or `.mmcif` file.
+- `chain_code` : chain identifier to extract (e.g. `"A"`).
+Output 
+A residue array for the requested chain, or `nothing` on error.
+"""
 function _read_pdb_chain(file::String, chain_code::String)
+    extension=lowercase(last(splitext(basename(file))))
+    if extension ==".cif" || extension ==".mmcif"
+        try
+            # read the whole file
+            res = read_file(file, MIToS.PDB.MMCIFFile, onlyheavy=true, occupancyfilter=true)
+        catch err
+            @error "Error reading the MMCIF file $file: $err"
+            return nothing
+        end
+        
     # Read the chain specified by chain_code from the PDB file
     # occupancyfilter is needed to avoid the duplicated residue warnings with TMalign
-    try
-        # read the whole file
-        res = read(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
-        # note that auth chains can be lower case, so test the lowercase one if 
-        # the uppercase one is not found. For example, 7ADD has lowercase chains.
+    else 
+        try
+            # read the whole file
+            res = read_file(file, MIToS.PDB.PDBFile, onlyheavy=true, occupancyfilter=true)
+            # note that auth chains can be lower case, so test the lowercase one if 
+            # the uppercase one is not found. For example, 7ADD has lowercase chains.
+            
+        catch err
+            @error "Error reading the PDB file $file: $err"
+            nothing
+        end
+    end
+    
+    try 
         chains = Set{String}(r.id.chain for r in res)
         if chain_code in chains
             MIToS.PDB.residues(res, MIToS.PDB.All, chain_code)
@@ -32,8 +81,8 @@ function _read_pdb_chain(file::String, chain_code::String)
             nothing
         end
     catch err
-        @error "Error reading the PDB file $file: $err"
-        nothing
+        @error "Error extracting chain $chain_code from the PDB file $file: $err"
+        nothing     
     end
 end
 
@@ -57,7 +106,8 @@ function get_residues_and_sequence(pdb_file;
     res = _read_pdb_chain(pdb_file, chain)
     if res !== nothing
         actual_chain = first(res).id.chain # chain can be lowercase
-        query_res = MIToS.PDB.residues(res, model, actual_chain, "ATOM")
+        #Select all the informations inside the pdb 
+        query_res = MIToS.PDB.residues(res, model, actual_chain)
         if !isempty(query_res)
             sequences = MIToS.PDB.modelled_sequences(query_res)
             @assert !isempty(sequences) "The are no residues in the pdb file: $(pdb_file) (chain: $actual_chain)"    
@@ -277,3 +327,4 @@ function create_alpha_fold_inputs(path::String, ref_pdb::String,
     # Return the path to the created folders 
     (clusters=clusters_folder, pdb=pdb_folder)
 end
+

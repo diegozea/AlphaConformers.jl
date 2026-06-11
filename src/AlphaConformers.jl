@@ -1,10 +1,9 @@
 module AlphaConformers
 
 import BioAlignments
+import BioStructures
 import MIToS
 import Foldseek_jll
-import MAFFT_jll
-import USalign_jll
 import CSV
 import DataFrames
 import Clustering
@@ -14,8 +13,20 @@ import PairwiseListMatrices
 import Distributed
 import ProgressMeter
 import Combinatorics
-
+import Plots as plt
+import HTTP
+using ArgParse
+using Glob
+using FilePathsBase
 using TestItems
+using JSON3
+using YAML
+using DataFrames
+using Statistics
+using LinearAlgebra
+using FileIO
+
+
 
 export  foldseek_search, # foldseek.jl
         read_foldseek_search_results,
@@ -25,9 +36,8 @@ export  foldseek_search, # foldseek.jl
         get_aligned_positions,
         create_pdb_folder, # pdb_folders.jl
         usalign, # usalign.jl
-        structural_clustering, # clustering.jl
-        get_clustered_pdbs,
         get_uniprot_mapping, # sifts.jl
+        get_pfam_mapping,
         get_uniprot_acc,
         get_pdb_codes,
         delete_query_from_target!,
@@ -38,17 +48,32 @@ export  foldseek_search, # foldseek.jl
         clean_msa,
         create_pdb_lists,
         create_msa_and_templates,
-        create_alpha_fold_inputs,
-        run_alphafold # run_alphafold.jl
-
+        run_alphafold, # run_alphafold.jl
+        organize_files,
+        run_alphafold3,
+        organize_files_af3,
+        run_boltz2,
+        organize_files_boltz,
+        read_a3m,
+        clean_msa_template_names,
+        structural_alignment,
+        _read_pdb_chain,
+        get_msa_sequence_afdb,
+        run_alphafold_input_structure,
+        found_best_prediction,
+        alphaconformers,
+        add_known_conformations!,
+        create_template_clusters_hobohm,
+        create_folder_structure_hobohm,
+        run_cmd,
+        run_alphafold_one_run
 
 include("utils.jl")
 include("foldseek.jl")
-include("pdb_folders.jl")
-include("usalign.jl")
 include("clustering.jl")
 include("sifts.jl")
-include("af_input.jl")
 include("run_alphafold.jl")
+include("organize_files.jl")
+include("run_alphaconformers.jl")
 
 end

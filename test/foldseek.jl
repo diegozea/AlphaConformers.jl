@@ -1,3 +1,9 @@
+using TestItems
+
+@testitem "Simple sanity test" begin
+    @test 1 + 1 == 2
+end
+
 @testitem "Foldseek search" begin
     input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
     test_db_folder = joinpath(@__DIR__, "data", "test_db")

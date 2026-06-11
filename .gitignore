@@ -4,8 +4,10 @@
 /Manifest.toml
 /docs/build/
 
+data/
 # VSCode
 .vscode
+*.out
 
 # PBS
 download_pdb_files_pbs.jl.o*
@@ -22,3 +24,15 @@ test/data/.*
 
 # SIFTS
 pdb_chain_uniprot.csv.gz
+
+#PDB 
+*.pdb
+
+*.csv
+
+#Script no use 
+src/additional_function.jl
+src/af_input.jl
+src/foldseek_api_curl.jl
+src/pdb_folders.jl
+src/usalign.jl
