@@ -40,3 +40,4 @@ src/usalign.jl
 # DEV
 _*.md
 AGENTS.md
+manuscript
