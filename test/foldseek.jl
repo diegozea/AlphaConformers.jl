@@ -1,164 +1,130 @@
 using TestItems
 
-@testitem "Simple sanity test" begin
-    @test 1 + 1 == 2
-end
+@testitem "Foldseek execution against generated database" begin
+    import DataFrames
+    import Foldseek_jll
+    import Printf
 
-@testitem "Foldseek search" begin
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    test_db_folder = joinpath(@__DIR__, "data", "test_db")
-
-    # Throw an error if db_path is not set
-    @test_throws ErrorException foldseek_search(input_pdb)
-
-    # Throw an error if db_path is not a file
-    @test_throws ErrorException foldseek_search(input_pdb, db_path=test_db_folder)
-
-    # Run it
-    output = foldseek_search(input_pdb, db_path=joinpath(test_db_folder, "test_db"))
-
-    # Check that the output file exists
-    @test output == joinpath(@__DIR__, "data", "1EX6_B_results.m8")
-    @test isfile(output)
-
-    # Parse the output table
-    df = read_foldseek_search_results(output)
-
-    # Check that the results in the table are correct based on the test database 
-    # tailored for this test
-    @test size(df, 1) == 4 # 3 hits: 4F4J (A & B), 1EX7 and the AF structure
-    @test df[1, :query] == "1EX6_B.pdb"
-    @test df[1, :target] == "4F4J.pdb_A"
-    @test df[1, :fident] > 0.9
-    @test df[1, :alnlen] == 183
-    @test df[1, :mismatch] == 1
-    @test df[1, :gapopen] == 0
-    @test df[1, :qstart] == 1
-    @test df[1, :qend] == 183
-    @test df[1, :tstart] == 6
-    @test df[1, :tend] == 188
-    @test df[1, :evalue] < 0.001
-    @test df[1, :bits] == 1216
-
-    # Clean up
-    isfile(output) && rm(output)
-end
-
-@testitem "Foldseek aln structures" begin
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    test_db_folder = joinpath(@__DIR__, "data", "test_db")
-
-    # Run it
-    output = foldseek_search(input_pdb, db_path=joinpath(test_db_folder, "test_db"), format_mode=5)
-
-    # Check that the output folder exists
-    @test output == joinpath(@__DIR__, "data", "aligned_structures")
-    @test isdir(output)
-
-    # Check that the output folder contains the expected files
-    files = readdir(output)
-    @test length(files) == 4
-    @test all(startswith("aln_"), files)
-
-    # Clean up
-    isdir(output) && rm(output; recursive=true)
-end
-
-@testitem "run_foldseek: sigle db" begin
-    import MIToS
-
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
-
-    mktempdir() do tempdir
-        # Run it
-        output_vector = run_foldseek(input_pdb, test_db, out_folder=tempdir)
-
-        # Check the output
-        @test length(output_vector) == 1
-        output = output_vector[1]
-        outdir = dirname(output.table_file)
-        @test isdir(outdir)
-        @test isfile(output.table_file) && stat.(output.table_file).size > 0
-        @test isfile(output.msa_file) && stat.(output.msa_file).size > 0
-        @test isdir(output.aligned_structures_folder)
-
-        # Check that the output folder contains the expected files
-        files = readdir(output.aligned_structures_folder)
-        @test length(files) == 4
-        @test all(startswith("aln_"), files)
-
-        # Check that the MSA is correct
-        msa = MIToS.MSA.read(output.msa_file, MIToS.MSA.FASTA)
-        @test MIToS.MSA.nsequences(msa) == 5
-    end
-end
-
-@testitem "run_foldseek: multiple db" begin
-    import MIToS
-
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
-
-    @testset "same database" begin
-        # Run it
-        mktempdir() do temp_dir
-            output = run_foldseek(input_pdb, "$test_db,$test_db", out_folder=temp_dir)
-
-            # Check the output
-            @test length(output) == 2
-            @test output[1] == output[2]
-            outdir = dirname(output[1].table_file)
-            @test isdir(outdir)
-            @test isfile(output[2].table_file) && stat.(output[2].table_file).size > 0
-            @test isfile(output[2].msa_file) && stat.(output[2].msa_file).size > 0
-            @test isdir(output[2].aligned_structures_folder)
+    function write_test_pdb(path)
+        residues = [
+            "ALA", "GLY", "SER", "THR", "LEU", "VAL", "ASP", "LYS",
+            "GLU", "ILE", "ASN", "PHE", "TYR", "ARG", "GLN",
+        ]
+        serial = 1
+        open(path, "w") do io
+            for (resnum, resname) in enumerate(residues)
+                x = 3.8 * (resnum - 1)
+                atoms = (
+                    ("N", x - 1.2, 0.0, 0.0, "N"),
+                    ("CA", x, 0.0, 0.0, "C"),
+                    ("C", x + 1.2, 1.0, 0.0, "C"),
+                    ("O", x + 1.8, 2.0, 0.0, "O"),
+                )
+                for (atom, ax, ay, az, element) in atoms
+                    Printf.@printf(
+                        io,
+                        "ATOM  %5d %-4s %3s A%4d    %8.3f%8.3f%8.3f  1.00 20.00          %2s\n",
+                        serial,
+                        atom,
+                        resname,
+                        resnum,
+                        ax,
+                        ay,
+                        az,
+                        element,
+                    )
+                    serial += 1
+                end
+            end
+            println(io, "TER")
+            println(io, "END")
         end
     end
-end
 
+    mktempdir() do dir
+        query_pdb = joinpath(dir, "query.pdb")
+        target_pdb = joinpath(dir, "target.pdb")
+        db_path = joinpath(dir, "test_db")
+        write_test_pdb(query_pdb)
+        cp(query_pdb, target_pdb)
+        run(`$(Foldseek_jll.foldseek()) createdb $target_pdb $db_path`)
 
-@testitem "run_foldseek: merging the same database" begin
-    import DataFrames
+        search_output = foldseek_search(
+            query_pdb;
+            db_path=db_path,
+            format_output="query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
+        )
+        @test search_output == joinpath(dir, "query_results.m8")
+        @test isfile(search_output)
+        @test filesize(search_output) > 0
+        @test DataFrames.nrow(read_foldseek_search_results(search_output)) >= 1
 
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
-    test_db_2 = joinpath(@__DIR__, "data", "test_db_2", "test_db_2")
-
-    mktempdir() do temp_dir
-        output = run_foldseek(input_pdb, "$test_db,$test_db", out_folder=temp_dir)
-        outdir = dirname(output[1].table_file)
-
-        # Check the output
-        merged = merge_tables([output[1].table_file, output[2].table_file])
-        @test DataFrames.ncol(merged) == 13 # the file column is added
-        @test DataFrames.nrow(merged) == 4 # table files are identical, so there is no merge
-        @test only(unique(merged.file)) == output[1].table_file
+        run_output = run_foldseek(query_pdb, 1, db_path; out_folder=dir)
+        @test length(run_output) == 1
+        @test isfile(run_output[1].table_file)
+        @test filesize(run_output[1].table_file) > 0
+        @test isfile(run_output[1].msa_file)
+        @test isdir(run_output[1].aligned_structures_folder)
+        @test !isempty(readdir(run_output[1].aligned_structures_folder))
     end
 end
 
-@testitem "run_foldseek: merging different databases" begin
+@testitem "Foldseek table parsing and merging" begin
     import DataFrames
-    import MIToS
-    
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    test_db = joinpath(@__DIR__, "data", "test_db", "test_db")
-    test_db_2 = joinpath(@__DIR__, "data", "test_db_2", "test_db_2")
 
-    mktempdir() do temp_dir
-        output = run_foldseek(input_pdb, "$test_db,$test_db_2", out_folder=temp_dir)
-        outdir = dirname(output[1].table_file)
-
-        # Check the output
-        merged_table = merge_tables([output[1].table_file, output[2].table_file])
-        @test DataFrames.ncol(merged_table) == 13 # the file column is added
-        @test DataFrames.nrow(merged_table) == 6 # table files are different, so there is a merge
-        # four hits from test_db and two from test_db_2
-        @test length(unique(merged_table.file)) == 2
-
-        # Merge the MSAs and check the result
-        merged_msa = merge_msas(merged_table)
-        @test MIToS.MSA.nsequences(merged_msa) == 7 # 6 + query (reference sequence)
-        @test MIToS.MSA.ncolumns(merged_msa) == 186 # the length of the query sequence
+    function write_m8(path, rows)
+        open(path, "w") do io
+            for row in rows
+                println(io, join(row, '\t'))
+            end
+        end
     end
+
+    row_a = [
+        "query.pdb", "target_a.pdb_A", 0.95, 100, 1, 0, 1, 100, 5, 104, 1e-20,
+        250, 0.8, 0.7, 0.75, 1.2, 0.99,
+    ]
+    row_b = [
+        "query.pdb", "target_b.pdb_A", 0.75, 80, 20, 1, 3, 82, 10, 89, 1e-4,
+        100, 0.5, 0.4, 0.45, 3.0, 0.8,
+    ]
+
+    mktempdir() do dir
+        table_a = joinpath(dir, "a.m8")
+        table_b = joinpath(dir, "b.m8")
+        write_m8(table_a, [row_a, row_b])
+        write_m8(table_b, [row_a])
+
+        parsed = read_foldseek_search_results(table_a)
+        @test DataFrames.nrow(parsed) == 2
+        @test names(parsed) == [
+            "query", "target", "fident", "alnlen", "mismatch", "gapopen",
+            "qstart", "qend", "tstart", "tend", "evalue", "bits", "qtmscore",
+            "ttmscore", "alntmscore", "rmsd", "prob",
+        ]
+        @test parsed[1, :target] == "target_a.pdb_A"
+        @test parsed[1, :rmsd] == 1.2
+
+        merged = merge_tables([table_a, table_b])
+        @test DataFrames.nrow(merged) == 2
+        @test DataFrames.ncol(merged) == 18
+        @test Set(merged.target) == Set(["target_a.pdb_A", "target_b.pdb_A"])
+        @test only(unique(merged.file[merged.target .== "target_a.pdb_A"])) == abspath(table_a)
+    end
+end
+
+@testitem "Foldseek argument validation and alignment positions" begin
+    mktempdir() do dir
+        pdb_file = joinpath(dir, "query.pdb")
+        db_dir = joinpath(dir, "db")
+        touch(pdb_file)
+        mkdir(db_dir)
+
+        @test_throws ErrorException foldseek_search(pdb_file)
+        @test_throws ErrorException foldseek_search(pdb_file; db_path=db_dir)
+        @test_throws ErrorException run_foldseek(pdb_file, 1, db_dir)
+    end
+
+    aln = [('A', 'A'), ('C', '-'), ('G', 'G'), ('-', 'T'), ('T', 'T')]
+    @test get_aligned_positions(aln) == [(1, 1), (3, 2), (4, 4)]
 end

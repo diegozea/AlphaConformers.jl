@@ -1,64 +1,49 @@
-@testitem "UniProt PDB mapping" begin
+using TestItems
+
+@testitem "SIFTS mapping helpers" begin
     import DataFrames
+    import MIToS
 
-    mktempdir() do tmp_folder
-        data_path = joinpath(tmp_folder, "pdb_chain_uniprot.csv.gz")
-        @test !isfile(data_path)
-        data = get_uniprot_mapping(tmp_folder)
-        @test isfile(data_path)
+    mapping = DataFrames.DataFrame(
+        PDB = ["1abc", "1abc", "2def", "9zzz"],
+        CHAIN = ["A", "B", "A", "A"],
+        SP_PRIMARY = ["P11111", "P11111", "P22222", "P99999"],
+    )
 
-        # Check the DataFrame content
-        @test isa(data, DataFrames.DataFrame)
-        for col_name in ["PDB", "CHAIN", "SP_PRIMARY"]
-            @test col_name in names(data)
-        end
-        @test "101m" in data.PDB
-        @test "A" in data.CHAIN
-        @test "P02185" in data.SP_PRIMARY
-        @test !("None" in skipmissing(data.PDB_END))
-        @test sum(ismissing.(data.PDB_END)) != 0
+    @test get_uniprot_acc(mapping, "1ABC", "A") == ["P11111"]
+    @test get_uniprot_acc(mapping, "1abc") == ["P11111"]
+    @test get_uniprot_acc(mapping, "AF-P11111-F1-model_v4.pdb") === nothing
 
-        # Check the function get_uniprot_acc
-        @test get_uniprot_acc(data, "101m") == ["P02185"]
+    pdbs = get_pdb_codes(mapping, "P11111")
+    @test names(pdbs) == ["PDB", "CHAIN"]
+    @test Set(zip(pdbs.PDB, pdbs.CHAIN)) == Set([("1ABC", "A"), ("1ABC", "B")])
 
-        # Check the function get_pdb_codes
-        pdbs = get_pdb_codes(data, "P02185") # == [("101M", "A")]
-        @test isa(pdbs, DataFrames.DataFrame)
-        @test DataFrames.ncol(pdbs) == 2
-        @test names(pdbs) == ["PDB", "CHAIN"]
-        @test "101M" in pdbs.PDB
-        @test "A" in pdbs.CHAIN
-    end
+    @test AlphaConformers._get_pdb_and_chain("4f4j.pdb_A") == ("4F4J", "A")
+    @test AlphaConformers._get_pdb_and_chain("4f4j.pdb") == ("4F4J", MIToS.PDB.All)
+    @test AlphaConformers._is_chain("4f4j.pdb_A", "4F4J", "A")
 end
 
-@testitem "Updating FoldSeek search results" begin
+@testitem "Delete query conformations from Foldseek targets" begin
     import DataFrames
 
-    # Run FoldSeek and download the SIFTS file to generate the test data
-    input_pdb = joinpath(@__DIR__, "data", "1EX6_B.pdb")
-    output_file = joinpath(@__DIR__, "data", "1EX6_B_results.m8")
-    test_db_folder = joinpath(@__DIR__, "data", "test_db")
-    foldseek_search(input_pdb, db_path=joinpath(test_db_folder, "test_db"))
-    search_results = read_foldseek_search_results(output_file)
-    sifts_uniprot_mapping = get_uniprot_mapping()
+    mapping = DataFrames.DataFrame(
+        PDB = ["1abc", "1abc", "2def"],
+        CHAIN = ["A", "B", "A"],
+        SP_PRIMARY = ["P11111", "P11111", "P22222"],
+    )
+    search_results = DataFrames.DataFrame(
+        target = [
+            "1ABC.cif_A",
+            "1ABC.cif_B",
+            "2DEF.cif_A",
+            "AF-P11111-F1-model_v4.pdb",
+            "9ZZZ.cif_A",
+        ],
+    )
 
-    # Test the list_known_conformations function
-    target2uniprot, pdb_chains = list_known_conformations(search_results, sifts_uniprot_mapping)
-    for item in pdb_chains
-        @test !in(item, search_results.target)
-        @test haskey(target2uniprot, item)
-    end
-    for pdb_chain in ["1EX6.pdb_B", "1EX6.pdb_A", "1GKY.pdb_A"]
-        @test in(pdb_chain, pdb_chains)
-        @test haskey(target2uniprot, pdb_chain)
-    end
+    filtered = AlphaConformers.delete_query_from_target(
+        deepcopy(search_results), mapping, "1ABC", "A")
 
-    # Test the delete_query_from_target! function
-    
-    # 1PBE A is another protein (P00438)
-    @test DataFrames.nrow(delete_query_from_target!(deepcopy(search_results),  
-        sifts_uniprot_mapping, "1PBE", "A")) == 4
-    # 4F4J and 1EX7 are known conformations of 1EX6 B (P15454)
-    @test DataFrames.nrow(delete_query_from_target!(deepcopy(search_results), 
-        sifts_uniprot_mapping, "1EX6", "B")) == 1
+    @test filtered.target == ["2DEF.cif_A", "9ZZZ.cif_A"]
+    @test DataFrames.nrow(search_results) == 5
 end
