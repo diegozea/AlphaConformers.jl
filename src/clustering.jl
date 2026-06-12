@@ -116,7 +116,7 @@ function structural_alignment(conformation_a, conformation_b;
 end
 
 function within_cluster(item1,item2,threshold)
-    _,_,_,rmsd,coverage,_=AlphaConformers.structural_alignment(item1, item2)
+    _,_,_,rmsd,coverage,_=structural_alignment(item1, item2)
     return rmsd <= threshold
 end
 
@@ -318,7 +318,7 @@ function create_template_clusters_hobohm(
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
     cutoff::Float64)
     
-    target2sequence = AlphaConformers.get_target2sequence(expanded_table, msa)
+    target2sequence = get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
     
     #Hobohm I clustering
@@ -336,13 +336,13 @@ function create_template_clusters_hobohm(
     clusters = [cluster_labels[t] for t in targets]
     println("Number of clusters found: $(length(unique(clusters)))")
 
-    cluster2targets, nb_cluster = AlphaConformers.get_cluster2targets(cluster_labels, clusters)
+    cluster2targets, nb_cluster = get_cluster2targets(cluster_labels, clusters)
     
-    cl2seq = AlphaConformers.get_cluster2seqnames(cluster2targets, target2sequence)
+    cl2seq = get_cluster2seqnames(cluster2targets, target2sequence)
     println("Create the related MSAs for each cluster...")
-    cl2msa = AlphaConformers.get_cluster2msa(msa, cl2seq)
+    cl2msa = get_cluster2msa(msa, cl2seq)
     println("Getting the templates for each cluster...")
-    cl2pdb = AlphaConformers.get_cluster2structures(structures, cluster2targets)
+    cl2pdb = get_cluster2structures(structures, cluster2targets)
     (nb_cluster, cl2msa, cl2pdb)
 end
 

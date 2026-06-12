@@ -15,16 +15,10 @@ import ProgressMeter
 import Combinatorics
 import Plots as plt
 import HTTP
-using ArgParse
-using Glob
-using FilePathsBase
-using TestItems
-using JSON3
-using YAML
-using DataFrames
-using Statistics
-using LinearAlgebra
-using FileIO
+import JSON3
+import YAML
+using Glob: glob
+using DataFrames: DataFrame, nrow
 
 
 

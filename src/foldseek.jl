@@ -215,7 +215,7 @@ function merge_tables(table_files::Vector{String})
         table.file .= abspath(file)
         table
     end
-    merged = DataFrames.vcat(tables...)
+    merged = vcat(tables...)
     DataFrames.unique!(merged, ["query", "target", "qstart", "qend", "tstart", "tend"])
 end
 
@@ -450,7 +450,6 @@ function merge_msas(table)
 end
 
     
-
 
 
 

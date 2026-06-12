@@ -483,7 +483,7 @@ function add_known_conformations!(search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder::String,input_pdb,n_threads)
     new_target_result = get_unknown_conformations(search_results, sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb,n_threads)
     if new_target_result !== nothing 
-        DataFrames.append!(search_results, new_target_result, cols=:union)
+        append!(search_results, new_target_result, cols=:union)
     end
     @show size(search_results)
     search_results

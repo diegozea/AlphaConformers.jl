@@ -1,5 +1,6 @@
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 Foldseek_jll = "f5adda9a-30aa-5201-a847-bcd4e31b8420"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 MIToS = "51bafb47-8a16-5ded-8b04-24ef4eede0b5"
@@ -11,6 +12,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [compat]
 DataFrames = "1.7, 1.8"
+ExplicitImports = "1"
 JSON3 = "1.14"
 MIToS = "3.2"
 OrderedCollections = "1"
