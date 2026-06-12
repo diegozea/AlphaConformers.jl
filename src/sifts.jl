@@ -197,11 +197,11 @@ function delete_query_from_target(
 
     @show query_structures
 
-    # 👉 colonnes directement
+    # Columns directly
     pdbs   = String.(query_structures.PDB)
     chains = String.(query_structures.CHAIN)
 
-    # 👉 construction vectorisée
+    # Vectorized construction
     pdb_names = Set(uppercase.(pdbs) .* ".cif_" .* uppercase.(chains))
     pdb_prefixes_upper = Set(uppercase.(pdbs))
     pdb_prefixes_lower = Set(lowercase.(pdbs))
@@ -270,13 +270,13 @@ function known_uniprot_structures(sifts_uniprot_mapping::DataFrames.DataFrame,
     search_results::DataFrames.DataFrame;
     keep_only_known::Bool=true)::Set{String}
     new_targets = Set{String}()
-    #get all the pdb id 
+    # Get all PDB IDs.
     pdb_ids_from_foldseek = unique(search_results.target)
     for pdb_id in pdb_ids_from_foldseek
         if startswith(pdb_id,"AF")
             break
         end
-        #for each pdb 
+        # For each PDB entry.
         pdb=String(first(splitext(pdb_id)))
         chain_check=split(pdb_id,"_")
         if length(chain_check)==2
@@ -284,13 +284,13 @@ function known_uniprot_structures(sifts_uniprot_mapping::DataFrames.DataFrame,
         else 
             chain = MIToS.PDB.All
         end
-        #get uniprot ID
+        # Get the UniProt ID.
         uni= get_uniprot_acc(sifts_uniprot_mapping,pdb, chain)
         if uni === nothing || isempty(uni)
-            continue   # ⚠️ surtout PAS break
+            continue   # Do not break here.
         end
         
-        #Get all the conformation of that uniprot 
+        # Get all conformations for that UniProt entry.
         all_pdbs_uni = get_pdb_codes(sifts_uniprot_mapping, String(uni[1]))
         for row in eachrow(all_pdbs_uni)
             pdb = String(row.PDB)
@@ -324,14 +324,14 @@ function known_pfam_structures(sifts_pfam_mapping::DataFrames.DataFrame,
     search_results::DataFrames.DataFrame;
     keep_only_known::Bool=true)::Set{String}
     new_targets = Set{String}()
-    #get all the pdb id 
+    # Get all PDB IDs.
     pdb_ids_from_foldseek = unique(search_results.target)
     
     for pdb_id in pdb_ids_from_foldseek
         if startswith(pdb_id,"AF")
             break
         end
-        #for each pdb 
+        # For each PDB entry.
         pdb=String(first(splitext(pdb_id)))
         chain_check=split(pdb_id,"_")
         if length(chain_check)==2
@@ -339,7 +339,7 @@ function known_pfam_structures(sifts_pfam_mapping::DataFrames.DataFrame,
         else 
             chain = MIToS.PDB.All
         end
-        #get uniprot ID
+        # Get the UniProt ID.
         uni= get_pfam_acc(sifts_pfam_mapping,pdb, chain)
         
         if uni === nothing || isempty(uni)
@@ -348,7 +348,7 @@ function known_pfam_structures(sifts_pfam_mapping::DataFrames.DataFrame,
             uni=uni[1]
         end
         
-        #Get all the conformation of that uniprot 
+        # Get all conformations for that UniProt entry.
         all_pdbs = sifts_pfam_mapping[sifts_pfam_mapping.PFAM_ID.==uni, [:PDB, :CHAIN, :PFAM_ID]]
         all_pdbs_uni = unique(all_pdbs.PFAM_ID)
         
@@ -396,10 +396,10 @@ a set of PDB codes and chains that are not currently included in the results.
 function get_unknown_conformations(search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame,pdb_folder::String,out_folder,input_pdb,n_threads)
     
-    #get all the alternative structure that was not found by foldseek 
+    # Get all alternative structures that were not found by Foldseek.
     new_targets = known_uniprot_structures(sifts_uniprot_mapping, search_results)
     println("New targets to add: ", new_targets)
-    #Check if alternative structure have been found 
+    # Check whether alternative structures were found.
     isempty(new_targets) && return nothing
     
     cwd = pwd()
@@ -416,7 +416,7 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
                 chain_code=String(split(fname,"_")[2])
                 input_cif = joinpath(pdb_folder, prot_name)
                 if !isfile(input_cif)
-                    @warn "Fichier manquant : $input_cif"
+                    @warn "Missing file: $input_cif"
                     try 
                         MIToS.Utils.download_file("https://files.rcsb.org/download/"*input_cif, joinpath(tmp_targets_dir,prot_name))
                         input_cif=joinpath(tmp_targets_dir,prot_name)
@@ -424,9 +424,9 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
                         @warn "Didn't suceed to download file : $input_cif"
                         continue
                     end 
-                    isfile(input_cif) || error("Fichier manquant : $input_cif")
+                    isfile(input_cif) || error("Missing file: $input_cif")
                 end
-                #isfile(input_cif) || error("Fichier manquant : $input_cif")
+                #isfile(input_cif) || error("Missing file: $input_cif")
                 structure=MIToS.PDB.read_file(input_cif, MIToS.PDB.MMCIFFile,
                     chain=chain_code, model="1", onlyheavy=true, occupancyfilter=true)
                 if isempty(structure) 
@@ -434,7 +434,7 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
                     chain_list = unique(res.id.chain for res in structure)
                     structure=MIToS.PDB.read_file(input_cif, MIToS.PDB.MMCIFFile, chain=chain_list[1], model="1", onlyheavy=true, occupancyfilter=true)
                 end
-                isempty(structure) && error("Chaîne $chain_code absente dans $input_cif")
+                isempty(structure) && error("Chain $chain_code is absent from $input_cif")
                 file_name_to_save=basename(prot_name)*".cif"
                 output_cif=joinpath(tmp_targets_dir, file_name_to_save)
                 MIToS.PDB.write_file(output_cif, structure, MIToS.PDB.MMCIFFile)
@@ -456,14 +456,14 @@ function get_unknown_conformations(search_results::DataFrames.DataFrame,
     println("Foldseek database created")
     target_db=joinpath(out_folder,"target_db")
     @assert isfile(target_db)
-    #Run foldseek to align all the structure 
+    # Run Foldseek to align all structures.
     output_vector = Vector{String}()
     println("Running Foldseek to align all the structures")
     output = run_foldseek(input_pdb, n_threads, target_db; out_folder=out_folder, filtrage=false)
     for item in output
-        push!(output_vector, item.table_file)  # Ajouter au vecteur
+        push!(output_vector, item.table_file)  # Add to the vector.
     end
-    # Fusionner les tables
+    # Merge the tables.
     new_target_result = merge_tables(output_vector)
     
     new_target_result

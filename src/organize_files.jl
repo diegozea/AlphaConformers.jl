@@ -1,5 +1,5 @@
 
-# Déplace les fichiers correspondant à un motif vers un dossier
+# Move files matching a pattern into a folder.
 function safe_move(src_pattern::AbstractString, dst_dir::AbstractString)
     for src in glob(src_pattern)
         try
@@ -33,10 +33,10 @@ output_dir/
         └── scores/       ← .json files
 """
 function organize_files(output_dir::AbstractString)
-    println("📂 Réorganisation des fichiers dans $output_dir ...")
+    println("📂 Reorganizing files in $output_dir ...")
     cd(output_dir)
 
-    # Dossier principal
+    # Main folder.
     predictions_dir = joinpath(output_dir, "predictions")
     mkdir(predictions_dir)
 
@@ -44,7 +44,7 @@ function organize_files(output_dir::AbstractString)
     mv("log.txt", joinpath(predictions_dir, "log.txt"))
     mv("cite.bibtex", joinpath(predictions_dir, "cite.bibtex"))
 
-    # Dossier sequences
+    # Sequences folder.
     seq_dir = joinpath(predictions_dir, "sequences")
     mkdir(seq_dir)
     if isfile("sequences.a3m") || isfile("sequences.done.txt")
@@ -52,7 +52,7 @@ function organize_files(output_dir::AbstractString)
         mv("sequences.done.txt", joinpath(seq_dir, "sequences.done.txt"))
     end
     
-    # Dossier models
+    # Models folder.
     models_dir = joinpath(seq_dir, "models")
     mkdir(models_dir)
 
@@ -60,21 +60,21 @@ function organize_files(output_dir::AbstractString)
         mv(file, joinpath(models_dir, basename(file)); force=true)
     end
 
-    # Dossier plots
+    # Plots folder.
     plots_dir = joinpath(seq_dir, "plots")
     mkdir(plots_dir)
     for file in glob("*.png", output_dir)
         mv(file, joinpath(plots_dir, basename(file)); force=true)
     end
 
-    # Dossier scores
+    # Scores folder.
     scores_dir = joinpath(seq_dir, "scores")
     mkdir(scores_dir)
     for file in glob("*.json", output_dir)
         mv(file, joinpath(scores_dir, basename(file)); force=true)
     end
 
-    println("\n✅ Réorganisation terminée !")
+    println("\n✅ Reorganization complete!")
 end
 
 """
@@ -101,10 +101,10 @@ output_dir/
         └── seed*.cif                     ← one per seed
 """
 function organize_files_af3(output_dir::AbstractString,run_name::String)
-    println("📂 Réorganisation des fichiers dans $output_dir ...")
+    println("📂 Reorganizing files in $output_dir ...")
     cd(output_dir)
     output_path=joinpath(output_dir,lowercase(run_name))
-    # Dossier principal
+    # Main folder.
     predictions_dir = joinpath(output_dir, "predictions")
     mkpath(predictions_dir)
     cp(joinpath(output_path,lowercase(run_name)*"_data.json"), joinpath(predictions_dir, "config.json"); force=true)
@@ -130,7 +130,7 @@ function organize_files_af3(output_dir::AbstractString,run_name::String)
         cp(joinpath(dir,"model.cif"), joinpath(models_dir,basename(dir)*".cif"); force=true)
     end
 
-    println("\n✅ Réorganisation terminée !")
+    println("\n✅ Reorganization complete!")
 end
 """
     organize_files_boltz(output_dir)
@@ -153,10 +153,10 @@ Each output file is prefixed with its seed folder name (e.g. `seed_12345_model.c
 to avoid collisions across seeds.
 """
 function organize_files_boltz(output_dir::AbstractString)
-    println("📂 Réorganisation des fichiers dans $output_dir ...")
+    println("📂 Reorganizing files in $output_dir ...")
     cd(output_dir)
     
-    # Dossier principal
+    # Main folder.
     predictions_dir = joinpath(output_dir, "predictions")
     mkpath(predictions_dir)
 
@@ -197,7 +197,7 @@ function organize_files_boltz(output_dir::AbstractString)
         end
     end
 
-    println("\n✅ Réorganisation terminée !")
+    println("\n✅ Reorganization complete!")
 end
 
 function get_all_predictions(output_dir::String,folder_af2_result)
@@ -220,12 +220,12 @@ function get_all_predictions(output_dir::String,folder_af2_result)
             if isfile(json_path)
                 data = JSON3.parsefile(json_path)
 
-                # récupérer le ptm
+                # Retrieve the pTM.
                 ptm = data["ptm"]
 
                 dic_pred_ptm[name]=ptm
             else
-                @warn "JSON manquant pour $pred"
+                @warn "Missing JSON for $pred"
             end
         end
     end
@@ -278,11 +278,11 @@ function found_uniprot_structure(
 
     @show query_structures
 
-    # 👉 colonnes directement
+    # Columns directly.
     pdbs   = String.(query_structures.PDB)
     chains = String.(query_structures.CHAIN)
 
-    # 👉 construction vectorisée
+    # Vectorized construction.
     
 
     uniprot_result = filter(r ->

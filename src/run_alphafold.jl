@@ -221,7 +221,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
 
     df = DataFrame(parsed_data)
     @show df
-    # trier par pLDDT décroissant
+    # Sort by descending pLDDT.
     sort!(df, :pLDDT, rev=true)
 
     CSV.write(joinpath(output_dir, "predictions", "scores.csv"), df)
@@ -237,7 +237,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
     return dst
 end
 
-### Fonction AlphaFold3 ###
+### AlphaFold3 function ###
 
 function write_af3_json(
     out_json::String;
@@ -388,7 +388,7 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
                 @show split_name
                 matches = [sequences[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]
                 if isempty(matches)
-                    error("Aucun template trouvé pour $split_name")
+                    error("No template found for $split_name")
                 end
                 template_seq = matches[1]
                 real_name = [ids[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]

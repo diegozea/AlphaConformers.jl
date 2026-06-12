@@ -137,7 +137,7 @@ function analyse_output(query::String,folder_path::String,folder_model::String,o
     marker=:circle, legend=false,
     xlims=(0,13), ylims=(0, 13))
     #Save the plot
-    savefig(folder_model*"/rmsd_scatter_"*query*".png")  # Sauvegarde du plot
+    savefig(folder_model*"/rmsd_scatter_"*query*".png")  # Save the plot.
 end
 
 #Get input parameter from command line
@@ -180,4 +180,3 @@ analyse_output(query, folder_path, folder_model, objectif)
 
 
 ########################################### END ##############################################################
-

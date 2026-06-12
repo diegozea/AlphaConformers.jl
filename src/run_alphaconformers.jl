@@ -57,7 +57,7 @@ function get_res_beg_end(pdb_file::String)
             if startswith(line, "ATOM")
                 raw = strip(line[23:26])
 
-                # 👉 garder uniquement les chiffres
+                # Keep only the digits.
                 num = match(r"\d+", raw)
 
                 if num !== nothing
@@ -89,10 +89,10 @@ end
 
 function align_full_seq(full_seq, msa)
     
-    ref_seq = msa[1]  # la première séquence de l'MSA est la référence
+    ref_seq = msa[1]  # The first MSA sequence is the reference.
     @show ref_seq
     @show full_seq
-    mapping = Int[]  # positions dans ref_seq ou 0 si gap
+    mapping = Int[]  # Positions in ref_seq, or 0 for gaps.
 
     i = 1  # index ref_seq
 
@@ -105,13 +105,13 @@ function align_full_seq(full_seq, msa)
         end
     end
     @show mapping
-    # Construire nouveau MSA
+    # Build the new MSA.
     new_msa = String[]
 
-    # 1️⃣ première ligne = full_seq (ta référence propre)
+    # First row = full_seq (the clean reference).
     push!(new_msa, full_seq)
 
-    # 2️⃣ autres séquences
+    # Other sequences.
     for seq in msa[2:end]
         seq_string=seq
         new_seq = ""
@@ -159,23 +159,23 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
     steps = [
     "Foldseek search",
     "Merging tables",
-    "Ajout conformations connues",
-    "Fusion des MSAs",
+    "Adding known conformations",
+    "Merging MSAs",
     "Final MSA",
-    "Structures alignées",
+    "Aligned structures",
     "Clustering Hobohm",
-    "Création dossiers + nettoyage"
+    "Creating folders + cleanup"
     ]
-    n_steps = test_analyse ? 8 : 7   # alignement conditionnel
+    n_steps = test_analyse ? 8 : 7   # Conditional alignment.
     prog = Progress(steps, 0, n_steps)
 
 
-    println("Threads disponibles",Threads.nthreads())
+    println("Available threads",Threads.nthreads())
 
     #Get the query pdb code and chain from the input file name
     parts=split(basename(input_pdb), "_")
     if length(parts) < 2
-        error("Le nom du fichier PDB doit être au format 'PDBCODE_CHAIN.pdb', par exemple '1EX6_B.pdb'")
+        error("The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'")
     end
     query_pdb_code = parts[1]
     query_chain_code=String(first(splitext(parts[2])))
@@ -187,7 +187,7 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
     # Init empty vector to store the table files
     output_vector = Vector{String}()
     for item in output
-        push!(output_vector, item.table_file)  # Ajouter au vecteur
+        push!(output_vector, item.table_file)  # Add to the vector.
     end
     
     # Create the merged table
@@ -209,7 +209,7 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
     sifts_uniprot_mapping = get_uniprot_mapping()
     clean_table = add_known_conformations!(deepcopy(merged_table), sifts_uniprot_mapping,pdb_folder,out_folder,input_pdb,n_threads)
     println("Size of all target found : $(size(clean_table))")
-    progress_bar(prog, "Ajout conformations connues")
+    progress_bar(prog, "Adding known conformations")
 
     if test_analyse 
         println("Remove know structure from query uniprot from targets (keep query itself in targets)")
@@ -234,7 +234,7 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
     merged_msa = merge_msas(expanded_table)
     MIToS.MSA.write_file(joinpath(out_folder, "all_sequence.a3m"), merged_msa, MIToS.MSA.A3M)
     println("Size of merged MSA: $(size(merged_msa))")
-    progress_bar(prog, "Fusion des MSAs")
+    progress_bar(prog, "Merging MSAs")
 
     ### Align sequence on AFDB sequences - to not have missing residues 
     if full_seq !== missing
@@ -268,7 +268,7 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
 
     println("Getting the aligned structures")
     structures = _get_aligned_structures(expanded_table)
-    progress_bar(prog, "Structures alignées")
+    progress_bar(prog, "Aligned structures")
     println("Clustering structures")
     clusters, cl2msa, cl2pdb= create_template_clusters_hobohm(expanded_table, align_merged_msa, structures,cutoff)
     progress_bar(prog, "Clustering Hobohm")
@@ -277,7 +277,7 @@ function alphaconformers(input_pdb::String, pdb_folder::String, out_folder::Stri
     println("Cleaning MSA and template names for AlphaFold2 input")
 
     clean_msa_template_names(clusters,out_folder)
-    progress_bar(prog, "Création dossiers + nettoyage")
+    progress_bar(prog, "Creating folders + cleanup")
     println("----------------------------------------")
     println("AlphaConformers finished running.")
     println("----------------------------------------")

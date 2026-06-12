@@ -55,9 +55,9 @@ and proper column names.
 function read_foldseek_search_results(file::AbstractString; colonnes::Vector{String}=_M8_COL_NAMES)
     """
     lines = readlines(file)
-    # Garder seulement les lignes qui ne commencent pas par "@SQ"
+    # Keep only the lines that do not start with "@SQ".
     filtered_lines = filter(line -> !startswith(line, "@SQ"), lines)
-    # Écrire dans un fichier temporaire
+    # Write to a temporary file.
     temp_file = tempname()
     open(temp_file, "w") do io
         for line in filtered_lines
@@ -65,7 +65,7 @@ function read_foldseek_search_results(file::AbstractString; colonnes::Vector{Str
         end
     end
     """
-    # Charger dans un DataFrame
+    # Load into a DataFrame.
     df = DataFrames.DataFrame(CSV.File(file, delim='\t', header=colonnes))
     return df
     
@@ -370,7 +370,7 @@ function merge_msas(table)
             elseif name in duplicated_msa_targets
                 key = _seq_name_to_key(seqname)  # ("1QGP.pdb_A", 56, 0.203)
                 if key in starts
-                    # Vérifie si une entrée du même nom existe déjà dans la liste `names`
+                    # Check whether an entry with the same name already exists in `names`.
                     found=nothing
                     for kv in names
                         
@@ -383,18 +383,18 @@ function merge_msas(table)
                     if found !== nothing
                         existing_key = found[1]
                         existing_index = found[2]
-                        # Comparaison sur la valeur du score (3e élément)
+                        # Compare using the score value (third element).
                         if key[3] < existing_key[3]
-                            # Trouver la position de l'entrée à désélectionner
+                            # Find the position of the entry to deselect.
                             selected[existing_index] = false
                             selected[index] = true
                             names[key] = index
-                            delete!(names, existing_key)  # key est la clé, pas la valeur
+                            delete!(names, existing_key)  # key is the dictionary key, not the value.
                         else
                             selected[index] = false
                         end
                     else
-                        # Première fois qu'on voit ce nom
+                        # First time this name has been seen.
                         names[key] = index
                         selected[index] = true
                     end
@@ -434,24 +434,22 @@ function merge_msas(table)
         selected = trues(length(cleaned_names))
         for (i, name) in enumerate(cleaned_names)
             if name in seen
-                selected[i] = false   # on supprime le doublon
+                selected[i] = false   # Remove the duplicate.
             else
                 push!(seen, name)
             end
         end
-        # Filtrer le MSA
+        # Filter the MSA.
         msa_a = msa_a[selected, :]
-        # Mettre à jour les noms nettoyés
+        # Update the cleaned names.
         cleaned_names = cleaned_names[selected]
     end
     @assert size(msa_a, 1) == length(cleaned_names)
-    # Renommer les séquences avec les nouveaux noms uniques
+    # Rename the sequences with the new unique names.
     MIToS.MSA.rename_sequences!(msa_a, cleaned_names)
 end
 
     
-
-
 
 
 

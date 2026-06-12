@@ -161,19 +161,19 @@ end
 
 function get_cluster2targets_concatenate(targets, clusters)
     cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
-    # Regroupe les clusters par paquets de 10
+    # Group clusters in batches of 10.
     grouped_clusters = Dict{Int, Vector{String}}()
     for (name, cl) in targets
         group = Int(ceil(cl / 10))
         if !haskey(grouped_clusters, group)
             grouped_clusters[group] = String[]
         end
-        # Ajoute sans doublon
+        # Add without duplicates.
         if !(name in grouped_clusters[group])
             push!(grouped_clusters[group], name)
         end
     end
-    # Convertit en OrderedDict pour compatibilité
+    # Convert to OrderedDict for compatibility.
     for (group, names) in sort(collect(grouped_clusters))
         cluster2targets[group] = names
     end
@@ -255,17 +255,17 @@ If less than 8 templates are available we take the four first one, if less than 
 """
 #Select 4 template for each clusters
 function get_cluster2structures(structures, cluster2targets)
-    # dictionnaire final
+    # Final dictionary.
     cluster2structures = OrderedCollections.OrderedDict{Int, Dict{String, Vector{MIToS.PDB.PDBResidue}}}()
 
-    # pour tracker les targets déjà assignés
+    # Track targets that have already been assigned.
     used_targets = Set{String}()
 
     for (cluster, targets) in cluster2targets
-        # on filtre les targets déjà utilisés
+        # Filter out targets that have already been used.
         available_targets = filter(t -> !(t in used_targets), targets)
         
-        # on choisit les sous-targets
+        # Choose the subtargets.
         subtargets = String[]
         n = length(available_targets)
 
@@ -284,10 +284,10 @@ function get_cluster2structures(structures, cluster2targets)
             end
         end
 
-        # marquer ces targets comme utilisés
+        # Mark these targets as used.
         foreach(t -> push!(used_targets, t), subtargets)
 
-        # construire cluster2structures
+        # Build cluster2structures.
         cluster2structures[cluster] = Dict(
             t => structures[t] for t in subtargets
         )
