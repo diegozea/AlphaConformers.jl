@@ -44,18 +44,22 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v7
+        # Keep coverage upload non-blocking until the repo is public and Codecov is configured.
+        continue-on-error: true
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@v2
+        # Keep coverage upload non-blocking until the repo is public and Coveralls is configured.
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: lcov.info
           flag-name: run-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}
           parallel: true
-          fail-on-error: true
+          fail-on-error: false
   finish:
     needs: test
     if: ${{ always() }}
@@ -68,10 +72,11 @@ jobs:
     steps:
       - name: Coveralls Finished
         uses: coverallsapp/github-action@v2
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
-          fail-on-error: true
+          fail-on-error: false
   docs:
     name: Documentation
     runs-on: ubuntu-latest
