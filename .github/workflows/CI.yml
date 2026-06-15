@@ -91,12 +91,18 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
+      - name: Run doctests
+        shell: julia --project=docs --color=yes {0}
+        run: |
+          using Pkg
+          cd("docs") do
+            Pkg.develop(PackageSpec(path=".."))
+            Pkg.instantiate()
+          end
+          using Documenter: DocMeta, doctest
+          using AlphaConformers
+          DocMeta.setdocmeta!(AlphaConformers, :DocTestSetup, :(using AlphaConformers); recursive=true)
+          doctest(AlphaConformers)
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: |
-          julia --project=docs -e '
-            using Documenter: DocMeta, doctest
-            using AlphaConformers
-            DocMeta.setdocmeta!(AlphaConformers, :DocTestSetup, :(using AlphaConformers); recursive=true)
-            doctest(AlphaConformers)'

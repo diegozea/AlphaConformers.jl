@@ -1,3 +1,12 @@
+using Pkg
+
+# The docs manifest is ignored, so make the documented package available when
+# the docs command is run from a fresh checkout.
+cd(@__DIR__) do
+    Pkg.develop(PackageSpec(path = ".."))
+    Pkg.instantiate()
+end
+
 using AlphaConformers
 using Documenter
 
@@ -11,7 +20,7 @@ DocMeta.setdocmeta!(
 makedocs(;
     modules = [AlphaConformers],
     authors = "Diego Javier Zea <diegozea@gmail.com> and contributors",
-    repo = "https://github.com/diegozea/AlphaConformers.jl/blob/{commit}{path}#{line}",
+    repo = Documenter.Remotes.GitHub("diegozea", "AlphaConformers.jl"),
     sitename = "AlphaConformers.jl",
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
@@ -22,4 +31,4 @@ makedocs(;
     pages = ["Home" => "index.md"],
 )
 
-deploydocs(; repo = "github.com/diegozea/AlphaConformers.jl", devbranch = "main")
+deploydocs(; repo = "github.com/diegozea/AlphaConformers.jl.git", devbranch = "main")
