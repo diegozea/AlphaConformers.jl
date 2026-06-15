@@ -22,13 +22,14 @@ makedocs(;
     authors = "Diego Javier Zea <diegozea@gmail.com> and contributors",
     repo = Documenter.Remotes.GitHub("diegozea", "AlphaConformers.jl"),
     sitename = "AlphaConformers.jl",
+    workdir = joinpath(@__DIR__, ".."),
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://diegozea.github.io/AlphaConformers.jl",
         edit_link = "main",
         assets = String[],
     ),
-    pages = ["Home" => "index.md"],
+    pages = ["Home" => "index.md", "API Reference" => "api.md"],
 )
 
 deploydocs(; repo = "github.com/diegozea/AlphaConformers.jl.git", devbranch = "main")
