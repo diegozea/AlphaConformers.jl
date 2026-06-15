@@ -36,6 +36,7 @@ src/af_input.jl
 src/foldseek_api_curl.jl
 src/pdb_folders.jl
 src/usalign.jl
+scripts/mohit_data.jl
 
 # DEV
 _*.md
