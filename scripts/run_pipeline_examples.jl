@@ -65,11 +65,11 @@ AlphaConformers.run_alphafold(apo_dir, colabfold_path=COLABFOLD_PATH)
 
 for row in eachrow(DATA)
     try
-        @info "Processing $(row.apo_id)"   
+        @info "Processing $(row.apo_id)"
         apo_id = row.apo_id
         apo_dir = joinpath(PATH, apo_id)
         if isdir(apo_dir)
-            rm(apo_dir; recursive=true, force=true)
+            rm(apo_dir; recursive = true, force = true)
         end
         mkdir(apo_dir)
 
@@ -78,9 +78,15 @@ for row in eachrow(DATA)
         ref_chain = String(m.captures[3])
         ref_model = isempty(m.captures[2]) ? "1" : String(m.captures[2])
         ref_pdb = joinpath(PDB_FOLDER, "$ref_pdb_code.pdb")
-        
-        AlphaConformers.alphaconformers(ref_pdb, FOLDSEEK_DB, ALPHAFOLD_DB, PDB_FOLDER, apo_dir)
-        AlphaConformers.run_alphafold(apo_dir, colabfold_path=COLABFOLD_PATH)
+
+        AlphaConformers.alphaconformers(
+            ref_pdb,
+            FOLDSEEK_DB,
+            ALPHAFOLD_DB,
+            PDB_FOLDER,
+            apo_dir,
+        )
+        AlphaConformers.run_alphafold(apo_dir, colabfold_path = COLABFOLD_PATH)
 
     catch err
         @error "Error processing $(row.apo_id): $(err)"

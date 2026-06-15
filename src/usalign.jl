@@ -4,7 +4,7 @@
 
 "Parse the table output format of USalign (`-outfmt 2`) into a DataFrame"
 function _read_usalign_output_table(file)
-    df = DataFrames.DataFrame(CSV.File(file, delim='\t'))
+    df = DataFrames.DataFrame(CSV.File(file, delim = '\t'))
     DataFrames.rename!(df, "#PDBchain1" => :PDBchain1)
 end
 
@@ -21,9 +21,14 @@ function _save_list(file, pdb_list, pdb_folder)
     end
 end
 
-function _usalign_command(usalign::Cmd=USalign_jll.USalign(); 
-        mol::String="prot", TMcut::Union{Float64,Nothing}=0.5, fast::Bool=true, 
-        outfmt::Int=2, extra_parameters::Union{Cmd,Nothing}=nothing)
+function _usalign_command(
+    usalign::Cmd = USalign_jll.USalign();
+    mol::String = "prot",
+    TMcut::Union{Float64,Nothing} = 0.5,
+    fast::Bool = true,
+    outfmt::Int = 2,
+    extra_parameters::Union{Cmd,Nothing} = nothing,
+)
     @assert mol in ["auto", "prot", "RNA"]
     @assert outfmt in [0, 1, 2, -1]
     if outfmt != 2
@@ -97,7 +102,7 @@ function usalign(pdb_file_a, pdb_file_b; kargs...)
     mktemp() do tmp_path, _
         cmd = _usalign_command(; kargs...)
         cmd = `$cmd $pdb_file_a $pdb_file_b`
-        run(pipeline(cmd, stdout=tmp_path))
+        run(pipeline(cmd, stdout = tmp_path))
         _read_usalign_output_table(tmp_path)
     end
 end
@@ -114,7 +119,7 @@ function usalign(pdb_file_a, pdb_folder, pdb_list; kargs...)
         mktemp() do output, _
             cmd = _usalign_command(; kargs...)
             cmd = `$cmd $pdb_file_a -dir2 $pdb_folder $list`
-            run(pipeline(cmd, stdout=output))
+            run(pipeline(cmd, stdout = output))
             _read_usalign_output_table(output)
         end
     end

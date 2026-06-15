@@ -26,8 +26,7 @@ function progress(folder)
     cd(WORKING_DIR)
     cd(folder)
     cd("clusters")
-    subfolders = filter(f -> isdir(f) && startswith(f, "cluster_"),
-        readdir())
+    subfolders = filter(f -> isdir(f) && startswith(f, "cluster_"), readdir())
     for subfolder in subfolders
         cd(subfolder)
         progress = readlines("af/progress.log")
@@ -45,15 +44,19 @@ end
 
 data = DataFrames.DataFrame(vcat(results...))
 
-finished = DataFrames.combine(DataFrames.groupby(data, "folder"), "finished" => Statistics.mean)
+finished =
+    DataFrames.combine(DataFrames.groupby(data, "folder"), "finished" => Statistics.mean)
 
-const finished_folders = finished.folder[finished.finished_mean.==1.0]
+const finished_folders = finished.folder[finished.finished_mean .== 1.0]
 
 # ------------------------------------------------------------------------------------------
 # From compare_runs.jl
 
 
-function run_tmalign_and_cluster(local_pdb_folder::String, filename_prefix::String="tmalign")
+function run_tmalign_and_cluster(
+    local_pdb_folder::String,
+    filename_prefix::String = "tmalign",
+)
     # create a temporary file for the chain list
     chain_list_path = tempname()
     open(chain_list_path, "w") do io
@@ -74,22 +77,32 @@ function run_tmalign_and_cluster(local_pdb_folder::String, filename_prefix::Stri
     stdout_path = filename_prefix * ".out"
     stderr_path = filename_prefix * ".err"
 
-    run(pipeline(`/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path -fast`,
-        stdout=stdout_path, stderr=stderr_path))
+    run(
+        pipeline(
+            `/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path -fast`,
+            stdout = stdout_path,
+            stderr = stderr_path,
+        ),
+    )
     tmalign_out = read(stdout_path, String)
 
     tmalign_data = DataFrames.DataFrame(parse_tm_align_output(tmalign_out))
 
     rmsd_mat = PairwiseListMatrices.from_table(tmalign_data[:, 1:3], false)
 
-    rmsd_clust = Clustering.hclust(rmsd_mat, linkage=:complete, branchorder=:optimal)
+    rmsd_clust = Clustering.hclust(rmsd_mat, linkage = :complete, branchorder = :optimal)
 
-    rmsd_clusters = Clustering.cutree(rmsd_clust, h=1.0)
+    rmsd_clusters = Clustering.cutree(rmsd_clust, h = 1.0)
 
     rmsd_chains = names(rmsd_mat)[1]
 
     # Return named tuple
-    return (tmalign_data=tmalign_data, rmsd_mat=rmsd_mat, rmsd_chains=rmsd_chains, rmsd_clusters=rmsd_clusters)
+    return (
+        tmalign_data = tmalign_data,
+        rmsd_mat = rmsd_mat,
+        rmsd_chains = rmsd_chains,
+        rmsd_clusters = rmsd_clusters,
+    )
 end
 
 """
@@ -110,17 +123,39 @@ the name of Chain_1, the name of Chain_2, RMSD, Seq_ID, and the TM-scores
 function parse_tm_align_output(tm_align_output::String)
     alignments = split(tm_align_output, r" \*+")
     # TODO: improve this by iterating the lines and looking for Chain_1 as an alignment start
-    parsed_alignments = NamedTuple{(:chain_a, :chain_b, :RMSD, :seq_id, :TM_score_a, :TM_score_b),Tuple{String,String,Vararg{Float64,4}}}[]
+    parsed_alignments = NamedTuple{
+        (:chain_a, :chain_b, :RMSD, :seq_id, :TM_score_a, :TM_score_b),
+        Tuple{String,String,Vararg{Float64,4}},
+    }[]
 
     for alignment in alignments
         if alignment != "" && occursin("Chain_1", alignment)
             chain_a = match(r"Chain_1: .*/(.*\.pdb_?[a-zA-Z0-9]?)", alignment).captures[1]
             chain_b = match(r"Chain_2: .*/(.*\.pdb_?[a-zA-Z0-9]?)", alignment).captures[1]
             RMSD = parse(Float64, match(r"RMSD=\s+(.*),", alignment).captures[1])
-            seq_id = parse(Float64, match(r"Seq_ID=n_identical/n_aligned=\s+(.*)", alignment).captures[1])
-            TM_score_a = parse(Float64, match(r"TM-score=\s+(.*) \(if normalized by length of Chain_1", alignment).captures[1])
-            TM_score_b = parse(Float64, match(r"TM-score=\s+(.*) \(if normalized by length of Chain_2", alignment).captures[1])
-            push!(parsed_alignments, (chain_a=chain_a, chain_b=chain_b, RMSD=RMSD, seq_id=seq_id, TM_score_a=TM_score_a, TM_score_b=TM_score_b))
+            seq_id = parse(
+                Float64,
+                match(r"Seq_ID=n_identical/n_aligned=\s+(.*)", alignment).captures[1],
+            )
+            TM_score_a = parse(
+                Float64,
+                match(r"TM-score=\s+(.*) \(if normalized by length of Chain_1", alignment).captures[1],
+            )
+            TM_score_b = parse(
+                Float64,
+                match(r"TM-score=\s+(.*) \(if normalized by length of Chain_2", alignment).captures[1],
+            )
+            push!(
+                parsed_alignments,
+                (
+                    chain_a = chain_a,
+                    chain_b = chain_b,
+                    RMSD = RMSD,
+                    seq_id = seq_id,
+                    TM_score_a = TM_score_a,
+                    TM_score_b = TM_score_b,
+                ),
+            )
         end
     end
 
@@ -142,7 +177,7 @@ function cluster_models(alphafold_output_path, templates_path)
     for file in readdir(templates_path)
         cp(joinpath(templates_path, file), joinpath(tmp_dir, file))
     end
-    for file in readdir(alphafold_output_path, join=true)
+    for file in readdir(alphafold_output_path, join = true)
         cp(file, joinpath(tmp_dir, basename(file)))
     end
     # Run TM-align and cluster the results
@@ -151,8 +186,10 @@ end
 
 function rmsd_stats(index)
     data = af_clusters[index].tmalign_data
-    sel = [xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
-           for row in eachrow(data)]
+    sel = [
+        xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
+        for row in eachrow(data)
+    ]
     rmsd = data[sel, :RMSD]
     minimum(rmsd), Statistics.median(rmsd), maximum(rmsd)
 end
@@ -161,18 +198,21 @@ end
 
 function analyze_clusters(WORKING_DIR::String, folder::String)
     results = []
-    for subfolder in readdir(joinpath(WORKING_DIR, folder, "clusters"), join=true)
+    for subfolder in readdir(joinpath(WORKING_DIR, folder, "clusters"), join = true)
         cd(subfolder)
         templates_path = "templates"
         alphafold_output_path = "af/predictions/sequences/models"
         af_cluster = cluster_models(alphafold_output_path, templates_path)
         push!(results, (; folder, af_cluster))
         data = af_cluster.tmalign_data
-        sel = [xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
-               for row in eachrow(data)]
+        sel = [
+            xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences")) for row in eachrow(data)
+        ]
         rmsd = data[sel, :RMSD]
         println("Cluster $subfolder")
-        println("min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))")
+        println(
+            "min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))",
+        )
         cd("..")
     end
     results
@@ -199,10 +239,14 @@ cd(WORKING_DIR)
 
 function rmsd_stats_cluster(af_cluster)
     data = af_cluster.tmalign_data
-    sel = [xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
-           for row in eachrow(data)]
+    sel = [
+        xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
+        for row in eachrow(data)
+    ]
     rmsd = data[sel, :RMSD]
-    println("min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))")
+    println(
+        "min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))",
+    )
 end
 
 #=
@@ -249,9 +293,9 @@ write("1RGH.pdb", pdb_b2, MIToS.PDB.PDBFile)
 =#
 
 function get_models(folder)
-    clusters = readdir(joinpath(WORKING_DIR, folder, "clusters"), join=true)
+    clusters = readdir(joinpath(WORKING_DIR, folder, "clusters"), join = true)
     list_models = map(clusters) do cluster
-        models = readdir(joinpath(cluster, "af/predictions/sequences/models"), join=true)
+        models = readdir(joinpath(cluster, "af/predictions/sequences/models"), join = true)
     end
     vcat(list_models...)
 end
@@ -279,8 +323,8 @@ data_b = load_object_from_disk("data_b.bin")
 
 function plot_superimposition(pdb_file_a, pdb_file_b)
     # Read the pdb files
-    res_a = MIToS.PDB.read(pdb_file_a, MIToS.PDB.PDBFile, atomname="CA")
-    res_b = MIToS.PDB.read(pdb_file_b, MIToS.PDB.PDBFile, atomname="CA")
+    res_a = MIToS.PDB.read(pdb_file_a, MIToS.PDB.PDBFile, atomname = "CA")
+    res_b = MIToS.PDB.read(pdb_file_b, MIToS.PDB.PDBFile, atomname = "CA")
     @show length(res_a)
     @show length(res_b)
     # Superimpose the chains
@@ -290,8 +334,8 @@ function plot_superimposition(pdb_file_a, pdb_file_b)
     println("RMSD: ", RMSD)
 
     # Plot the superimposed chains
-    Plots.scatter3d(superimposed_A, label="A", alpha=0.5)
-    Plots.scatter3d!(superimposed_B, label="B", alpha=0.5)
+    Plots.scatter3d(superimposed_A, label = "A", alpha = 0.5)
+    Plots.scatter3d!(superimposed_B, label = "B", alpha = 0.5)
 end
 
 function find_file_path(filename::AbstractString, search_directory::AbstractString)

@@ -48,12 +48,19 @@ A named tuple `(aligned_a, aligned_b, matches, rmsd, coverage, identity)` where:
 Returns `nothing` if either structure has no Cα atoms, sequences cannot be extracted,
 no residues fall within `limit_residues_range`, or an unexpected error occurs.
 """
-function structural_alignment(conformation_a, conformation_b;
-    aln_type=BioAlignments.OverlapAlignment(),
-    aln_model=BioAlignments.AffineGapScoreModel(match=6, mismatch=-4, gap_open=-2,
-        gap_extend=-1),
-    limit_residues_range::Union{UnitRange{Int}, Tuple{Int,Int}, Nothing}=nothing)
-    
+function structural_alignment(
+    conformation_a,
+    conformation_b;
+    aln_type = BioAlignments.OverlapAlignment(),
+    aln_model = BioAlignments.AffineGapScoreModel(
+        match = 6,
+        mismatch = -4,
+        gap_open = -2,
+        gap_extend = -1,
+    ),
+    limit_residues_range::Union{UnitRange{Int},Tuple{Int,Int},Nothing} = nothing,
+)
+
     # only keep residues with 'CA' atom
     clean_a = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_a)
     clean_b = filter(res -> !isempty(MIToS.PDB.findatoms(res, "CA")), conformation_b)
@@ -63,7 +70,7 @@ function structural_alignment(conformation_a, conformation_b;
         @warn "One of the structures has no 'CA' atoms: $len_a, $len_b"
         return nothing
     end
-    
+
     try
         # get the sequences
         seqs_a = MIToS.PDB.modelled_sequences(clean_a)
@@ -78,7 +85,9 @@ function structural_alignment(conformation_a, conformation_b;
         seq_b = first(values(seqs_b))
 
         # align the sequences
-        aln = BioAlignments.alignment(BioAlignments.pairalign(aln_type, seq_a, seq_b, aln_model))
+        aln = BioAlignments.alignment(
+            BioAlignments.pairalign(aln_type, seq_a, seq_b, aln_model),
+        )
         # get the stats
         coverage, identity = coverage_and_identity(aln)
         # get the aligned residues
@@ -90,15 +99,16 @@ function structural_alignment(conformation_a, conformation_b;
                 first(limit_residues_range), last(limit_residues_range)
             else
                 limit_residues_range  # Tuple{Int,Int}
-                
+
             end
 
             if start_res < 1 || stop_res > len_a || start_res > stop_res
                 @warn "Invalid residue range ($start_res, $stop_res) for structure of length $len_a — ignoring range filter"
             else
                 # matches is a vector of (index_in_a, index_in_b) pairs
-                matches = filter(m -> first(m) >= start_res && first(m) <= stop_res, matches)
-                
+                matches =
+                    filter(m -> first(m) >= start_res && first(m) <= stop_res, matches)
+
                 if isempty(matches)
                     @warn "No aligned residues found in range ($start_res, $stop_res)"
                     return nothing
@@ -115,8 +125,8 @@ function structural_alignment(conformation_a, conformation_b;
     end
 end
 
-function within_cluster(item1,item2,threshold)
-    _,_,_,rmsd,coverage,_=structural_alignment(item1, item2)
+function within_cluster(item1, item2, threshold)
+    _, _, _, rmsd, coverage, _=structural_alignment(item1, item2)
     return rmsd <= threshold
 end
 
@@ -129,15 +139,15 @@ function get_target2sequence(expanded_table, msa)
     for row in eachrow(expanded_table)
         seqname = ismissing(row.evalue) ? row.query : row.target
         seqname = String(seqname)
-        push!(test,seqname)
+        push!(test, seqname)
         if seqname in clean_seqnames
             target2sequence[row.target] = seqname
-        else 
+        else
             @warn "The sequence $seqname is not in the MSA."
         end
     end
     target2sequence
-    
+
 end
 
 function get_cluster2targets(targets, clusters)
@@ -162,7 +172,7 @@ end
 function get_cluster2targets_concatenate(targets, clusters)
     cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
     # Group clusters in batches of 10.
-    grouped_clusters = Dict{Int, Vector{String}}()
+    grouped_clusters = Dict{Int,Vector{String}}()
     for (name, cl) in targets
         group = Int(ceil(cl / 10))
         if !haskey(grouped_clusters, group)
@@ -185,15 +195,17 @@ end
 function get_cluster2seqnames(cluster2targets, target2sequence)
     cluster2seqnames = OrderedCollections.OrderedDict{Int,Vector{String}}()
     for (cluster, targets) in cluster2targets
-        cluster2seqnames[cluster] = unique(target2sequence[target] for target in targets
-                                           if haskey(target2sequence, target))
+        cluster2seqnames[cluster] = unique(
+            target2sequence[target] for
+            target in targets if haskey(target2sequence, target)
+        )
     end
     cluster2seqnames
 end
 
 function _check_names_in_msa(names, msa)
     found_names = []
-    seqnames= collect(MIToS.MSA.sequencename_iterator(msa))
+    seqnames = collect(MIToS.MSA.sequencename_iterator(msa))
     clean_seqnames = collect(split(x, '\t')[1] for x in seqnames)
     for seqname in clean_seqnames
         if seqname in names
@@ -215,7 +227,8 @@ end
 
 function get_cluster2msa(msa, cluster2seqnames)
     query_name = first(MIToS.MSA.sequencename_iterator(msa))
-    cluster2msa = OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment}()
+    cluster2msa =
+        OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment}()
     for (cluster, seqnames) in cluster2seqnames
         seqnames = copy(seqnames)
         pushfirst!(seqnames, query_name)
@@ -226,7 +239,7 @@ function get_cluster2msa(msa, cluster2seqnames)
         end
         try
             names=MIToS.MSA.sequencenames(msa)
-            all_name= String[]
+            all_name = String[]
             for nom in seqnames
                 name_line = findfirst(x -> startswith(x, nom), names)
                 if name_line !== nothing
@@ -256,7 +269,8 @@ If less than 8 templates are available we take the four first one, if less than 
 #Select 4 template for each clusters
 function get_cluster2structures(structures, cluster2targets)
     # Final dictionary.
-    cluster2structures = OrderedCollections.OrderedDict{Int, Dict{String, Vector{MIToS.PDB.PDBResidue}}}()
+    cluster2structures =
+        OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}}()
 
     # Track targets that have already been assigned.
     used_targets = Set{String}()
@@ -264,7 +278,7 @@ function get_cluster2structures(structures, cluster2targets)
     for (cluster, targets) in cluster2targets
         # Filter out targets that have already been used.
         available_targets = filter(t -> !(t in used_targets), targets)
-        
+
         # Choose the subtargets.
         subtargets = String[]
         n = length(available_targets)
@@ -276,7 +290,7 @@ function get_cluster2structures(structures, cluster2targets)
             subtargets = available_targets[1:min(4, n)]
         else
             step = max(1, div(n, 4))
-            for i in 1:4
+            for i = 1:4
                 idx = i * step
                 if idx <= n
                     push!(subtargets, available_targets[idx])
@@ -288,9 +302,7 @@ function get_cluster2structures(structures, cluster2targets)
         foreach(t -> push!(used_targets, t), subtargets)
 
         # Build cluster2structures.
-        cluster2structures[cluster] = Dict(
-            t => structures[t] for t in subtargets
-        )
+        cluster2structures[cluster] = Dict(t => structures[t] for t in subtargets)
     end
 
     cluster2structures
@@ -316,18 +328,19 @@ function create_template_clusters_hobohm(
     expanded_table::DataFrames.DataFrame,
     msa::MIToS.MSA.AnnotatedMultipleSequenceAlignment,
     structures::OrderedCollections.OrderedDict{String,Vector{MIToS.PDB.PDBResidue}},
-    cutoff::Float64)
-    
+    cutoff::Float64,
+)
+
     target2sequence = get_target2sequence(expanded_table, msa)
     targets = Set{String}(expanded_table.target)
-    
+
     #Hobohm I clustering
     println("Clustering structures with Hobohm I algorithm...")
     names = collect(keys(structures))
     struct_list = collect(values(structures))
-    output=MIToS.MSA.hobohmI(within_cluster, struct_list, cutoff,threads=true)
+    output=MIToS.MSA.hobohmI(within_cluster, struct_list, cutoff, threads = true)
     assignments = output.clusters
-    cluster_labels = Dict{String, Int}()
+    cluster_labels = Dict{String,Int}()
 
     for (name, cluster_id) in zip(names, assignments)
         cluster_labels[name] = cluster_id
@@ -337,7 +350,7 @@ function create_template_clusters_hobohm(
     println("Number of clusters found: $(length(unique(clusters)))")
 
     cluster2targets, nb_cluster = get_cluster2targets(cluster_labels, clusters)
-    
+
     cl2seq = get_cluster2seqnames(cluster2targets, target2sequence)
     println("Create the related MSAs for each cluster...")
     cl2msa = get_cluster2msa(msa, cl2seq)
@@ -366,16 +379,21 @@ out_folder/
     └── templates_complete/
         └── <template>.cif or .pdb
 """
-function create_folder_structure_hobohm(clusters,
-    cl2msa::OrderedCollections.OrderedDict{Int,MIToS.MSA.AnnotatedMultipleSequenceAlignment},
+function create_folder_structure_hobohm(
+    clusters,
+    cl2msa::OrderedCollections.OrderedDict{
+        Int,
+        MIToS.MSA.AnnotatedMultipleSequenceAlignment,
+    },
     cl2pdb::OrderedCollections.OrderedDict{Int,Dict{String,Vector{MIToS.PDB.PDBResidue}}};
-    out_folder::String=mktempdir())
+    out_folder::String = mktempdir(),
+)
     #unique_cluster=unique(clusters)
     calpha_template = String[]
 
-    for clust in 1:clusters
+    for clust = 1:clusters
         # MSA
-        
+
         cluster_folder = mkdir(joinpath(out_folder, "cluster_$(clust)"))
         msa_file = joinpath(cluster_folder, "sequences.a3m")
         MIToS.MSA.write_file(msa_file, cl2msa[clust], MIToS.MSA.FASTA)
@@ -385,10 +403,13 @@ function create_folder_structure_hobohm(clusters,
         for (target, structure) in cl2pdb[clust]
             #Get the right extension 
             base_name=first(splitext(basename(target)))
-            if startswith(basename(base_name),"AF") 
+            if startswith(basename(base_name), "AF")
                 name_cif_file=basename(base_name)*".pdb"
-                try 
-                    MIToS.PDB.download_alphafold_structure(name_cif_file, joinpath(cluster_template_folder, name_cif_file))
+                try
+                    MIToS.PDB.download_alphafold_structure(
+                        name_cif_file,
+                        joinpath(cluster_template_folder, name_cif_file),
+                    )
                 catch e
                     @warn "Problem to download for AFDB the complete template file: "*base_name
                     out_cif = joinpath(cluster_template_folder, name_cif_file)
@@ -397,13 +418,16 @@ function create_folder_structure_hobohm(clusters,
 
                     continue
                 end
-                
-            else 
+
+            else
                 pdbcode=first(splitext(basename(base_name)))
                 pdbcode = split(basename(pdbcode), '_')[1]
                 name_cif_file=pdbcode*".cif"
-                try 
-                    MIToS.Utils.download_file("https://files.rcsb.org/download/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+                try
+                    MIToS.Utils.download_file(
+                        "https://files.rcsb.org/download/"*name_cif_file,
+                        joinpath(cluster_template_folder, name_cif_file),
+                    )
 
                 catch e
                     @warn "Problem to download from PDB the template file: "*base_name
@@ -412,17 +436,16 @@ function create_folder_structure_hobohm(clusters,
                     push!(calpha_template, out_cif)
                     continue
                 end
-                
+
             end
         end
-        
+
     end
-    CSV.write(joinpath(out_folder, "calpha_template.csv"),
-              (; file = calpha_template))
+    CSV.write(joinpath(out_folder, "calpha_template.csv"), (; file = calpha_template))
     out_folder
 end
 
-function write_new_msa(new_msa_path,query_id,query_seq,cluster_ids,cluster_seqs)
+function write_new_msa(new_msa_path, query_id, query_seq, cluster_ids, cluster_seqs)
     open(new_msa_path, "w") do io
         println(io, ">$query_id")
         println(io, query_seq)
@@ -436,36 +459,42 @@ end
 
 
 
-function download_template(cluster_folder,templates)
+function download_template(cluster_folder, templates)
     cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
     for target in templates
         #Get the right extension 
         base_name = first(splitext(basename(target)))
-        if startswith(basename(base_name),"AF") 
-            new_name= replace(basename(base_name), "MODEL_V6" => "model_v6")
+        if startswith(basename(base_name), "AF")
+            new_name = replace(basename(base_name), "MODEL_V6" => "model_v6")
             name_cif_file=basename(new_name)*".pdb"
-            try 
-                MIToS.PDB.download_alphafold_structure(name_cif_file, joinpath(cluster_template_folder, name_cif_file))
+            try
+                MIToS.PDB.download_alphafold_structure(
+                    name_cif_file,
+                    joinpath(cluster_template_folder, name_cif_file),
+                )
             catch e
                 @warn "Problem to download for AFDB the complete template file: "*name_cif_file
                 continue
             end
-        else 
-            pdbcode= first(splitext(basename(base_name)))
+        else
+            pdbcode = first(splitext(basename(base_name)))
             pdbcode = split(basename(pdbcode), '_')[1]
             @show pdbcode
             name_cif_file=pdbcode*".cif"
-            try 
-                MIToS.Utils.download_file("https://files.rcsb.org/download/"*name_cif_file, joinpath(cluster_template_folder,name_cif_file))
+            try
+                MIToS.Utils.download_file(
+                    "https://files.rcsb.org/download/"*name_cif_file,
+                    joinpath(cluster_template_folder, name_cif_file),
+                )
 
             catch e
                 @warn "Problem to download from PDB the template file: "*name_cif_file
                 continue
             end
-            
+
         end
     end
-    
+
 end
 
 #Clean the file name in the MSA and prep the template file for AlphaFold (.cif + good name)
@@ -487,10 +516,18 @@ For each cluster:
 3. Overwrites `sequences.a3m` with the cleaned names.
 4. Writes a `corresponding_name_template.csv` mapping original to cleaned names.
 """
-function clean_msa_template_names(clusters,out_folder;cluster_name::String="templates_adaptative")
+function clean_msa_template_names(
+    clusters,
+    out_folder;
+    cluster_name::String = "templates_adaptative",
+)
 
-    for clust in 1:clusters
-        corresponding_name=DataFrames.DataFrame(Ref_name=String[],New_name_msa=String[],New_name_template=String[]) # Create an empty DF
+    for clust = 1:clusters
+        corresponding_name=DataFrames.DataFrame(
+            Ref_name = String[],
+            New_name_msa = String[],
+            New_name_template = String[],
+        ) # Create an empty DF
 
         # MSA
 
@@ -501,7 +538,7 @@ function clean_msa_template_names(clusters,out_folder;cluster_name::String="temp
         ids, sequences = read_a3m(msa_path)
         query_id = ids[1]
         query_seq = sequences[1]
-        
+
         #2 - Clean name
         clean_ids=String[]
         for name in ids
@@ -514,34 +551,37 @@ function clean_msa_template_names(clusters,out_folder;cluster_name::String="temp
                 chain_id = split(basename(name), "_")
                 if length(chain_id) > 1
                     chain_id = chain_id[end]
-                    
+
                 else
                     chain_id = "a"
                 end
                 push!(clean_ids, lowercase("$(pdb_id)_$(chain_id)"))
             end
         end
-        
+
         cluster_template_folder = joinpath(cluster_folder, "templates_complete")
         if isdir(joinpath(cluster_folder, cluster_name))
             println("Folder already clean")
             continue
         end
         cluster_template_clean_folder = mkdir(joinpath(cluster_folder, cluster_name))
-        
-        templates = glob("*",cluster_template_folder)
+
+        templates = glob("*", cluster_template_folder)
         isempty(templates) && error("No templates found in $cluster_template_folder")
         i=0
-        for template in templates 
+        for template in templates
             i+=1
             #4- Change template name 
             if startswith(basename(template), "AF")
                 clean_template_name = "t00$(i)_a"
                 file_name="t00$(i).pdb"
-                push!(corresponding_name,(basename(template),clean_template_name,file_name))
+                push!(
+                    corresponding_name,
+                    (basename(template), clean_template_name, file_name),
+                )
                 name=first(splitext(basename(template)))
-                for i in 1:length(clean_ids)
-                    if clean_ids[i]== uppercase(name)
+                for i = 1:length(clean_ids)
+                    if clean_ids[i] == uppercase(name)
                         clean_ids[i] = clean_template_name
                     end
                 end
@@ -555,10 +595,10 @@ function clean_msa_template_names(clusters,out_folder;cluster_name::String="temp
                 base_name = replace(name, ".cif" => "")
                 file_name=lowercase(base_name)*".cif"
             end
-            cp(template, joinpath(cluster_template_clean_folder,file_name); force=true)
-        end    
+            cp(template, joinpath(cluster_template_clean_folder, file_name); force = true)
+        end
 
-        
+
         #5- Rewrite MSA with clean names
         open(msa_path, "w") do io
             for (id, seq) in zip(clean_ids, sequences)
@@ -566,7 +606,7 @@ function clean_msa_template_names(clusters,out_folder;cluster_name::String="temp
                 println(io, seq)
             end
         end
-            
-        CSV.write(cluster_folder*"/corresponding_name_template.csv", corresponding_name) 
+
+        CSV.write(cluster_folder*"/corresponding_name_template.csv", corresponding_name)
     end
 end

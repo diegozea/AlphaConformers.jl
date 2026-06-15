@@ -4,6 +4,6 @@
 
     ExplicitImports.test_explicit_imports(
         AlphaConformers;
-        all_qualified_accesses_are_public=false,
+        all_qualified_accesses_are_public = false,
     )
 end

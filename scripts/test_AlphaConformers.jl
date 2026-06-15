@@ -10,6 +10,8 @@
 =#
 import Pkg
 
-Pkg.activate("/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_321")
+Pkg.activate(
+    "/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_321",
+)
 
 Pkg.test("AlphaConformers")

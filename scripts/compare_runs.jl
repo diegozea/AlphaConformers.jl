@@ -3,7 +3,10 @@ import PairwiseListMatrices
 import Clustering
 import Statistics
 
-function run_tmalign_and_cluster(local_pdb_folder::String, filename_prefix::String="tmalign")
+function run_tmalign_and_cluster(
+    local_pdb_folder::String,
+    filename_prefix::String = "tmalign",
+)
     # create a temporary file for the chain list
     chain_list_path = tempname()
     open(chain_list_path, "w") do io
@@ -20,26 +23,36 @@ function run_tmalign_and_cluster(local_pdb_folder::String, filename_prefix::Stri
     if dir_path[end] != '/'
         dir_path *= '/'
     end
-    
+
     stdout_path = filename_prefix * ".out"
     stderr_path = filename_prefix * ".err"
-    
-    run(pipeline(`/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path -fast`, 
-        stdout=stdout_path, stderr=stderr_path))
+
+    run(
+        pipeline(
+            `/store/EQUIPES/AMIG/MEMBERS/diego.zea/bin/TMalign -dir $dir_path $chain_list_path -fast`,
+            stdout = stdout_path,
+            stderr = stderr_path,
+        ),
+    )
     tmalign_out = read(stdout_path, String)
-    
+
     tmalign_data = DataFrames.DataFrame(parse_tm_align_output(tmalign_out))
-    
-    rmsd_mat = PairwiseListMatrices.from_table(tmalign_data[:,1:3], false)
 
-    rmsd_clust = Clustering.hclust(rmsd_mat, linkage=:complete, branchorder=:optimal)
+    rmsd_mat = PairwiseListMatrices.from_table(tmalign_data[:, 1:3], false)
 
-    rmsd_clusters = Clustering.cutree(rmsd_clust, h=1.0)
+    rmsd_clust = Clustering.hclust(rmsd_mat, linkage = :complete, branchorder = :optimal)
+
+    rmsd_clusters = Clustering.cutree(rmsd_clust, h = 1.0)
 
     rmsd_chains = names(rmsd_mat)[1]
-    
+
     # Return named tuple
-    return (tmalign_data = tmalign_data, rmsd_mat = rmsd_mat, rmsd_chains = rmsd_chains, rmsd_clusters = rmsd_clusters)
+    return (
+        tmalign_data = tmalign_data,
+        rmsd_mat = rmsd_mat,
+        rmsd_chains = rmsd_chains,
+        rmsd_clusters = rmsd_clusters,
+    )
 end
 
 """
@@ -58,22 +71,44 @@ the name of Chain_1, the name of Chain_2, RMSD, Seq_ID, and the TM-scores
   `:seq_id`, `:TM_score_a`, and `:TM_score_b`.
 """
 function parse_tm_align_output(tm_align_output::String)
-    alignments = split(tm_align_output, r" \*+") 
+    alignments = split(tm_align_output, r" \*+")
     # TODO: improve this by iterating the lines and looking for Chain_1 as an alignment start
-    parsed_alignments = NamedTuple{(:chain_a, :chain_b, :RMSD, :seq_id, :TM_score_a, :TM_score_b), Tuple{String, String, Vararg{Float64, 4}}}[]
-    
+    parsed_alignments = NamedTuple{
+        (:chain_a, :chain_b, :RMSD, :seq_id, :TM_score_a, :TM_score_b),
+        Tuple{String,String,Vararg{Float64,4}},
+    }[]
+
     for alignment in alignments
         if alignment != "" && occursin("Chain_1", alignment)
             chain_a = match(r"Chain_1: .*/(.*\.pdb_?[a-zA-Z0-9]?)", alignment).captures[1]
             chain_b = match(r"Chain_2: .*/(.*\.pdb_?[a-zA-Z0-9]?)", alignment).captures[1]
             RMSD = parse(Float64, match(r"RMSD=\s+(.*),", alignment).captures[1])
-            seq_id = parse(Float64, match(r"Seq_ID=n_identical/n_aligned=\s+(.*)", alignment).captures[1])
-            TM_score_a = parse(Float64, match(r"TM-score=\s+(.*) \(if normalized by length of Chain_1", alignment).captures[1])
-            TM_score_b = parse(Float64, match(r"TM-score=\s+(.*) \(if normalized by length of Chain_2", alignment).captures[1])
-            push!(parsed_alignments, (chain_a=chain_a, chain_b=chain_b, RMSD=RMSD, seq_id=seq_id, TM_score_a=TM_score_a, TM_score_b=TM_score_b))
+            seq_id = parse(
+                Float64,
+                match(r"Seq_ID=n_identical/n_aligned=\s+(.*)", alignment).captures[1],
+            )
+            TM_score_a = parse(
+                Float64,
+                match(r"TM-score=\s+(.*) \(if normalized by length of Chain_1", alignment).captures[1],
+            )
+            TM_score_b = parse(
+                Float64,
+                match(r"TM-score=\s+(.*) \(if normalized by length of Chain_2", alignment).captures[1],
+            )
+            push!(
+                parsed_alignments,
+                (
+                    chain_a = chain_a,
+                    chain_b = chain_b,
+                    RMSD = RMSD,
+                    seq_id = seq_id,
+                    TM_score_a = TM_score_a,
+                    TM_score_b = TM_score_b,
+                ),
+            )
         end
     end
-    
+
     return parsed_alignments
 end
 
@@ -89,12 +124,12 @@ Then run TM-align to cluster them and returns the results.
 function cluster_models(alphafold_output_path, templates_path)
     # Create a temporal folder
     tmp_dir = mktempdir()
-    
+
     # Copy the templates and models to the temporal folder
     for file in readdir(templates_path)
         cp(joinpath(templates_path, file), joinpath(tmp_dir, file))
     end
-    for file in readdir(alphafold_output_path, join=true)
+    for file in readdir(alphafold_output_path, join = true)
         cp(file, joinpath(tmp_dir, basename(file)))
     end
     # Run TM-align and cluster the results
@@ -103,7 +138,7 @@ end
 
 # Run the function for the af2, af5 and af6 runs
 templates_path = "templates"
-af_results_paths = ["af2", "af5", "af6", "af7", "af8" ,"af9"]
+af_results_paths = ["af2", "af5", "af6", "af7", "af8", "af9"]
 af_clusters = map(af_results_paths) do path
     alphafold_output_path = joinpath(path, "predictions", "sequences", "models")
     cluster_models(alphafold_output_path, templates_path)
@@ -111,8 +146,10 @@ end
 
 function rmsd_stats(index)
     data = af_clusters[index].tmalign_data
-    sel = [xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
-        for row in eachrow(data)]
+    sel = [
+        xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
+        for row in eachrow(data)
+    ]
     rmsd = data[sel, :RMSD]
     minimum(rmsd), Statistics.median(rmsd), maximum(rmsd)
 end
@@ -153,11 +190,15 @@ for folder in ["cluster_$i" for i in [1, 2, 3, 4]]
     alphafold_output_path = "af8/predictions/sequences/models"
     af8_cluster = cluster_models(alphafold_output_path, templates_path)
     data = af8_cluster.tmalign_data
-    sel = [xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
-        for row in eachrow(data)]
+    sel = [
+        xor(startswith(row.chain_a, "sequences"), startswith(row.chain_b, "sequences"))
+        for row in eachrow(data)
+    ]
     rmsd = data[sel, :RMSD]
     println("Cluster $folder")
-    println("min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))")
+    println(
+        "min: $(minimum(rmsd)), median: $(Statistics.median(rmsd)), max: $(maximum(rmsd))",
+    )
     cd("..")
 end
 

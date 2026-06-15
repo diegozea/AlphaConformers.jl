@@ -9,13 +9,17 @@ addprocs(12)
 @everywhere const PDB_FOLDER = "/alpha/database/pdb/pdb_files"
 !isdir(PDB_FOLDER) && @warn "PDB database is located at node 48"
 
-@everywhere const EXAMPLES = DataFrame(CSV.File("/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv"))
+@everywhere const EXAMPLES = DataFrame(
+    CSV.File(
+        "/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/selected_examples.csv",
+    ),
+)
 
 @everywhere function get_path_clusters_folder(apo_pdb, apo_chain)
     "/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/$(apo_pdb)_$(apo_chain)/clusters"
 end
 
-@everywhere function clean_and_get_model_id(code::String) 
+@everywhere function clean_and_get_model_id(code::String)
     fields = split(code, "-")
     if length(fields) == 1
         return code, MIToS.PDB.All
@@ -37,8 +41,10 @@ end
     scores = nothing
     msas = nothing
     try
-        cluster_folders = filter!(dir -> occursin("cluster_", dir) && "af" in readdir(dir), 
-            readdir(join=true))
+        cluster_folders = filter!(
+            dir -> occursin("cluster_", dir) && "af" in readdir(dir),
+            readdir(join = true),
+        )
 
         apo_chain_file = "$(apo_pdb)_$(apo_chain).pdb"
         holo_chain_file = "$(holo_pdb)_$(holo_chain).pdb"
@@ -46,33 +52,40 @@ end
         if !isfile(apo_chain_file) || !isfile(holo_chain_file)
             clean_apo_pdb, apo_model = clean_and_get_model_id(apo_pdb)
             clean_holo_pdb, holo_model = clean_and_get_model_id(holo_pdb)
-        
+
             apo_pdb_file = joinpath(PDB_FOLDER, "$clean_apo_pdb.pdb")
             holo_pdb_file = joinpath(PDB_FOLDER, "$clean_holo_pdb.pdb")
 
-            apo_pdb_chain = read(apo_pdb_file, PDB.PDBFile, chain=apo_chain, model=apo_model)
-            holo_pdb_chain = read(holo_pdb_file, PDB.PDBFile, chain=holo_chain, model=holo_model)
+            apo_pdb_chain =
+                read(apo_pdb_file, PDB.PDBFile, chain = apo_chain, model = apo_model)
+            holo_pdb_chain =
+                read(holo_pdb_file, PDB.PDBFile, chain = holo_chain, model = holo_model)
 
             write(apo_chain_file, apo_pdb_chain, PDB.PDBFile)
             write(holo_chain_file, holo_pdb_chain, PDB.PDBFile)
         end
 
-        apo_vs_holo =  usalign(apo_chain_file, holo_chain_file)
+        apo_vs_holo = usalign(apo_chain_file, holo_chain_file)
 
         af_models = []
         msas = MIToS.MSA.AnnotatedMultipleSequenceAlignment[]
         for cl in cluster_folders
             path = joinpath(cl, "af", "predictions", "sequences", "models")
             if isdir(path)
-                push!(af_models, readdir(path, join=true))
-                push!(msas, MIToS.MSA.read(joinpath(cl, "af", "sequences.a3m"), MIToS.MSA.FASTA))
+                push!(af_models, readdir(path, join = true))
+                push!(
+                    msas,
+                    MIToS.MSA.read(joinpath(cl, "af", "sequences.a3m"), MIToS.MSA.FASTA),
+                )
             end
         end
 
         scores = map(af_models) do cluster
             map(cluster) do af
-                scores_path = replace(replace(replace(af, ".pdb" => ".json"), 
-                    "_unrelaxed_" => "_scores_"), "sequences/models" => "sequences/scores")
+                scores_path = replace(
+                    replace(replace(af, ".pdb" => ".json"), "_unrelaxed_" => "_scores_"),
+                    "sequences/models" => "sequences/scores",
+                )
                 JSON3.read(read(scores_path, String))
             end
         end
@@ -105,9 +118,16 @@ end
     finally
         cd(cwd)
     end
-    (;apo_vs_holo, af_models, apo_vs_af, 
-        holo_vs_af, apo_vs_af_rmsd, holo_vs_af_rmsd, 
-        scores, msas)
+    (;
+        apo_vs_holo,
+        af_models,
+        apo_vs_af,
+        holo_vs_af,
+        apo_vs_af_rmsd,
+        holo_vs_af_rmsd,
+        scores,
+        msas,
+    )
 end
 
 @everywhere function plot_data(comparison)
@@ -116,7 +136,12 @@ end
 
     sel = (holo_vs_af_rmsd .> 0) .& (apo_vs_af_rmsd .> 0)
 
-    plt = UnicodePlots.scatterplot(apo_vs_af_rmsd[sel], holo_vs_af_rmsd[sel], xlabel="RMSD to apo", ylabel="RMSD to holo")
+    plt = UnicodePlots.scatterplot(
+        apo_vs_af_rmsd[sel],
+        holo_vs_af_rmsd[sel],
+        xlabel = "RMSD to apo",
+        ylabel = "RMSD to holo",
+    )
     UnicodePlots.hline!(plt, 1.5)
     UnicodePlots.vline!(plt, 1.5)
     plt
@@ -193,14 +218,15 @@ end;
 # comparison = compare_models("1FMF-4", "A", "1ID8-11", "A");
 # comparison = compare_models("2F63-4", "A", "1EQM", "A");
 
-ptm = [ [ s.ptm for s in l ] for l in comparison.scores ] |> Iterators.flatten |> collect
+ptm = [[s.ptm for s in l] for l in comparison.scores] |> Iterators.flatten |> collect
 
 plotly()
 
 plot(
-    scatter(comparison.apo_vs_af_rmsd, ptm, xlabel="RMSD to apo", ylabel="pTM"),
-    scatter(comparison.holo_vs_af_rmsd, ptm, xlabel="RMSD to holo", ylabel="pTM"),
-    legend=false)
+    scatter(comparison.apo_vs_af_rmsd, ptm, xlabel = "RMSD to apo", ylabel = "pTM"),
+    scatter(comparison.holo_vs_af_rmsd, ptm, xlabel = "RMSD to holo", ylabel = "pTM"),
+    legend = false,
+)
 
 comparison.msas
 
@@ -210,19 +236,32 @@ mean_pid = MIToS.MSA.meanpercentidentity.(comparison.msas)
 gr()
 
 plot(
-    scatter(comparison.apo_vs_af_rmsd, nseqs, xlabel="RMSD to apo", ylabel="nseqs"),
-    scatter(comparison.holo_vs_af_rmsd, nseqs, xlabel="RMSD to holo", ylabel="nseqs"),
-    legend=false)
+    scatter(comparison.apo_vs_af_rmsd, nseqs, xlabel = "RMSD to apo", ylabel = "nseqs"),
+    scatter(comparison.holo_vs_af_rmsd, nseqs, xlabel = "RMSD to holo", ylabel = "nseqs"),
+    legend = false,
+)
 
 plot(
-    scatter(comparison.apo_vs_af_rmsd, mean_pid, xlabel="RMSD to apo", ylabel="mean pid"),
-    scatter(comparison.holo_vs_af_rmsd, mean_pid, xlabel="RMSD to holo", ylabel="mean pid"),
-    legend=false)
+    scatter(
+        comparison.apo_vs_af_rmsd,
+        mean_pid,
+        xlabel = "RMSD to apo",
+        ylabel = "mean pid",
+    ),
+    scatter(
+        comparison.holo_vs_af_rmsd,
+        mean_pid,
+        xlabel = "RMSD to holo",
+        ylabel = "mean pid",
+    ),
+    legend = false,
+)
 
 plot(
-    scatter(ptm, nseqs, xlabel="pTM", ylabel="nseqs"),
-    scatter(ptm, mean_pid, xlabel="pTM", ylabel="mean pid"),
-    legend=false)
+    scatter(ptm, nseqs, xlabel = "pTM", ylabel = "nseqs"),
+    scatter(ptm, mean_pid, xlabel = "pTM", ylabel = "mean pid"),
+    legend = false,
+)
 
 # --- look for errors --- #
 
@@ -282,9 +321,9 @@ readdir(joinpath(clusters_path, "cluster_1", "templates"))
 
 gaps = MIToS.MSA.gapfraction.(comparison.msas)
 
-scatter(ptm, gaps, xlabel="pTM", ylabel="gap fraction")
-scatter(comparison.apo_vs_af_rmsd, gaps, xlabel="RMSD to apo", ylabel="gap fraction")
-scatter(comparison.holo_vs_af_rmsd, gaps, xlabel="RMSD to holo", ylabel="gap fraction")
+scatter(ptm, gaps, xlabel = "pTM", ylabel = "gap fraction")
+scatter(comparison.apo_vs_af_rmsd, gaps, xlabel = "RMSD to apo", ylabel = "gap fraction")
+scatter(comparison.holo_vs_af_rmsd, gaps, xlabel = "RMSD to holo", ylabel = "gap fraction")
 
 # 4AKE : There are acceptable models for the apo structure with low and high gap fractions.
 
@@ -295,8 +334,13 @@ apo_pdb = "$(apo_pdb_code)_$(apo_chain_code).pdb"
 holo_pdb = "$(holo_pdb_code)_$(holo_chain_code).pdb"
 @assert isfile(holo_pdb)
 
-function cluster_stats(pdb, clusters_path, cluster_number, )
-    na = (min_rmsd=missing, mean_rmsd=missing, max_rmsd=missing, mean_len_diff=missing)
+function cluster_stats(pdb, clusters_path, cluster_number)
+    na = (
+        min_rmsd = missing,
+        mean_rmsd = missing,
+        max_rmsd = missing,
+        mean_len_diff = missing,
+    )
     cluster_folder = joinpath(clusters_path, "cluster_$(cluster_number)", "templates")
     !isdir(cluster_folder) && return na
     template_files = filter!(endswith(".pdb"), readdir(cluster_folder))
@@ -308,24 +352,35 @@ function cluster_stats(pdb, clusters_path, cluster_number, )
     mean_rmsd = mean(aligned.RMSD)
     max_rmsd = maximum(aligned.RMSD)
     mean_len_diff = mean(len_diff)
-    (;min_rmsd, mean_rmsd, max_rmsd, mean_len_diff)
+    (; min_rmsd, mean_rmsd, max_rmsd, mean_len_diff)
 end
 
 apo_stats = cluster_stats(apo_pdb, clusters_path, 1)
 holo_stats = cluster_stats(holo_pdb, clusters_path, 1)
 
-cluster_numbers = parse.(Int, last.(split.(filter!(f -> isdir(f) && occursin('_', f),
-    readdir(clusters_path)), '_'))) |> sort
+cluster_numbers =
+    parse.(
+        Int,
+        last.(
+            split.(filter!(f -> isdir(f) && occursin('_', f), readdir(clusters_path)), '_'),
+        ),
+    ) |> sort
 
 stats = map(cluster_numbers) do cl
     apo_stats = cluster_stats(apo_pdb, clusters_path, cl)
     holo_stats = cluster_stats(holo_pdb, clusters_path, cl)
-    (;apo=apo_stats, holo=holo_stats)
+    (; apo = apo_stats, holo = holo_stats)
 end
 
-min_apo = [ s.apo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
-min_holo = [ s.holo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
-scatter(min_apo, min_holo, xlabel="min apo", ylabel="min holo", legend=false)
+min_apo = [
+    s.apo.min_rmsd for
+    s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd)
+]
+min_holo = [
+    s.holo.min_rmsd for
+    s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd)
+]
+scatter(min_apo, min_holo, xlabel = "min apo", ylabel = "min holo", legend = false)
 
 # Well, in fact, there are not good templates for the apo structure.
 
@@ -333,26 +388,43 @@ scatter(min_apo, min_holo, xlabel="min apo", ylabel="min holo", legend=false)
 # apo_vs_af_rmsd/holo_vs_af_rmsd
 
 data = DataFrame(
-    cluster = [ parse(Int, split(p[11], "_")[end]) for p in 
-        comparison.af_models |> Iterators.flatten |> collect .|> splitpath ],
-    rmsd = comparison.apo_vs_af_rmsd)
+    cluster = [
+        parse(Int, split(p[11], "_")[end]) for
+        p in comparison.af_models |> Iterators.flatten |> collect .|> splitpath
+    ],
+    rmsd = comparison.apo_vs_af_rmsd,
+)
 
 data = data[data.rmsd .> 0, :]
 
 sorted = combine(groupby(data, :cluster), :rmsd => minimum) |> sort
 
-stats_data = DataFrame(cluster=cluster_numbers, min_apo=[s.apo.min_rmsd for s in stats], 
-    min_holo=[s.holo.min_rmsd for s in stats])
+stats_data = DataFrame(
+    cluster = cluster_numbers,
+    min_apo = [s.apo.min_rmsd for s in stats],
+    min_holo = [s.holo.min_rmsd for s in stats],
+)
 
 stats_data = stats_data[completecases(stats_data), :]
 
-combined = innerjoin(stats_data, sorted, on=:cluster)
+combined = innerjoin(stats_data, sorted, on = :cluster)
 
-scatter(combined.min_apo, combined.min_holo, xlabel="min apo", ylabel="min holo", legend=false)
+scatter(
+    combined.min_apo,
+    combined.min_holo,
+    xlabel = "min apo",
+    ylabel = "min holo",
+    legend = false,
+)
 
 plotly()
-plt = scatter(combined.min_apo, combined.rmsd_minimum, 
-    xlabel="min apo templates", ylabel="min apo models", legend=false)
+plt = scatter(
+    combined.min_apo,
+    combined.rmsd_minimum,
+    xlabel = "min apo templates",
+    ylabel = "min apo models",
+    legend = false,
+)
 plot!(plt, x -> x)
 
 # Not having good templates for the apo structure looks to be the limiting factor for
@@ -371,9 +443,9 @@ clusters_path = get_path_clusters_folder(apo_pdb_code, apo_chain_code)
 gaps = MIToS.MSA.gapfraction.(comparison.msas)
 
 gr()
-scatter(ptm, gaps, xlabel="pTM", ylabel="gap fraction")
-scatter(comparison.apo_vs_af_rmsd, gaps, xlabel="RMSD to apo", ylabel="gap fraction")
-scatter(comparison.holo_vs_af_rmsd, gaps, xlabel="RMSD to holo", ylabel="gap fraction")
+scatter(ptm, gaps, xlabel = "pTM", ylabel = "gap fraction")
+scatter(comparison.apo_vs_af_rmsd, gaps, xlabel = "RMSD to apo", ylabel = "gap fraction")
+scatter(comparison.holo_vs_af_rmsd, gaps, xlabel = "RMSD to holo", ylabel = "gap fraction")
 
 cd(clusters_path)
 apo_pdb = "$(apo_pdb_code)_$(apo_chain_code).pdb"
@@ -382,64 +454,103 @@ holo_pdb = "$(holo_pdb_code)_$(holo_chain_code).pdb"
 @assert isfile(holo_pdb)
 
 
-cluster_numbers = parse.(Int, last.(split.(filter!(f -> isdir(f) && occursin('_', f),
-    readdir(clusters_path)), '_'))) |> sort
+cluster_numbers =
+    parse.(
+        Int,
+        last.(
+            split.(filter!(f -> isdir(f) && occursin('_', f), readdir(clusters_path)), '_'),
+        ),
+    ) |> sort
 
 stats = map(cluster_numbers) do cl
     apo_stats = cluster_stats(apo_pdb, clusters_path, cl)
     holo_stats = cluster_stats(holo_pdb, clusters_path, cl)
-    (;apo=apo_stats, holo=holo_stats)
+    (; apo = apo_stats, holo = holo_stats)
 end
 
-min_apo = [ s.apo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
-min_holo = [ s.holo.min_rmsd for s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd) ]
+min_apo = [
+    s.apo.min_rmsd for
+    s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd)
+]
+min_holo = [
+    s.holo.min_rmsd for
+    s in stats if !ismissing(s.apo.min_rmsd) && !ismissing(s.holo.min_rmsd)
+]
 
-p = scatter(min_apo, min_holo, xlabel="min apo", ylabel="min holo", legend=false)
+p = scatter(min_apo, min_holo, xlabel = "min apo", ylabel = "min holo", legend = false)
 plot!(p, x -> x)
 
 
 data = DataFrame(
-    cluster = [ parse(Int, split(p[11], "_")[end]) for p in 
-        comparison.af_models |> Iterators.flatten |> collect .|> splitpath ],
-    rmsd = comparison.apo_vs_af_rmsd)
+    cluster = [
+        parse(Int, split(p[11], "_")[end]) for
+        p in comparison.af_models |> Iterators.flatten |> collect .|> splitpath
+    ],
+    rmsd = comparison.apo_vs_af_rmsd,
+)
 
 data = data[data.rmsd .> 0, :]
 
 sorted = combine(groupby(data, :cluster), :rmsd => minimum) |> sort
 
-stats_data = DataFrame(cluster=cluster_numbers, min_apo=[s.apo.min_rmsd for s in stats], 
-    min_holo=[s.holo.min_rmsd for s in stats])
+stats_data = DataFrame(
+    cluster = cluster_numbers,
+    min_apo = [s.apo.min_rmsd for s in stats],
+    min_holo = [s.holo.min_rmsd for s in stats],
+)
 
 stats_data = stats_data[completecases(stats_data), :]
 
-combined = innerjoin(stats_data, sorted, on=:cluster)
+combined = innerjoin(stats_data, sorted, on = :cluster)
 
-pp = scatter(combined.min_apo, combined.min_holo, xlabel="min apo", ylabel="min holo", legend=false)
+pp = scatter(
+    combined.min_apo,
+    combined.min_holo,
+    xlabel = "min apo",
+    ylabel = "min holo",
+    legend = false,
+)
 plot!(pp, x -> x)
 
 # plotly()
-plt = scatter(combined.min_apo, combined.rmsd_minimum, 
-    xlabel="min apo templates", ylabel="min apo models", legend=false)
+plt = scatter(
+    combined.min_apo,
+    combined.rmsd_minimum,
+    xlabel = "min apo templates",
+    ylabel = "min apo models",
+    legend = false,
+)
 plot!(plt, x -> x)
 
 plot(pp, plt)
 
 # HOLO
 data = DataFrame(
-    cluster = [ parse(Int, split(p[11], "_")[end]) for p in 
-        comparison.af_models |> Iterators.flatten |> collect .|> splitpath ],
-    rmsd = comparison.holo_vs_af_rmsd)
+    cluster = [
+        parse(Int, split(p[11], "_")[end]) for
+        p in comparison.af_models |> Iterators.flatten |> collect .|> splitpath
+    ],
+    rmsd = comparison.holo_vs_af_rmsd,
+)
 data = data[data.rmsd .> 0, :]
 sorted = combine(groupby(data, :cluster), :rmsd => minimum) |> sort
-stats_data = DataFrame(cluster=cluster_numbers, min_apo=[s.apo.min_rmsd for s in stats], 
-    min_holo=[s.holo.min_rmsd for s in stats])
+stats_data = DataFrame(
+    cluster = cluster_numbers,
+    min_apo = [s.apo.min_rmsd for s in stats],
+    min_holo = [s.holo.min_rmsd for s in stats],
+)
 stats_data = stats_data[completecases(stats_data), :]
-combined = innerjoin(stats_data, sorted, on=:cluster)
-plt_holo = scatter(combined.min_holo, combined.rmsd_minimum, 
-    xlabel="min holo templates", ylabel="min holo models", legend=false)
+combined = innerjoin(stats_data, sorted, on = :cluster)
+plt_holo = scatter(
+    combined.min_holo,
+    combined.rmsd_minimum,
+    xlabel = "min holo templates",
+    ylabel = "min holo models",
+    legend = false,
+)
 plot!(plt_holo, x -> x)
 
-plot(pp, plt, plt_holo, layout=(1, 3), link=:both)
+plot(pp, plt, plt_holo, layout = (1, 3), link = :both)
 
 # (apo = (min_rmsd = 0.42, mean_rmsd = 4.396833333333333, max_rmsd = 6.44, mean_len_diff = 83.06666666666666), holo = (min_rmsd = 0.39, mean_rmsd = 4.24214953271028, max_rmsd = 6.12, mean_len_diff = 88.05607476635514))
 

@@ -37,8 +37,8 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
     input_dirs = sort(
         filter(
             d -> isdir(d) && startswith(basename(d), "cluster_"),
-            readdir(clusters_folder; join=true)
-        )
+            readdir(clusters_folder; join = true),
+        ),
     )
 
     println("📂 Number of folder found: ", length(input_dirs))
@@ -46,16 +46,16 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
     #seed = 96826
     for input_dir in input_dirs
         #Check template info 
-        
+
         name = basename(input_dir)
         output_dir = joinpath(input_dir, "af")
         @show "Output directory: $output_dir"
         if isdir(output_dir)
-            if isdir(joinpath(output_dir,"predictions","sequences","models"))
+            if isdir(joinpath(output_dir, "predictions", "sequences", "models"))
                 @show "Folder already process"
                 continue
             else
-                rm(output_dir; recursive=true, force=true)
+                rm(output_dir; recursive = true, force = true)
             end
         end
         mkdir(output_dir)
@@ -77,9 +77,9 @@ function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_
                 --num-models 2 \
                 --overwrite-existing-results`
         run_cmd(cmd)
-         
+
         organize_files(output_dir)
-        
+
     end
 
     println("🎉 All the ColabFold run are finish !")
@@ -96,18 +96,20 @@ Output :
 The path to the saved `<UNIPROT_ID>_msa.a3m` file, or `nothing` if failed
 If multiple AlphaFold entries exist for the same UniProt ID, the first one is used.
 """
-function get_msa_sequence_afdb(uniprot_id::String,output_dir::String)
-    
+function get_msa_sequence_afdb(uniprot_id::String, output_dir::String)
+
     json_result = nothing
-    try 
+    try
         json_result = MIToS.PDB.query_alphafolddb(uniprot_id)
     catch e
         if occursin("multiple elements", sprint(showerror, e))
-            println("⚠️ Multiple AlphaFold entries found for $uniprot_id. Using the first one.")
+            println(
+                "⚠️ Multiple AlphaFold entries found for $uniprot_id. Using the first one.",
+            )
             resp = HTTP.get("https://alphafold.ebi.ac.uk/api/prediction/$uniprot_id")
             data = JSON3.read(resp.body)
             json_result = data[1]
-        else 
+        else
             @warn "Error querying AlphaFold DB for $uniprot_id : ", e
             return nothing
         end
@@ -121,9 +123,9 @@ function get_msa_sequence_afdb(uniprot_id::String,output_dir::String)
         return nothing
     end
     msa_url = json_result["msaUrl"]
-    
+
     msa_path_save=joinpath(output_dir, "$(uppercase(uniprot_id))_msa.a3m")
-    msa_file = MIToS.Utils.download_file(msa_url,msa_path_save)
+    msa_file = MIToS.Utils.download_file(msa_url, msa_path_save)
     return msa_path_save
 
 end
@@ -136,7 +138,7 @@ function parse_plddt_info_in_line(line::String)
         return (
             rank = m.captures[1],
             pLDDT = parse(Float64, m.captures[2]),
-            pTM = parse(Float64, m.captures[3])
+            pTM = parse(Float64, m.captures[3]),
         )
     else
         return nothing
@@ -165,24 +167,30 @@ Parses `log.txt` to extract pLDDT scores, saves them to `scores.csv`,
 Output : 
 Path to `best_model.pdb`, or `nothing` if the folder was already processed.
 """
-function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_PATH::String, CACHE_DIR::String;msa_path_save::Union{String, Missing} = missing)
+function run_alphafold_input_structure(
+    uniprot::String,
+    output_path::String,
+    SIF_PATH::String,
+    CACHE_DIR::String;
+    msa_path_save::Union{String,Missing} = missing,
+)
     ## Get afdb a3M 
     if ismissing(msa_path_save)
-        msa_path_save=get_msa_sequence_afdb(uniprot,output_path)
+        msa_path_save=get_msa_sequence_afdb(uniprot, output_path)
         @show "Saved MSA path: $msa_path_save"
-    else 
-        cp(msa_path_save,joinpath(output_path,uniprot*"_msa.a3m"))
-        msa_path_save=joinpath(output_path,uniprot*"_msa.a3m")
+    else
+        cp(msa_path_save, joinpath(output_path, uniprot*"_msa.a3m"))
+        msa_path_save=joinpath(output_path, uniprot*"_msa.a3m")
     end
     ## Run colabfold with the msa 
     output_dir = joinpath(output_path, "af_input")
     @show "Output directory: $output_dir"
     if isdir(output_dir)
-        if isdir(joinpath(output_dir,"predictions","sequences","models"))
+        if isdir(joinpath(output_dir, "predictions", "sequences", "models"))
             @show "Folder already process"
             return
         else
-            rm(output_dir; recursive=true, force=true)
+            rm(output_dir; recursive = true, force = true)
         end
     end
     mkdir(output_dir)
@@ -202,7 +210,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
             --overwrite-existing-results`
 
     run_cmd(cmd)
-        
+
     organize_files(output_dir)
 
     ## Create score file 
@@ -222,7 +230,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
     df = DataFrame(parsed_data)
     @show df
     # Sort by descending pLDDT.
-    sort!(df, :pLDDT, rev=true)
+    sort!(df, :pLDDT, rev = true)
 
     CSV.write(joinpath(output_dir, "predictions", "scores.csv"), df)
 
@@ -232,7 +240,7 @@ function run_alphafold_input_structure(uniprot::String,output_path::String,SIF_P
     src = joinpath(output_dir, "predictions", "sequences", "models", file_name)
     dst = joinpath(output_path, "best_model.pdb")
 
-    cp(src, dst; force=true)
+    cp(src, dst; force = true)
 
     return dst
 end
@@ -245,13 +253,13 @@ function write_af3_json(
     sequence::String,
     chain_id::String = "A",
     templates_info::Vector{Any},
-    seed::Int = rand(10_000:99_999)
+    seed::Int = rand(10_000:99_999),
 )
     L = length(sequence)
 
     config = Dict(
         "name" => run_name,  # MUST be unique, no extensions
-        "modelSeeds" => [seed,seed+1,seed+2,seed+3,seed+4],
+        "modelSeeds" => [seed, seed+1, seed+2, seed+3, seed+4],
         "sequences" => [
             Dict(
                 "protein" => Dict(
@@ -259,17 +267,16 @@ function write_af3_json(
                     "sequence" => sequence,
                     "unpairedMsaPath" => "/root/af_input/sequences.a3m",
                     "pairedMsa" => "",
-                    "templates" => templates_info
-                    
-                )
-            )
+                    "templates" => templates_info,
+                ),
+            ),
         ],
         "dialect" => "alphafold3",
-        "version" => 2
+        "version" => 2,
     )
 
     open(out_json, "w") do io
-        JSON3.write(io, config; indent=2)
+        JSON3.write(io, config; indent = 2)
     end
 
     return out_json
@@ -323,16 +330,21 @@ For each `cluster_*` subfolder:
    subfolder is present, without otherwise.
 5. Runs AlphaFold3 via Apptainer and reorganizes the output with `organize_files_af3`.
 """
-function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_PARAMETERS_DIR::String, DB_DIR::String)
+function run_alphafold3(
+    clusters_folder::String,
+    SIF_IMAGE_PATH::String,
+    MODEL_PARAMETERS_DIR::String,
+    DB_DIR::String,
+)
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
     end
-    
+
     input_dirs = sort(
         filter(
             d -> isdir(d) && startswith(basename(d), "cluster_"),
-            readdir(clusters_folder; join=true)
-        )
+            readdir(clusters_folder; join = true),
+        ),
     )
     #=
     input_dirs = sort(
@@ -343,30 +355,30 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
     )
     =#
     println("📂 Number of folder found: ", length(input_dirs))
-    run_name = split(basename(clusters_folder),"_")[1]  
+    run_name = split(basename(clusters_folder), "_")[1]
     seed = rand(10_000:99_999)
     for input_dir in input_dirs
-        
+
         output_dir=joinpath(input_dir, "af3")
         #Get the input informations
-        template_names=glob("*.cif",joinpath(input_dir, "templates"))
+        template_names=glob("*.cif", joinpath(input_dir, "templates"))
         for template_name in template_names
-            if !startswith(basename(template_name),"t00")
+            if !startswith(basename(template_name), "t00")
                 @show "Change template name for AlphaFold compatibility $(basename(template_name))"
                 patch_mmcif_for_alphafold(template_name, template_name)
-                rm(output_dir; recursive=true, force=true)
+                rm(output_dir; recursive = true, force = true)
             end
-            
+
         end
 
         #Create output folder
         output_dir=joinpath(input_dir, "af3")
         if isdir(output_dir)
-            if isdir(joinpath(output_dir,"predictions","sequences","models"))
+            if isdir(joinpath(output_dir, "predictions", "sequences", "models"))
                 @show "Folder already process"
                 continue
-            else 
-                rm(output_dir; recursive=true, force=true)
+            else
+                rm(output_dir; recursive = true, force = true)
             end
         end
         mkdir(output_dir)
@@ -380,31 +392,41 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
         chain_id = split(query_id, "_")[2]
         sequence = sequences[1]
         templates_info = []
-        if isdir(joinpath(input_dir,"templates"))
-            template_names=glob("*.cif",joinpath(input_dir, "templates"))
+        if isdir(joinpath(input_dir, "templates"))
+            template_names=glob("*.cif", joinpath(input_dir, "templates"))
             for template_name in template_names
-                template_path = joinpath("/root/af_input/templates", basename(template_name))
+                template_path =
+                    joinpath("/root/af_input/templates", basename(template_name))
                 split_name=String(first(splitext(basename(template_name))))
                 @show split_name
-                matches = [sequences[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]
+                matches = [
+                    sequences[i] for
+                    i in eachindex(ids) if startswith(ids[i], lowercase(split_name))
+                ]
                 if isempty(matches)
                     error("No template found for $split_name")
                 end
                 template_seq = matches[1]
-                real_name = [ids[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]
+                real_name = [
+                    ids[i] for
+                    i in eachindex(ids) if startswith(ids[i], lowercase(split_name))
+                ]
                 chain_template=split(real_name[1], "_")
                 if length(chain_template) > 1
                     chain_template = String(uppercase(chain_template[2]))
                 else
                     chain_template = "A"
                 end
-                query_indices, template_indices= aligned_indices(sequence, template_seq)
-                push!(templates_info, Dict(
-                    "mmcifPath" => template_path,
-                    "chainId" => chain_template,
-                    "queryIndices" => query_indices,
-                    "templateIndices" => template_indices
-                ))
+                query_indices, template_indices = aligned_indices(sequence, template_seq)
+                push!(
+                    templates_info,
+                    Dict(
+                        "mmcifPath" => template_path,
+                        "chainId" => chain_template,
+                        "queryIndices" => query_indices,
+                        "templateIndices" => template_indices,
+                    ),
+                )
             end
             # Right input file
             write_af3_json(
@@ -412,14 +434,14 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
                 run_name = String(run_name),
                 sequence = sequence,
                 chain_id = String(chain_id),
-                templates_info=templates_info,
-                seed=seed
+                templates_info = templates_info,
+                seed = seed,
             )
         else
             # Right input file without template
             config = Dict(
                 "name" => run_name,  # MUST be unique, no extensions
-                "modelSeeds" => [seed,seed+1,seed+2,seed+3,seed+4],
+                "modelSeeds" => [seed, seed+1, seed+2, seed+3, seed+4],
                 "sequences" => [
                     Dict(
                         "protein" => Dict(
@@ -427,20 +449,20 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
                             "sequence" => sequence,
                             "unpairedMsaPath" => "/root/af_input/sequences.a3m",
                             "pairedMsa" => "",
-                            "templates" => []
-                        )
-                    )
+                            "templates" => [],
+                        ),
+                    ),
                 ],
                 "dialect" => "alphafold3",
-                "version" => 2
+                "version" => 2,
             )
 
             open(out_json, "w") do io
-                JSON3.write(io, config; indent=2)
+                JSON3.write(io, config; indent = 2)
             end
         end
 
-        
+
 
         println("🚀Start $cluster_name ...")
         # Run AlphaFold3
@@ -457,11 +479,11 @@ function run_alphafold3(clusters_folder::String, SIF_IMAGE_PATH::String, MODEL_P
             --db_dir=/root/public_databases \
             --output_dir=/root/af_output
                 `
-        try 
+        try
             run(cmd)
             @info "✅ AlphaFold3 run finished for $cluster_name"
             #organize output files
-            organize_files_af3(output_dir,String(run_name))
+            organize_files_af3(output_dir, String(run_name))
         catch e
             @warn e
         end
@@ -487,7 +509,11 @@ For each subfolder:
    each in its own `bz/seed_<s>/` output subfolder.
 5. Reorganizes all seed outputs with `organize_files_boltz` after all seeds complete.
 """
-function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_Boltz::String)
+function run_boltz2(
+    clusters_folder::String,
+    SIF_IMAGE_PATH::String,
+    CACHE_DIR_Boltz::String,
+)
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
     end
@@ -499,14 +525,9 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
         )
     )
     =#
-    input_dirs = sort(
-        filter(
-            d -> isdir(d),
-            readdir(clusters_folder; join=true)
-        )
-    )
+    input_dirs = sort(filter(d -> isdir(d), readdir(clusters_folder; join = true)))
     println("📂 Number of folder found: ", length(input_dirs))
-    run_name = split(basename(clusters_folder),"_")[1]  
+    run_name = split(basename(clusters_folder), "_")[1]
     seed = rand(10_000:99_999)
     for input_dir in input_dirs
         #Get the input informations
@@ -518,11 +539,14 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
         query_id = ids[1]
         chain_id = split(query_id, "_")[2]
         sequence = sequences[1]
-        if isdir(joinpath(input_dir,"templates_complete"))
-            template_name=glob("*.cif",joinpath(input_dir, "templates_complete"))[1]
-            template_path = joinpath("/mnt/input/templates_complete", basename(template_name))
-            split_name =String(first(splitext(basename(template_name))))
-            real_name = [ids[i] for i in eachindex(ids) if startswith(ids[i],lowercase(split_name))]
+        if isdir(joinpath(input_dir, "templates_complete"))
+            template_name=glob("*.cif", joinpath(input_dir, "templates_complete"))[1]
+            template_path =
+                joinpath("/mnt/input/templates_complete", basename(template_name))
+            split_name = String(first(splitext(basename(template_name))))
+            real_name = [
+                ids[i] for i in eachindex(ids) if startswith(ids[i], lowercase(split_name))
+            ]
             chain_template=split(real_name[1], "_")
             if length(chain_template) > 1
                 chain_template = String(uppercase(chain_template[2]))
@@ -531,22 +555,18 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
             end
             # Right input file
             config = Dict(
-                    "sequences" => [
-                        Dict(
-                            "protein" => Dict(
-                                "id" => chain_id,
-                                "sequence" => sequence,
-                                "msa" => "/mnt/input/sequences.a3m"
-                            )
-                        )
-                    ],
-                    "templates" => [
-                        Dict(
-                            "cif" => template_path,
-                            "template_id" => chain_template
-                        )
-                    ]
-                )
+                "sequences" => [
+                    Dict(
+                        "protein" => Dict(
+                            "id" => chain_id,
+                            "sequence" => sequence,
+                            "msa" => "/mnt/input/sequences.a3m",
+                        ),
+                    ),
+                ],
+                "templates" =>
+                    [Dict("cif" => template_path, "template_id" => chain_template)],
+            )
 
             open(out_json, "w") do io
                 YAML.write(io, config)
@@ -556,16 +576,16 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
             # Right input file without template
             # Right input file
             config = Dict(
-                    "sequences" => [
-                        Dict(
-                            "protein" => Dict(
-                                "id" => chain_id,
-                                "sequence" => sequence,
-                                "msa" => "/mnt/input/sequences.a3m"
-                            )
-                        )
-                    ],
-                )
+                "sequences" => [
+                    Dict(
+                        "protein" => Dict(
+                            "id" => chain_id,
+                            "sequence" => sequence,
+                            "msa" => "/mnt/input/sequences.a3m",
+                        ),
+                    ),
+                ],
+            )
 
             open(out_json, "w") do io
                 YAML.write(io, config)
@@ -576,25 +596,25 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
         #Create output folder
         output_dir=joinpath(input_dir, "bz")
         if isdir(output_dir)
-            if isdir(joinpath(output_dir,"predictions","sequences","models"))
-                out=glob("*",joinpath(output_dir,"predictions","sequences","models"))
+            if isdir(joinpath(output_dir, "predictions", "sequences", "models"))
+                out=glob("*", joinpath(output_dir, "predictions", "sequences", "models"))
                 @show out
                 if !isempty(out)
                     @show "Folder already process"
                     continue
-                else 
-                    rm(output_dir; recursive=true, force=true)
+                else
+                    rm(output_dir; recursive = true, force = true)
                 end
-            else 
-                rm(output_dir; recursive=true, force=true)
+            else
+                rm(output_dir; recursive = true, force = true)
             end
         end
         mkdir(output_dir)
 
         println("🚀Start $cluster_name ...")
-        for s in seed:seed+4
+        for s = seed:(seed+4)
             # Run AlphaFold3
-            output_dir_seed=joinpath(output_dir,"seed_$s")
+            output_dir_seed=joinpath(output_dir, "seed_$s")
             isdir(output_dir_seed) || mkdir(output_dir_seed)
             cmd = `apptainer exec --nv --no-home --cleanenv \
                 --bind $input_dir:/mnt/input \
@@ -615,11 +635,11 @@ function run_boltz2(clusters_folder::String, SIF_IMAGE_PATH::String, CACHE_DIR_B
                 --diffusion_samples 5 \
                 --override  
                 `
-            try 
+            try
                 run(cmd)
                 @info "✅ Boltz2 run finished for $cluster_name"
                 #organize output files
-                
+
             catch e
                 @warn e
             end

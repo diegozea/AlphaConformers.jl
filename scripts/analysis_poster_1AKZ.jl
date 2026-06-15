@@ -43,8 +43,8 @@ holo_chain = String(split(holo, "_")[2])
 clusters_folder = "/store/EQUIPES/AMIG/MEMBERS/diego.zea/AlphaConformers/poster_subset/$(apo_dir)/clusters"
 cd(clusters_folder)
 
-cluster_folders = filter!(dir -> occursin("cluster_", dir) && "af" in readdir(dir), 
-    readdir(join=true))
+cluster_folders =
+    filter!(dir -> occursin("cluster_", dir) && "af" in readdir(dir), readdir(join = true))
 
 
 #=
@@ -59,8 +59,8 @@ holo_chain = "E"
 apo_pdb_file = joinpath(PDB_FOLDER, "$apo_pdb.pdb");
 holo_pdb_file = joinpath(PDB_FOLDER, "$holo_pdb.pdb");
 
-apo_pdb_chain = read(apo_pdb_file, PDB.PDBFile, chain=apo_chain);
-holo_pdb_chain = read(holo_pdb_file, PDB.PDBFile, chain=holo_chain);
+apo_pdb_chain = read(apo_pdb_file, PDB.PDBFile, chain = apo_chain);
+holo_pdb_chain = read(holo_pdb_file, PDB.PDBFile, chain = holo_chain);
 
 apo_chain_file = "$(apo_pdb)_$(apo_chain).pdb";
 holo_chain_file = "$(holo_pdb)_$(holo_chain).pdb";
@@ -68,12 +68,12 @@ holo_chain_file = "$(holo_pdb)_$(holo_chain).pdb";
 write(apo_chain_file, apo_pdb_chain, PDB.PDBFile);
 write(holo_chain_file, holo_pdb_chain, PDB.PDBFile);
 
-apo_vs_holo =  usalign(apo_chain_file, holo_chain_file);
+apo_vs_holo = usalign(apo_chain_file, holo_chain_file);
 
 af_models = map(cluster_folders) do cl
     path = joinpath(cl, "af", "predictions", "sequences", "models")
     if isdir(path)
-        readdir(path, join=true)
+        readdir(path, join = true)
     else
         String[]
     end

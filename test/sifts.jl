@@ -42,7 +42,11 @@ end
     )
 
     filtered = AlphaConformers.delete_query_from_target(
-        deepcopy(search_results), mapping, "1ABC", "A")
+        deepcopy(search_results),
+        mapping,
+        "1ABC",
+        "A",
+    )
 
     @test filtered.target == ["2DEF.cif_A", "9ZZZ.cif_A"]
     @test DataFrames.nrow(search_results) == 5

@@ -7,8 +7,21 @@ using TestItems
 
     function write_test_pdb(path)
         residues = [
-            "ALA", "GLY", "SER", "THR", "LEU", "VAL", "ASP", "LYS",
-            "GLU", "ILE", "ASN", "PHE", "TYR", "ARG", "GLN",
+            "ALA",
+            "GLY",
+            "SER",
+            "THR",
+            "LEU",
+            "VAL",
+            "ASP",
+            "LYS",
+            "GLU",
+            "ILE",
+            "ASN",
+            "PHE",
+            "TYR",
+            "ARG",
+            "GLN",
         ]
         serial = 1
         open(path, "w") do io
@@ -51,15 +64,15 @@ using TestItems
 
         search_output = foldseek_search(
             query_pdb;
-            db_path=db_path,
-            format_output="query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
+            db_path = db_path,
+            format_output = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
         )
         @test search_output == joinpath(dir, "query_results.m8")
         @test isfile(search_output)
         @test filesize(search_output) > 0
         @test DataFrames.nrow(read_foldseek_search_results(search_output)) >= 1
 
-        run_output = run_foldseek(query_pdb, 1, db_path; out_folder=dir)
+        run_output = run_foldseek(query_pdb, 1, db_path; out_folder = dir)
         @test length(run_output) == 1
         @test isfile(run_output[1].table_file)
         @test filesize(run_output[1].table_file) > 0
@@ -81,12 +94,42 @@ end
     end
 
     row_a = [
-        "query.pdb", "target_a.pdb_A", 0.95, 100, 1, 0, 1, 100, 5, 104, 1e-20,
-        250, 0.8, 0.7, 0.75, 1.2, 0.99,
+        "query.pdb",
+        "target_a.pdb_A",
+        0.95,
+        100,
+        1,
+        0,
+        1,
+        100,
+        5,
+        104,
+        1e-20,
+        250,
+        0.8,
+        0.7,
+        0.75,
+        1.2,
+        0.99,
     ]
     row_b = [
-        "query.pdb", "target_b.pdb_A", 0.75, 80, 20, 1, 3, 82, 10, 89, 1e-4,
-        100, 0.5, 0.4, 0.45, 3.0, 0.8,
+        "query.pdb",
+        "target_b.pdb_A",
+        0.75,
+        80,
+        20,
+        1,
+        3,
+        82,
+        10,
+        89,
+        1e-4,
+        100,
+        0.5,
+        0.4,
+        0.45,
+        3.0,
+        0.8,
     ]
 
     mktempdir() do dir
@@ -98,9 +141,23 @@ end
         parsed = read_foldseek_search_results(table_a)
         @test DataFrames.nrow(parsed) == 2
         @test names(parsed) == [
-            "query", "target", "fident", "alnlen", "mismatch", "gapopen",
-            "qstart", "qend", "tstart", "tend", "evalue", "bits", "qtmscore",
-            "ttmscore", "alntmscore", "rmsd", "prob",
+            "query",
+            "target",
+            "fident",
+            "alnlen",
+            "mismatch",
+            "gapopen",
+            "qstart",
+            "qend",
+            "tstart",
+            "tend",
+            "evalue",
+            "bits",
+            "qtmscore",
+            "ttmscore",
+            "alntmscore",
+            "rmsd",
+            "prob",
         ]
         @test parsed[1, :target] == "target_a.pdb_A"
         @test parsed[1, :rmsd] == 1.2
@@ -109,7 +166,8 @@ end
         @test DataFrames.nrow(merged) == 2
         @test DataFrames.ncol(merged) == 18
         @test Set(merged.target) == Set(["target_a.pdb_A", "target_b.pdb_A"])
-        @test only(unique(merged.file[merged.target .== "target_a.pdb_A"])) == abspath(table_a)
+        @test only(unique(merged.file[merged.target .== "target_a.pdb_A"])) ==
+              abspath(table_a)
     end
 end
 
@@ -121,7 +179,7 @@ end
         mkdir(db_dir)
 
         @test_throws ErrorException foldseek_search(pdb_file)
-        @test_throws ErrorException foldseek_search(pdb_file; db_path=db_dir)
+        @test_throws ErrorException foldseek_search(pdb_file; db_path = db_dir)
         @test_throws ErrorException run_foldseek(pdb_file, 1, db_dir)
     end
 

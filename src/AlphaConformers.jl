@@ -24,43 +24,43 @@ using DataFrames: DataFrame, nrow
 
 
 
-export  foldseek_search, # foldseek.jl
-        read_foldseek_search_results,
-        run_foldseek,
-        merge_tables,
-        merge_msas,
-        get_aligned_positions,
-        create_pdb_folder, # pdb_folders.jl
-        usalign, # usalign.jl
-        get_uniprot_mapping, # sifts.jl
-        get_pfam_mapping,
-        get_uniprot_acc,
-        get_pdb_codes,
-        delete_query_from_target,
-        get_residues_and_sequence, # af_input.jl
-        save_sequences,
-        align_sequences,
-        clean_msa,
-        create_pdb_lists,
-        create_msa_and_templates,
-        organize_files,
-        run_alphafold3,
-        organize_files_af3,
-        run_boltz2,
-        organize_files_boltz,
-        read_a3m,
-        clean_msa_template_names,
-        structural_alignment,
-        _read_pdb_chain,
-        get_msa_sequence_afdb,
-        run_alphafold_input_structure,
-        found_best_prediction,
-        alphaconformers,
-        add_known_conformations!,
-        create_template_clusters_hobohm,
-        create_folder_structure_hobohm,
-        run_cmd,
-        run_alphafold_one_run
+export foldseek_search, # foldseek.jl
+    read_foldseek_search_results,
+    run_foldseek,
+    merge_tables,
+    merge_msas,
+    get_aligned_positions,
+    create_pdb_folder, # pdb_folders.jl
+    usalign, # usalign.jl
+    get_uniprot_mapping, # sifts.jl
+    get_pfam_mapping,
+    get_uniprot_acc,
+    get_pdb_codes,
+    delete_query_from_target,
+    get_residues_and_sequence, # af_input.jl
+    save_sequences,
+    align_sequences,
+    clean_msa,
+    create_pdb_lists,
+    create_msa_and_templates,
+    organize_files,
+    run_alphafold3,
+    organize_files_af3,
+    run_boltz2,
+    organize_files_boltz,
+    read_a3m,
+    clean_msa_template_names,
+    structural_alignment,
+    _read_pdb_chain,
+    get_msa_sequence_afdb,
+    run_alphafold_input_structure,
+    found_best_prediction,
+    alphaconformers,
+    add_known_conformations!,
+    create_template_clusters_hobohm,
+    create_folder_structure_hobohm,
+    run_cmd,
+    run_alphafold_one_run
 
 include("utils.jl")
 include("foldseek.jl")

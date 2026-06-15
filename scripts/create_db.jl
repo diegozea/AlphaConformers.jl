@@ -11,7 +11,7 @@
 # Set the working directory
 cd("/alpha/database/pdb/")
 
-const foldseek =  "/store/EQUIPES/AMIG/MEMBERS/carla.martins/foldseek/foldseek/bin/foldseek"
+const foldseek = "/store/EQUIPES/AMIG/MEMBERS/carla.martins/foldseek/foldseek/bin/foldseek"
 
 # Run the foldseek createdb command
 run(`$foldseek createdb pdb_files fullpdb --threads 16`)
