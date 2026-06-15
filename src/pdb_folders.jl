@@ -1,12 +1,12 @@
 
-function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention=".pdb")
+function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention = ".pdb")
     # If the pdb_db path is an empty string, download the PDB file from the web
     chain = nothing
     if isempty(pdb_db) # && !startswith(pdb_code, "AF") # AF DB
         # Download the PDB file from the web into a temporary file
         tmp_path = joinpath(tempdir(), pdb_code * ".pdb.gz")
         try
-            MIToS.PDB.downloadpdb(pdb_code, filename=tmp_path, format=MIToS.PDB.PDBFile)
+            MIToS.PDB.downloadpdb(pdb_code, filename = tmp_path, format = MIToS.PDB.PDBFile)
             chain = _read_pdb_chain(tmp_path, chain_code)
         catch err
             @error "Error downloading or reading the PDB file $pdb_code: $err"
@@ -53,13 +53,17 @@ environment variable. When retrieving the PDB files from a local folder, the opt
 
 The function returns the absolute path to the created folder.
 """
-function create_pdb_folder(targets::Set, folder_path::String; 
-        pdb_db::String = get(ENV, "PDB_DB", ""), extention::String = ".pdb")
+function create_pdb_folder(
+    targets::Set,
+    folder_path::String;
+    pdb_db::String = get(ENV, "PDB_DB", ""),
+    extention::String = ".pdb",
+)
     local_pdb_folder = abspath(folder_path)
 
     # If the folder already exists, delete it and create a new one
     _create_empty_folder(folder_path)
-    
+
     for target in targets
         # Split target into pdb_code and chain_code.
         # NOTE: Foldseek outputs targets in different formats based on the chain count:
@@ -80,22 +84,39 @@ function create_pdb_folder(targets::Set, folder_path::String;
         # The file name is the same as the one in the list of targets.
         local_pdb_path = joinpath(local_pdb_folder, String(target))
         # Read the original PDB file and save the chain in the new folder.
-        chain = _get_pdb_chain(pdb_db, pdb_code, chain_code; extention=extention)
+        chain = _get_pdb_chain(pdb_db, pdb_code, chain_code; extention = extention)
         if chain !== nothing
-            MIToS.PDB.write(local_pdb_path, chain, MIToS.PDB.PDBFile)
+            MIToS.PDB.write_file(local_pdb_path, chain, MIToS.PDB.PDBFile)
         end
     end
 
     return local_pdb_folder
 end
 
-function create_pdb_folder(targets::DataFrames.DataFrame, folder_path::String; 
-        pdb_db::String = get(ENV, "PDB_DB", ""), extention::String = ".pdb")
-    create_pdb_folder(Set{String}(targets.target), folder_path; 
-        pdb_db=pdb_db, extention=extention)
+function create_pdb_folder(
+    targets::DataFrames.DataFrame,
+    folder_path::String;
+    pdb_db::String = get(ENV, "PDB_DB", ""),
+    extention::String = ".pdb",
+)
+    create_pdb_folder(
+        Set{String}(targets.target),
+        folder_path;
+        pdb_db = pdb_db,
+        extention = extention,
+    )
 end
 
-function create_pdb_folder(targets::AbstractArray, folder_path::String; 
-        pdb_db::String = get(ENV, "PDB_DB", ""), extention::String = ".pdb")
-    create_pdb_folder(Set{String}(targets), folder_path; pdb_db=pdb_db, extention=extention)
+function create_pdb_folder(
+    targets::AbstractArray,
+    folder_path::String;
+    pdb_db::String = get(ENV, "PDB_DB", ""),
+    extention::String = ".pdb",
+)
+    create_pdb_folder(
+        Set{String}(targets),
+        folder_path;
+        pdb_db = pdb_db,
+        extention = extention,
+    )
 end

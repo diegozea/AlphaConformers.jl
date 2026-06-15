@@ -82,9 +82,6 @@ for row in eachrow(DATA)
         AlphaConformers.alphaconformers(ref_pdb, FOLDSEEK_DB, ALPHAFOLD_DB, PDB_FOLDER, apo_dir)
         AlphaConformers.run_alphafold(apo_dir, colabfold_path=COLABFOLD_PATH)
 
-        # paths = create_alpha_fold_inputs(apo_dir, ref_pdb, ref_chain, ref_model,
-        #     foldseek_db=FOLDSEEK_DB, pdb_db=PDB_FOLDER, testing=true)
-        # run_alphafold(paths.clusters, colabfold_path=COLABFOLD_PATH)
     catch err
         @error "Error processing $(row.apo_id): $(err)"
     end

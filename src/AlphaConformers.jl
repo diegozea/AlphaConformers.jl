@@ -4,6 +4,8 @@ import BioAlignments
 import BioStructures
 import MIToS
 import Foldseek_jll
+import MAFFT_jll
+import USalign_jll
 import CSV
 import DataFrames
 import Clustering
@@ -34,15 +36,13 @@ export  foldseek_search, # foldseek.jl
         get_pfam_mapping,
         get_uniprot_acc,
         get_pdb_codes,
-        delete_query_from_target!,
-        list_known_conformations,
+        delete_query_from_target,
         get_residues_and_sequence, # af_input.jl
         save_sequences,
         align_sequences,
         clean_msa,
         create_pdb_lists,
         create_msa_and_templates,
-        run_alphafold, # run_alphafold.jl
         organize_files,
         run_alphafold3,
         organize_files_af3,
@@ -66,6 +66,9 @@ include("utils.jl")
 include("foldseek.jl")
 include("clustering.jl")
 include("sifts.jl")
+include("pdb_folders.jl")
+include("usalign.jl")
+include("af_input.jl")
 include("run_alphafold.jl")
 include("organize_files.jl")
 include("run_alphaconformers.jl")
