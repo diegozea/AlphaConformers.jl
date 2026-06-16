@@ -10,6 +10,10 @@ using TestItems
     @test parsed.rank == "rank_001_model_1"
     @test parsed.pLDDT == 91.23
     @test parsed.pTM == 0.76
+    @test AlphaConformers.parse_plddt_info_in_line("no rank here") === nothing
+
+    @test AlphaConformers.run_cmd(`true`) === nothing
+    @test AlphaConformers.run_cmd(`false`) === nothing
 
     mktempdir() do dir
         out_json = joinpath(dir, "af3.json")

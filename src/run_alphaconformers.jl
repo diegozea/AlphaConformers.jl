@@ -121,7 +121,7 @@ function vector_to_msa(seqs::Vector{String})
         end
     end
 
-    msa = read(tmpfile, FASTA)
+    msa = read(tmpfile, MIToS.MSA.FASTA)
 
     return msa
 end
@@ -178,6 +178,23 @@ function align_full_seq(full_seq, msa)
     end
     @show length(new_msa)
     return new_msa
+end
+
+function _parse_query_pdb_filename(input_pdb::AbstractString)
+    parts = split(basename(input_pdb), "_")
+    if length(parts) < 2
+        error(
+            "The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'",
+        )
+    end
+    query_pdb_code = String(parts[1])
+    query_chain_code = String(first(splitext(parts[2])))
+    if isempty(query_pdb_code) || isempty(query_chain_code)
+        error(
+            "The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'",
+        )
+    end
+    return query_pdb_code, query_chain_code
 end
 
 """
@@ -245,14 +262,7 @@ function alphaconformers(
     println("Available threads", Threads.nthreads())
 
     #Get the query pdb code and chain from the input file name
-    parts=split(basename(input_pdb), "_")
-    if length(parts) < 2
-        error(
-            "The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'",
-        )
-    end
-    query_pdb_code = parts[1]
-    query_chain_code=String(first(splitext(parts[2])))
+    query_pdb_code, query_chain_code = _parse_query_pdb_filename(input_pdb)
     println("Query PDB code: $query_pdb_code, Query chain code: $query_chain_code")
 
     println("Running Foldseek")

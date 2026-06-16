@@ -96,18 +96,24 @@ Also, you can pass a `Cmd` object to the `extra_parameters` keyword argument to 
 modify other USalign arguments. Please note that you do not need to give the structures 
 to align, as they are automatically passed to USalign.
 """
-function usalign(pdb_file_a, pdb_file_b; kargs...)
+function usalign(pdb_file_a, pdb_file_b; usalign::Cmd = USalign_jll.USalign(), kargs...)
     @assert isfile(pdb_file_a) "File $pdb_file_a does not exist"
     @assert isfile(pdb_file_b) "File $pdb_file_b does not exist"
     mktemp() do tmp_path, _
-        cmd = _usalign_command(; kargs...)
+        cmd = _usalign_command(usalign; kargs...)
         cmd = `$cmd $pdb_file_a $pdb_file_b`
         run(pipeline(cmd, stdout = tmp_path))
         _read_usalign_output_table(tmp_path)
     end
 end
 
-function usalign(pdb_file_a, pdb_folder, pdb_list; kargs...)
+function usalign(
+    pdb_file_a,
+    pdb_folder,
+    pdb_list;
+    usalign::Cmd = USalign_jll.USalign(),
+    kargs...,
+)
     @assert isfile(pdb_file_a) "File $pdb_file_a does not exist"
     @assert isdir(pdb_folder) "Folder $pdb_folder does not exist"
     # pdb_folder should end with a slash
@@ -117,7 +123,7 @@ function usalign(pdb_file_a, pdb_folder, pdb_list; kargs...)
     mktemp() do list, _
         _save_list(list, pdb_list, pdb_folder)
         mktemp() do output, _
-            cmd = _usalign_command(; kargs...)
+            cmd = _usalign_command(usalign; kargs...)
             cmd = `$cmd $pdb_file_a -dir2 $pdb_folder $list`
             run(pipeline(cmd, stdout = output))
             _read_usalign_output_table(output)

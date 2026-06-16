@@ -1,18 +1,34 @@
 
-function _get_pdb_chain(pdb_db::String, pdb_code, chain_code; extention = ".pdb")
+function _download_pdb_chain(
+    pdb_code,
+    chain_code;
+    downloadpdb = MIToS.PDB.downloadpdb,
+    read_pdb_chain = _read_pdb_chain,
+    tmp_path = joinpath(tempdir(), pdb_code * ".pdb.gz"),
+)
+    chain = nothing
+    try
+        downloadpdb(pdb_code, filename = tmp_path, format = MIToS.PDB.PDBFile)
+        chain = read_pdb_chain(tmp_path, chain_code)
+    catch err
+        @error "Error downloading or reading the PDB file $pdb_code: $err"
+    finally
+        isfile(tmp_path) && rm(tmp_path)
+    end
+    chain
+end
+
+function _get_pdb_chain(
+    pdb_db::String,
+    pdb_code,
+    chain_code;
+    extention = ".pdb",
+    download_pdb_chain = _download_pdb_chain,
+)
     # If the pdb_db path is an empty string, download the PDB file from the web
     chain = nothing
     if isempty(pdb_db) # && !startswith(pdb_code, "AF") # AF DB
-        # Download the PDB file from the web into a temporary file
-        tmp_path = joinpath(tempdir(), pdb_code * ".pdb.gz")
-        try
-            MIToS.PDB.downloadpdb(pdb_code, filename = tmp_path, format = MIToS.PDB.PDBFile)
-            chain = _read_pdb_chain(tmp_path, chain_code)
-        catch err
-            @error "Error downloading or reading the PDB file $pdb_code: $err"
-        finally
-            isfile(tmp_path) && rm(tmp_path) # Delete the temporary file
-        end
+        chain = download_pdb_chain(pdb_code, chain_code)
     else
         pdb_path = joinpath(pdb_db, pdb_code * extention)
         if isfile(pdb_path)

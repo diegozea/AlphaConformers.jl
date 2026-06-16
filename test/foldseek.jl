@@ -79,6 +79,19 @@ using TestItems
         @test isfile(run_output[1].msa_file)
         @test isdir(run_output[1].aligned_structures_folder)
         @test !isempty(readdir(run_output[1].aligned_structures_folder))
+
+        nofilter_dir = joinpath(dir, "nofilter")
+        mkpath(nofilter_dir)
+        nofilter_output =
+            run_foldseek(query_pdb, 1, db_path; out_folder = nofilter_dir, filtrage = false)
+        @test length(nofilter_output) == 1
+        @test isfile(nofilter_output[1].table_file)
+
+        vector_dir = joinpath(dir, "vector")
+        mkpath(vector_dir)
+        vector_output = run_foldseek(query_pdb, 1, [db_path]; out_folder = vector_dir)
+        @test length(vector_output) == 1
+        @test isfile(vector_output[1].table_file)
     end
 end
 
