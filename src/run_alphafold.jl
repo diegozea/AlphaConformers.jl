@@ -130,6 +130,18 @@ function get_msa_sequence_afdb(uniprot_id::String, output_dir::String)
 
 end
 
+"""
+    parse_plddt_info_in_line(line) -> NamedTuple or nothing
+
+Parse one ColabFold log line containing ranking and confidence scores.
+
+# Arguments
+- `line`: Log line to inspect.
+
+# Returns
+A named tuple with `rank`, `pLDDT`, and `pTM` when the line contains all three
+fields. Returns `nothing` for unrelated lines.
+"""
 function parse_plddt_info_in_line(line::String)
     @show line
     m = match(r"(rank_[^ ]+).*pLDDT=(\d+\.\d+).*pTM=(\d+\.\d+)", line)
@@ -247,6 +259,25 @@ end
 
 ### AlphaFold3 function ###
 
+"""
+    write_af3_json(out_json; run_name, sequence, chain_id="A", templates_info, seed)
+    -> out_json
+
+Write an AlphaFold3 JSON input file for one protein sequence.
+
+# Arguments
+- `out_json`: Path where the JSON file will be written.
+
+# Keywords
+- `run_name`: Name used by AlphaFold3 for this run.
+- `sequence`: Protein sequence for the query chain.
+- `chain_id`: Query chain identifier.
+- `templates_info`: Template records in the format expected by AlphaFold3.
+- `seed`: First model seed. Four following seeds are added automatically.
+
+# Returns
+The path passed as `out_json`.
+"""
 function write_af3_json(
     out_json::String;
     run_name::String,
@@ -282,6 +313,20 @@ function write_af3_json(
     return out_json
 end
 
+"""
+    aligned_indices(query_aln, template_aln) -> (query_indices, template_indices)
+
+Return zero-based residue indices for columns where two aligned sequences both have
+residues.
+
+# Arguments
+- `query_aln`: Aligned query sequence, using `-` for gaps.
+- `template_aln`: Aligned template sequence, using `-` for gaps.
+
+# Returns
+Two integer vectors with matching query and template residue indices. The indices are
+zero-based because AlphaFold3 template JSON uses zero-based indexing.
+"""
 function aligned_indices(query_aln::String, template_aln::String)
     @assert length(query_aln) == length(template_aln)
 

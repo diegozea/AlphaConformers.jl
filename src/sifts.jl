@@ -82,6 +82,20 @@ function get_uniprot_acc(
     String.(unique(ups))
 end
 
+"""
+    get_pfam_acc(data, pdb, chain=MIToS.PDB.All) -> Vector{String} or nothing
+
+Return Pfam accessions mapped to a PDB entry and, optionally, one chain.
+
+# Arguments
+- `data`: DataFrame returned by `get_pfam_mapping`.
+- `pdb`: PDB code.
+- `chain`: Chain identifier, or `MIToS.PDB.All` to search all chains.
+
+# Returns
+A vector of unique Pfam ids. Returns `nothing` for AlphaFold DB identifiers, which are
+not represented in the SIFTS PDB-to-Pfam table.
+"""
 function get_pfam_acc(
     data::DataFrames.DataFrame,
     pdb::String,

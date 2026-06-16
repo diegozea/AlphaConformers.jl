@@ -130,6 +130,19 @@ function within_cluster(item1, item2, threshold)
     return rmsd <= threshold
 end
 
+"""
+    get_target2sequence(expanded_table, msa) -> Dict{String,String}
+
+Map each Foldseek target name to the matching sequence name in an MSA.
+
+# Arguments
+- `expanded_table`: Foldseek result table after adding known conformations.
+- `msa`: MSA containing the query and target sequences.
+
+# Returns
+A dictionary from `expanded_table.target` values to sequence names found in `msa`.
+Targets with no matching sequence are skipped with a warning.
+"""
 function get_target2sequence(expanded_table, msa)
     seqnames=collect(MIToS.MSA.sequencename_iterator(msa))
     clean_seqnames = collect(split(x, '\t')[1] for x in seqnames)
@@ -150,6 +163,19 @@ function get_target2sequence(expanded_table, msa)
 
 end
 
+"""
+    get_cluster2targets(targets, clusters) -> (cluster2targets, nclusters)
+
+Group target names by Hobohm cluster label.
+
+# Arguments
+- `targets`: Iterable of target-name and cluster-label pairs.
+- `clusters`: Cluster labels used to define the output order.
+
+# Returns
+An ordered dictionary mapping cluster ids to unique target names, and the number of
+clusters in that dictionary.
+"""
 function get_cluster2targets(targets, clusters)
     cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
     cluster_numbers = unique(clusters)
@@ -169,6 +195,20 @@ function get_cluster2targets(targets, clusters)
 
 end
 
+"""
+    get_cluster2targets_concatenate(targets, clusters) -> (cluster2targets, nclusters)
+
+Group targets by batches of ten cluster ids.
+
+# Arguments
+- `targets`: Iterable of target-name and cluster-label pairs.
+- `clusters`: Cluster labels. This argument is kept for compatibility.
+
+# Returns
+An ordered dictionary mapping batch ids to unique target names, and the number of
+batches. Cluster ids `1:10` are assigned to batch `1`, `11:20` to batch `2`,
+and so on.
+"""
 function get_cluster2targets_concatenate(targets, clusters)
     cluster2targets = OrderedCollections.OrderedDict{Int,Vector{String}}()
     # Group clusters in batches of 10.
@@ -192,6 +232,19 @@ function get_cluster2targets_concatenate(targets, clusters)
     cluster2targets, length(cluster2targets)
 end
 
+"""
+    get_cluster2seqnames(cluster2targets, target2sequence) -> OrderedDict
+
+Convert per-cluster target names into per-cluster MSA sequence names.
+
+# Arguments
+- `cluster2targets`: Ordered dictionary from cluster id to target names.
+- `target2sequence`: Dictionary from target name to sequence name.
+
+# Returns
+An ordered dictionary from cluster id to unique sequence names. Targets missing from
+`target2sequence` are ignored.
+"""
 function get_cluster2seqnames(cluster2targets, target2sequence)
     cluster2seqnames = OrderedCollections.OrderedDict{Int,Vector{String}}()
     for (cluster, targets) in cluster2targets
@@ -225,6 +278,19 @@ function _rename_msa!(msa)
     MIToS.MSA.rename_sequences!(msa, new_names)
 end
 
+"""
+    get_cluster2msa(msa, cluster2seqnames) -> OrderedDict
+
+Extract one sub-MSA for each template cluster.
+
+# Arguments
+- `msa`: Full MSA containing the query sequence and all target sequences.
+- `cluster2seqnames`: Ordered dictionary from cluster id to sequence names.
+
+# Returns
+An ordered dictionary from cluster id to sub-MSA. The query sequence is prepended to
+each cluster MSA. Clusters with missing sequence names are skipped.
+"""
 function get_cluster2msa(msa, cluster2seqnames)
     query_name = first(MIToS.MSA.sequencename_iterator(msa))
     cluster2msa =
@@ -262,11 +328,19 @@ function get_cluster2msa(msa, cluster2seqnames)
     cluster2msa
 end
 """
-We can only have 4 templates for each cluster to run AlphaFold with ColabFold
-To select those templates we divide the cluster in 4 equal part and select one template for each part to have a good representation of the cluster
-If less than 8 templates are available we take the four first one, if less than 4 we take all the templates
+    get_cluster2structures(structures, cluster2targets) -> OrderedDict
+
+Select up to four template structures for each cluster.
+
+# Arguments
+- `structures`: Dictionary from target name to aligned residue arrays.
+- `cluster2targets`: Ordered dictionary from cluster id to target names.
+
+# Returns
+An ordered dictionary from cluster id to selected template structures. Clusters with
+fewer than eight available targets use the first four targets, or all targets when
+fewer than four are available. Larger clusters are sampled across the target order.
 """
-#Select 4 template for each clusters
 function get_cluster2structures(structures, cluster2targets)
     # Final dictionary.
     cluster2structures =
@@ -445,6 +519,21 @@ function create_folder_structure_hobohm(
     out_folder
 end
 
+"""
+    write_new_msa(new_msa_path, query_id, query_seq, cluster_ids, cluster_seqs)
+
+Write a FASTA/A3M-style MSA file from query and cluster sequences.
+
+# Arguments
+- `new_msa_path`: Output path.
+- `query_id`: Header for the query sequence.
+- `query_seq`: Query sequence.
+- `cluster_ids`: Headers for cluster member sequences.
+- `cluster_seqs`: Sequences for cluster members.
+
+# Returns
+`nothing`.
+"""
 function write_new_msa(new_msa_path, query_id, query_seq, cluster_ids, cluster_seqs)
     open(new_msa_path, "w") do io
         println(io, ">$query_id")
@@ -455,10 +544,18 @@ function write_new_msa(new_msa_path, query_id, query_seq, cluster_ids, cluster_s
         end
     end
 end
+"""
+    download_template(cluster_folder, templates)
 
+Download complete template files into `cluster_folder/templates_complete`.
 
+# Arguments
+- `cluster_folder`: Cluster folder where `templates_complete` will be created.
+- `templates`: Template identifiers or file names from PDB or AlphaFold DB.
 
-
+# Returns
+`nothing`. Templates that cannot be downloaded are skipped with a warning.
+"""
 function download_template(cluster_folder, templates)
     cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
     for target in templates

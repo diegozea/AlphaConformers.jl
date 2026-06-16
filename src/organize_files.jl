@@ -1,5 +1,16 @@
 
-# Move files matching a pattern into a folder.
+"""
+    safe_move(src_pattern, dst_dir)
+
+Move all files matching a glob pattern into a destination folder.
+
+# Arguments
+- `src_pattern`: Glob pattern for files to move.
+- `dst_dir`: Destination directory.
+
+# Returns
+`nothing`. Files that cannot be moved are reported and skipped.
+"""
 function safe_move(src_pattern::AbstractString, dst_dir::AbstractString)
     for src in glob(src_pattern)
         try
@@ -252,6 +263,19 @@ function organize_files_boltz(output_dir::AbstractString)
     println("\n✅ Reorganization complete!")
 end
 
+"""
+    get_all_predictions(output_dir, folder_af2_result) -> (structures, ptm_scores)
+
+Read all prediction models and pTM scores from cluster output folders.
+
+# Arguments
+- `output_dir`: AlphaConformers output folder containing `cluster_*` folders.
+- `folder_af2_result`: Name of the prediction result folder inside each cluster.
+
+# Returns
+A pair of dictionaries. The first maps prediction names to parsed structures. The
+second maps prediction names to pTM scores read from the matching JSON score files.
+"""
 function get_all_predictions(output_dir::String, folder_af2_result)
     clusters=glob("cluster*", output_dir)
 
@@ -296,6 +320,21 @@ function get_all_predictions(output_dir::String, folder_af2_result)
     return dic_pred_struct, dic_pred_ptm
 end
 
+"""
+    compare_struct(dic_pred_struct, query_struct, cutoff_min, cutoff_max) -> Dict
+
+Compare predicted structures with a query structure and keep models in an RMSD range.
+
+# Arguments
+- `dic_pred_struct`: Dictionary from prediction name to parsed structure.
+- `query_struct`: Path to the query structure file.
+- `cutoff_min`: Minimum accepted RMSD.
+- `cutoff_max`: Maximum accepted RMSD.
+
+# Returns
+A dictionary mapping prediction names to RMSD values for predictions whose RMSD is
+greater than `cutoff_min` and lower than `cutoff_max`.
+"""
 function compare_struct(
     dic_pred_struct::Dict,
     query_struct::String,
@@ -330,6 +369,22 @@ function compare_struct(
     return cluster_close_query
 end
 
+"""
+    found_uniprot_structure(search_results, sifts_uniprot_mapping, query_pdb_code,
+        query_chain_code) -> DataFrame
+
+Find Foldseek hits that belong to the same UniProt entry as a query PDB structure.
+
+# Arguments
+- `search_results`: Foldseek result table.
+- `sifts_uniprot_mapping`: SIFTS UniProt mapping table.
+- `query_pdb_code`: Query PDB code.
+- `query_chain_code`: Query chain identifier. Currently kept for caller compatibility.
+
+# Returns
+A deduplicated subset of `search_results` whose targets start with PDB codes mapped to
+the query UniProt entry.
+"""
 function found_uniprot_structure(
     search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame,
@@ -359,6 +414,19 @@ function found_uniprot_structure(
     @show uniprot_result
     return uniprot_result
 end
+"""
+    found_files(file_name, possible_path1, possible_path2) -> String or nothing
+
+Find an aligned structure file in one of two Foldseek result folders.
+
+# Arguments
+- `file_name`: Target name to search for.
+- `possible_path1`: First result folder to inspect.
+- `possible_path2`: Second result folder to inspect.
+
+# Returns
+The first matching PDB path, or `nothing` if no matching file is found.
+"""
 function found_files(file_name, possible_path1, possible_path2)
     files1=glob("*.pdb", joinpath(possible_path1, "aligned_structures"))
     file_found = filter(f -> occursin(file_name, f), files1)
@@ -372,6 +440,21 @@ function found_files(file_name, possible_path1, possible_path2)
     end
     return nothing
 end
+"""
+    compare_alternative_structures(search_results, sifts_uniprot_mapping, output_dir)
+    -> (min_rmsd, max_rmsd) or nothing
+
+Estimate the RMSD range among known related structures in Foldseek results.
+
+# Arguments
+- `search_results`: Foldseek result table containing related structures.
+- `sifts_uniprot_mapping`: SIFTS UniProt mapping table.
+- `output_dir`: AlphaConformers output folder containing Foldseek result folders.
+
+# Returns
+A tuple with the minimum and maximum per-entry RMSD ranges. Returns `nothing` when no
+related structures can be compared.
+"""
 function compare_alternative_structures(search_results, sifts_uniprot_mapping, output_dir)
     range_rmsd=[]
     file_analysed=Set{String}()

@@ -5,6 +5,18 @@ mutable struct Progress
     total::Int
 end
 
+"""
+    progress_bar(progress, step_name)
+
+Print and advance the text progress bar used by the main pipeline.
+
+# Arguments
+- `progress`: Mutable progress state.
+- `step_name`: Name of the pipeline step that just completed.
+
+# Returns
+`nothing`.
+"""
 function progress_bar(p::Progress, step_name::String)
     p.current += 1
     pct = round(Int, 100 * p.current / p.total)
@@ -54,6 +66,17 @@ end
 
 # Sequence alignment --------------------------------------- #
 
+"""
+    get_res_beg_end(pdb_file) -> (first_residue, last_residue)
+
+Return the minimum and maximum numeric residue ids found in ATOM records.
+
+# Arguments
+- `pdb_file`: Path to a PDB file.
+
+# Returns
+A tuple with the first and last residue numbers found in the file.
+"""
 function get_res_beg_end(pdb_file::String)
     res_ids = Int[]
 
@@ -75,6 +98,17 @@ function get_res_beg_end(pdb_file::String)
     return minimum(res_ids), maximum(res_ids)
 end
 
+"""
+    vector_to_msa(seqs) -> MSA
+
+Create a temporary FASTA file from sequences and read it as an MSA.
+
+# Arguments
+- `seqs`: Vector of ungapped or aligned sequence strings.
+
+# Returns
+An MSA object with generated sequence names `seq_1`, `seq_2`, and so on.
+"""
 function vector_to_msa(seqs::Vector{String})
     names = ["seq_$(i)" for i = 1:length(seqs)]
 
@@ -92,6 +126,19 @@ function vector_to_msa(seqs::Vector{String})
     return msa
 end
 
+"""
+    align_full_seq(full_seq, msa) -> Vector{String}
+
+Project an existing MSA onto a supplied full reference sequence.
+
+# Arguments
+- `full_seq`: Full query sequence to use as the new reference row.
+- `msa`: Sequence vector where the first entry is the current query/reference.
+
+# Returns
+A vector of aligned sequence strings. Positions absent from the original reference are
+filled with gaps in the non-query sequences.
+"""
 function align_full_seq(full_seq, msa)
 
     ref_seq = msa[1]  # The first MSA sequence is the reference.
@@ -134,22 +181,37 @@ function align_full_seq(full_seq, msa)
 end
 
 """
-This function run the whole pipeline of AlphaConformers, from running foldseek to creating the folders for AlphaFold2 input.
-Input : 
-- input_pdb: the path to the query pdb file, the name of the file must be in the format "PDBCODE_CHAIN.pdb", for example "1EX6_B.pdb"
-- pdb_folder: the path to the folder containing all the pdb files, this is used to create the foldseek database for the targets
-- out_folder: the path to the output folder where all the results will be stored, the output folder will be created if it does not exist
-- n_threads: the number of threads to use for foldseek, default is the number of available threads
-- db: the path to the foldseek database to use for the search, default is "/alpha/database/pdb/fullpdb"
-- evalue_cutoff: the e-value cutoff to filter the foldseek results, default is 1e-5, set to NaN to not filter
-- cutoff: the RMSD cutoff to use for the structural clustering, default is 1.0
-- test_analyse: if true, the function will remove the known structures of the query uniprot from the targets, this is used to test the effect of keeping or not the known structures of the query in the targets, default is false
-- keep_query: if true, the function will keep the query structure in the targets after removing the known structures of the query uniprot, default is true
-- full_seq: the full sequence of the query, this is used to align the MSA on the full sequence to not have missing residues, default is missing, if provided, the function will align the MSA on the full sequence and write the aligned MSA to the output folder
-Output: 
-- the function will create a folder for each cluster of templates, each folder will contain the aligned MSA and the pdb files of the templates in the cluster, the names of the templates in the MSA and the pdb files will be cleaned to be compatible with AlphaFold2 input
+    alphaconformers(input_pdb, pdb_folder, out_folder; kwargs...)
+
+Run the AlphaConformers pipeline for one query structure.
+
+The function searches for related structures, builds a merged MSA, groups template
+structures, and writes one output folder per template cluster.
+
+# Arguments
+- `input_pdb`: Query PDB file. The file name must use `PDBCODE_CHAIN.pdb`, for
+  example `1EX6_B.pdb`.
+- `pdb_folder`: Folder containing local PDB files used when adding known structures.
+- `out_folder`: Output folder. It is created by the pipeline if needed.
+
+# Keywords
+- `n_threads`: Number of Foldseek threads. Defaults to `Threads.nthreads()`.
+- `db`: Foldseek database paths used for the search.
+- `evalue_cutoff`: Maximum Foldseek e-value. Set to `NaN` to keep all hits.
+- `cutoff`: RMSD cutoff used to group template structures.
+- `test_analyse`: Remove other known structures from the query UniProt entry before
+  clustering.
+- `keep_query`: Keep the query structure when `test_analyse=true`.
+- `full_seq`: Optional full query sequence used to write an MSA aligned to the full
+  sequence.
+
+# Returns
+`nothing`. Results are written under `out_folder`.
+
+# Throws
+Throws an error if the query file name does not include a PDB code and chain, or if
+no targets remain after optional query-conformation removal.
 """
-#Main function to run the whole pipeline of AlphaConformers
 function alphaconformers(
     input_pdb::String,
     pdb_folder::String,
