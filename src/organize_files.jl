@@ -641,3 +641,38 @@ function found_best_prediction(
     return cluster_close_objectif, dic_pred_ptm_close_objectif_all
 
 end
+
+"""
+    triage_outputs(output_dir, query_struct, sifts_uniprot_mapping, folder_af2_result)
+    -> (selected_predictions, ptm_scores)
+
+Triage prediction outputs from an AlphaConformers run.
+
+This is the official final step of the pipeline. For now, it calls
+`found_best_prediction` and returns the same result. Future versions may add more
+triage logic on top of that filtering step.
+
+# Arguments
+- `output_dir`: AlphaConformers output folder containing Foldseek results and
+  prediction folders.
+- `query_struct`: Query structure used as the structural reference.
+- `sifts_uniprot_mapping`: SIFTS mapping table linking UniProt accessions to PDB
+  entries.
+- `folder_af2_result`: Prediction result folder inside each cluster.
+
+# Returns
+A tuple with the selected predictions and their pTM scores.
+"""
+function triage_outputs(
+    output_dir::String,
+    query_struct::String,
+    sifts_uniprot_mapping,
+    folder_af2_result,
+)
+    return found_best_prediction(
+        output_dir,
+        query_struct,
+        sifts_uniprot_mapping,
+        folder_af2_result,
+    )
+end

@@ -52,6 +52,18 @@ end
     end
 end
 
+@testitem "triage_outputs delegates to current prediction filter" begin
+    mktempdir() do dir
+        query_struct = joinpath(dir, "query.pdb")
+        expected = AlphaConformers.found_best_prediction(dir, query_struct, nothing, "af")
+        actual = AlphaConformers.triage_outputs(dir, query_struct, nothing, "af")
+
+        @test actual == expected
+        @test isempty(actual[1])
+        @test isempty(actual[2])
+    end
+end
+
 @testitem "organize_files_af3 copies AlphaFold3 outputs and seed files" begin
     mktempdir() do dir
         run_dir = joinpath(dir, "query")

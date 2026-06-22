@@ -132,6 +132,10 @@ again. This saves time and avoids repeated large downloads. The cache can requir
 around 4 GB of disk space. Prediction outputs are not written to this folder; they are 
 written inside each cluster's `af/` directory.
 
+After prediction, use `triage_outputs` as the final pipeline step. It currently
+filters predictions through `found_best_prediction`; future versions may add more
+output triage on top of that step.
+
 AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
 
 ```julia
@@ -195,8 +199,10 @@ Some lower-level helpers are useful when building custom workflows:
 - `get_uniprot_mapping`: read or download SIFTS UniProt mappings.
 - `create_template_clusters_hobohm`: cluster templates by structural
   similarity.
-- `found_best_prediction`: filter predictions using known related structures
-  and RMSD to the query.
+- `triage_outputs`: official final pipeline step for filtering and triaging
+  prediction outputs.
+- `found_best_prediction`: current lower-level prediction filter used by
+  `triage_outputs`.
 
 Most users should start with `prepare_inputs`.
 
