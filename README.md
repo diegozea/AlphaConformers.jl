@@ -121,7 +121,7 @@ clusters_folder = "outputs/1ABC_A"
 sif_path = "containers/ColabFold_AF2_1-5-5.sif"
 cache_dir = "cache/colabfold"
 
-run_alphafold_one_run(clusters_folder, sif_path, cache_dir)
+run_alphafold(clusters_folder, sif_path, cache_dir)
 ```
 
 The `cache_dir` folder is important for ColabFold runs. It is mounted inside the

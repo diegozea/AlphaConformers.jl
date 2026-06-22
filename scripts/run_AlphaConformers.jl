@@ -179,7 +179,7 @@ function run_alphaconformers(
         keep_query = true,
         full_seq = missing,
     )
-    AlphaConformers.run_alphafold_one_run(output_dir, sif_path, cache_dir)
+    AlphaConformers.run_alphafold(output_dir, sif_path, cache_dir)
 
     @info "Done"
 end
