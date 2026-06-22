@@ -19,7 +19,7 @@ function run_cmd(cmd::Cmd)
 end
 
 """
-    run_alphafold_one_run(clusters_folder, SIF_PATH, CACHE_DIR)
+    run_alphafold(clusters_folder, SIF_PATH, CACHE_DIR)
 
 Run ColabFold structure predictions for all `cluster_*` subfolders, using
 custom structural templates from each cluster's `templates_adaptative/` folder.
@@ -29,7 +29,7 @@ Input :
 - `SIF_PATH`        : path to the ColabFold Apptainer `.sif` image.
 - `CACHE_DIR`       : path to the cache directory for Apptainer.
 """
-function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_DIR::String)
+function run_alphafold(clusters_folder::String, SIF_PATH::String, CACHE_DIR::String)
     ### Check input directories
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
