@@ -117,5 +117,11 @@ end
 
         @test isdir(folder)
         @test isempty(readdir(folder))
+
+        nested = joinpath(dir, "missing", "nested", "scratch")
+        AlphaConformers._create_empty_folder(nested)
+
+        @test isdir(nested)
+        @test isempty(readdir(nested))
     end
 end

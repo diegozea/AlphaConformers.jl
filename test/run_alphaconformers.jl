@@ -39,6 +39,24 @@ using TestItems
     end
     @test progress.current == 1
 
+    steps = [
+        "Foldseek search",
+        "Merging tables",
+        "Adding known conformations",
+        "Merging MSAs",
+        "Final MSA",
+        "Aligned structures",
+        "Clustering Hobohm",
+        "Creating folders + cleanup",
+    ]
+    final_progress = AlphaConformers.Progress(steps, 0, length(steps))
+    redirect_stdout(devnull) do
+        for step in steps
+            AlphaConformers.progress_bar(final_progress, step)
+        end
+    end
+    @test final_progress.current == length(steps)
+
     projected = AlphaConformers.align_full_seq("XABCY", ["ABC", "DEF", "D-F"])
     @test projected == ["XABCY", "-DEF-", "-D-F-"]
 

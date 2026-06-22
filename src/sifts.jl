@@ -409,6 +409,31 @@ function known_pfam_structures(
 end
 
 # look for known conformations of the proteins showing similar structures to the query protein
+function _download_rcsb_mmcif(
+    prot_name::AbstractString,
+    output_path::AbstractString;
+    downloadpdb = MIToS.PDB.downloadpdb,
+)
+    file_name = basename(String(prot_name))
+    dot_index = findfirst(==('.'), file_name)
+    pdb_name = if dot_index === nothing
+        file_name
+    else
+        file_name[firstindex(file_name):prevind(file_name, dot_index)]
+    end
+    pdb_code = uppercase(pdb_name)
+    downloadpdb(pdb_code; filename = output_path, format = MIToS.PDB.MMCIFFile)
+end
+
+function _download_raw_rcsb_mmcif(
+    prot_name::AbstractString,
+    raw_downloads_dir::AbstractString;
+    download_rcsb_mmcif = _download_rcsb_mmcif,
+)
+    mkpath(raw_downloads_dir)
+    download_rcsb_mmcif(prot_name, joinpath(raw_downloads_dir, basename(String(prot_name))))
+end
+
 """
     list_known_conformations(search_results::DataFrames.DataFrame,
                              sifts_uniprot_mapping::DataFrames.DataFrame)
@@ -430,6 +455,9 @@ function get_unknown_conformations(
     input_pdb,
     n_threads,
 )
+    pdb_folder = abspath(pdb_folder)
+    out_folder = abspath(out_folder)
+    input_pdb = abspath(input_pdb)
 
     # Get all alternative structures that were not found by Foldseek.
     new_targets = known_uniprot_structures(sifts_uniprot_mapping, search_results)
@@ -445,6 +473,7 @@ function get_unknown_conformations(
             tmp_targets_dir = joinpath(tmp_folder, "tmp_targets_dir")
             isdir(tmp_targets_dir) && rm(tmp_targets_dir; recursive = true, force = true)
             mkdir(tmp_targets_dir)
+            raw_downloads_dir = joinpath(tmp_folder, "raw_downloads")
 
             for fname in new_targets
                 prot_name=String(split(fname, "_")[1])
@@ -453,11 +482,7 @@ function get_unknown_conformations(
                 if !isfile(input_cif)
                     @warn "Missing file: $input_cif"
                     try
-                        MIToS.Utils.download_file(
-                            "https://files.rcsb.org/download/"*input_cif,
-                            joinpath(tmp_targets_dir, prot_name),
-                        )
-                        input_cif=joinpath(tmp_targets_dir, prot_name)
+                        input_cif = _download_raw_rcsb_mmcif(prot_name, raw_downloads_dir)
                     catch e
                         @warn "Didn't suceed to download file : $input_cif"
                         continue

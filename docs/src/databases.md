@@ -32,7 +32,7 @@ Foldseek can read common structure formats such as `.pdb`, `.cif`, `.pdb.gz`, an
 Put the structures in one folder:
 
 ```text
-/data/databases/pdb/mmcif_files/
+datasets/pdb/mmcif_files/
     100D.cif
     101M.cif
     ...
@@ -54,9 +54,9 @@ In the Julia REPL, load Foldseek and define the paths once:
 ```julia
 import Foldseek_jll
 
-STRUCTURE_PATH = "/data/databases/pdb/mmcif_files"
-DB_PATH = "/data/databases/pdb/fullpdb_mmcif_files"
-TMP_PATH = "/data/databases/pdb/tmp"
+STRUCTURE_PATH = "datasets/pdb/mmcif_files"
+DB_PATH = "datasets/pdb/fullpdb_mmcif_files"
+TMP_PATH = "datasets/pdb/tmp"
 ```
 
 `STRUCTURE_PATH` is the folder with the `.cif` or `.pdb` files. `DB_PATH` is the
@@ -64,10 +64,10 @@ Foldseek database name. It is not a folder. Foldseek will create several files t
 begin with this name, for example:
 
 ```text
-/data/databases/pdb/fullpdb_mmcif_files
-/data/databases/pdb/fullpdb_mmcif_files.dbtype
-/data/databases/pdb/fullpdb_mmcif_files.index
-/data/databases/pdb/fullpdb_mmcif_files.lookup
+datasets/pdb/fullpdb_mmcif_files
+datasets/pdb/fullpdb_mmcif_files.dbtype
+datasets/pdb/fullpdb_mmcif_files.index
+datasets/pdb/fullpdb_mmcif_files.lookup
 ```
 
 Create the database:
@@ -96,7 +96,7 @@ only the file named exactly like `DB_PATH`.
 Search one protein structure against the new database:
 
 ```julia
-QUERY_PATH = "/data/databases/pdb/mmcif_files/101M.cif"
+QUERY_PATH = "datasets/pdb/mmcif_files/101M.cif"
 
 mktempdir() do work
     output = joinpath(work, "test.m8")
@@ -116,9 +116,9 @@ Pass the same `DB_PATH` to `alphaconformers`:
 ```julia
 using AlphaConformers
 
-input_pdb = "/data/queries/1ABC_A.pdb"
-pdb_folder = "/data/databases/pdb/mmcif_files"
-output_dir = "/data/alphaconformers/1ABC_A"
+input_pdb = "1ABC_A.pdb"
+pdb_folder = "datasets/pdb/mmcif_files"
+output_dir = "outputs/1ABC_A"
 
 alphaconformers(
     input_pdb,
