@@ -111,7 +111,7 @@ If the command prints one or more hits, the database is usable.
 
 ## Use the Database with AlphaConformers
 
-Pass the same `DB_PATH` to `alphaconformers`:
+Pass the same `DB_PATH` to `prepare_inputs`:
 
 ```julia
 using AlphaConformers
@@ -120,7 +120,7 @@ input_pdb = "1ABC_A.pdb"
 pdb_folder = "datasets/pdb/mmcif_files"
 output_dir = "outputs/1ABC_A"
 
-alphaconformers(
+prepare_inputs(
     input_pdb,
     pdb_folder,
     output_dir;

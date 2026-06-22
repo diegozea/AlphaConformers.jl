@@ -167,7 +167,7 @@ function run_alphaconformers(
     mkdir(output_dir)
     println(output_dir)
 
-    AlphaConformers.alphaconformers(
+    AlphaConformers.prepare_inputs(
         ref_pdb,
         pdb_folder,
         output_dir;

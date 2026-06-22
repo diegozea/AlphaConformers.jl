@@ -198,7 +198,7 @@ function _parse_query_pdb_filename(input_pdb::AbstractString)
 end
 
 """
-    alphaconformers(input_pdb, pdb_folder, out_folder; kwargs...)
+    prepare_inputs(input_pdb, pdb_folder, out_folder; kwargs...)
 
 Run the AlphaConformers pipeline for one query structure.
 
@@ -229,7 +229,7 @@ structures, and writes one output folder per template cluster.
 Throws an error if the query file name does not include a PDB code and chain, or if
 no targets remain after optional query-conformation removal.
 """
-function alphaconformers(
+function prepare_inputs(
     input_pdb::String,
     pdb_folder::String,
     out_folder::String;
