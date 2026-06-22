@@ -29,7 +29,7 @@ AlphaConformers builds inputs for structure prediction tools in several steps:
 6. It can optionally run ColabFold, AlphaFold3, or Boltz2 through helper
    functions.
 
-The main entry point is `alphaconformers`.
+The main entry point is `prepare_inputs`.
 
 ## Requirements
 
@@ -93,7 +93,7 @@ foldseek_dbs = [
     "datasets/foldseek/afdb",
 ]
 
-alphaconformers(
+prepare_inputs(
     input_pdb,
     pdb_folder,
     out_folder;
@@ -198,7 +198,7 @@ Some lower-level helpers are useful when building custom workflows:
 - `found_best_prediction`: filter predictions using known related structures
   and RMSD to the query.
 
-Most users should start with `alphaconformers`.
+Most users should start with `prepare_inputs`.
 
 ## Development
 
