@@ -124,6 +124,14 @@ cache_dir = "cache/colabfold"
 run_alphafold_one_run(clusters_folder, sif_path, cache_dir)
 ```
 
+The `cache_dir` folder is important for ColabFold runs. It is mounted inside the
+Apptainer container as `/cache` and is used to store downloaded
+ColabFold/AlphaFold model weights. Choose a permanent, writable location and
+reuse the same folder across runs so the weights do not need to be downloaded
+again. This saves time and avoids repeated large downloads. The cache can require
+around 4 GB of disk space. Prediction outputs are not written to this folder; they are 
+written inside each cluster's `af/` directory.
+
 AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
 
 ```julia
