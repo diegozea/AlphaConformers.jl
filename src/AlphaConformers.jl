@@ -55,6 +55,7 @@ export foldseek_search, # foldseek.jl
     get_msa_sequence_afdb,
     run_alphafold_input_structure,
     found_best_prediction,
+    triage_outputs,
     prepare_inputs,
     add_known_conformations!,
     create_template_clusters_hobohm,
