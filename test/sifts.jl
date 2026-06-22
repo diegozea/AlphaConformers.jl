@@ -21,6 +21,24 @@ using TestItems
     @test AlphaConformers._get_pdb_and_chain("4f4j.pdb_A") == ("4F4J", "A")
     @test AlphaConformers._get_pdb_and_chain("4f4j.pdb") == ("4F4J", MIToS.PDB.All)
     @test AlphaConformers._is_chain("4f4j.pdb_A", "4F4J", "A")
+
+    mktempdir() do dir
+        output_path = joinpath(dir, "1AKZ.cif")
+        download_call = Ref{Tuple{String,String}}()
+        function fake_download(url, path)
+            download_call[] = (url, path)
+            write(path, "downloaded")
+        end
+
+        AlphaConformers._download_rcsb_mmcif(
+            "1AKZ.cif",
+            output_path;
+            download_file = fake_download,
+        )
+
+        @test download_call[] == ("https://files.rcsb.org/download/1AKZ.cif", output_path)
+        @test isfile(output_path)
+    end
 end
 
 @testitem "Delete query conformations from Foldseek targets" begin

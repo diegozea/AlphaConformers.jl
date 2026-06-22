@@ -58,9 +58,11 @@ using TestItems
         query_pdb = joinpath(dir, "query.pdb")
         target_pdb = joinpath(dir, "target.pdb")
         db_path = joinpath(dir, "test_db")
+        db_path2 = joinpath(dir, "test_db2")
         write_test_pdb(query_pdb)
         cp(query_pdb, target_pdb)
         run(`$(Foldseek_jll.foldseek()) createdb $target_pdb $db_path`)
+        run(`$(Foldseek_jll.foldseek()) createdb $target_pdb $db_path2`)
 
         search_output = foldseek_search(
             query_pdb;
@@ -92,6 +94,38 @@ using TestItems
         vector_output = run_foldseek(query_pdb, 1, [db_path]; out_folder = vector_dir)
         @test length(vector_output) == 1
         @test isfile(vector_output[1].table_file)
+
+        cd(dir) do
+            relative_output = run_foldseek(
+                "query.pdb",
+                1,
+                "test_db";
+                out_folder = "missing_parent/relative",
+            )
+            @test length(relative_output) == 1
+            @test isfile(relative_output[1].table_file)
+            @test isdir(relative_output[1].aligned_structures_folder)
+            @test realpath(dirname(dirname(relative_output[1].table_file))) ==
+                  realpath(joinpath(dir, "missing_parent", "relative"))
+
+            relative_vector_output = run_foldseek(
+                "query.pdb",
+                1,
+                ["test_db"];
+                out_folder = "missing_parent/vector_relative",
+            )
+            @test length(relative_vector_output) == 1
+            @test isfile(relative_vector_output[1].table_file)
+
+            relative_comma_output = run_foldseek(
+                "query.pdb",
+                1,
+                "test_db, test_db2";
+                out_folder = "missing_parent/comma_relative",
+            )
+            @test length(relative_comma_output) == 2
+            @test all(output -> isfile(output.table_file), relative_comma_output)
+        end
     end
 end
 

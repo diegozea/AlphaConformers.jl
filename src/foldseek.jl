@@ -122,6 +122,9 @@ function run_foldseek(
     filtrage::Bool = true,
     format_output::String = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
 )
+    pdb_file = abspath(pdb_file)
+    out_folder = abspath(out_folder)
+
     # get the path to the target database
     isempty(db_path) && error(
         "Please set the FOLDSEEK_DB_PATH environment variable or " *
@@ -130,9 +133,17 @@ function run_foldseek(
 
     # if there is more than one database, run the function for each one
     if occursin(',', db_path)
-        db_path_vector = String.(split(db_path, ','))
-        return run_foldseek(pdb_file, n_threads, db_path_vector, out_folder = out_folder)
+        db_path_vector = abspath.(String.(strip.(split(db_path, ','))))
+        return run_foldseek(
+            pdb_file,
+            n_threads,
+            db_path_vector;
+            out_folder = out_folder,
+            filtrage = filtrage,
+            format_output = format_output,
+        )
     end
+    db_path = abspath(db_path)
 
     # if there is only one database, continue
     isfile(db_path) || error("Foldseek database error: $db_path is not a file.")
@@ -256,9 +267,24 @@ function run_foldseek(
     n_threads::Int,
     db_path::Vector{String};
     out_folder::String = dirname(abspath(pdb_file)),
+    filtrage::Bool = true,
+    format_output::String = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
 )
+    pdb_file = abspath(pdb_file)
+    out_folder = abspath(out_folder)
+    db_path = abspath.(strip.(db_path))
+
     map(db_path) do db
-        only(run_foldseek(pdb_file, n_threads, db, out_folder = out_folder))
+        only(
+            run_foldseek(
+                pdb_file,
+                n_threads,
+                db;
+                out_folder = out_folder,
+                filtrage = filtrage,
+                format_output = format_output,
+            ),
+        )
     end
 end
 

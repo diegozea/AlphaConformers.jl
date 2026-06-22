@@ -2,7 +2,7 @@
     _create_empty_folder(path)
 
 Helper function to create an empty folder at the given path. If the folder already exists,
-all its contents will be deleted.
+all its contents will be deleted. Missing parent folders are created.
 """
 function _create_empty_folder(path)
     if isdir(path)
@@ -10,7 +10,7 @@ function _create_empty_folder(path)
         rm(path, recursive = true, force = true)
     end
     @info "Creating folder $path"
-    mkdir(path)
+    mkpath(path)
 end
 
 

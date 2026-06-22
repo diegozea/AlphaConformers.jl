@@ -409,6 +409,15 @@ function known_pfam_structures(
 end
 
 # look for known conformations of the proteins showing similar structures to the query protein
+function _download_rcsb_mmcif(
+    prot_name::AbstractString,
+    output_path::AbstractString;
+    download_file = MIToS.Utils.download_file,
+)
+    url = "https://files.rcsb.org/download/" * prot_name
+    download_file(url, output_path)
+end
+
 """
     list_known_conformations(search_results::DataFrames.DataFrame,
                              sifts_uniprot_mapping::DataFrames.DataFrame)
@@ -430,6 +439,9 @@ function get_unknown_conformations(
     input_pdb,
     n_threads,
 )
+    pdb_folder = abspath(pdb_folder)
+    out_folder = abspath(out_folder)
+    input_pdb = abspath(input_pdb)
 
     # Get all alternative structures that were not found by Foldseek.
     new_targets = known_uniprot_structures(sifts_uniprot_mapping, search_results)
@@ -453,8 +465,8 @@ function get_unknown_conformations(
                 if !isfile(input_cif)
                     @warn "Missing file: $input_cif"
                     try
-                        MIToS.Utils.download_file(
-                            "https://files.rcsb.org/download/"*input_cif,
+                        _download_rcsb_mmcif(
+                            prot_name,
                             joinpath(tmp_targets_dir, prot_name),
                         )
                         input_cif=joinpath(tmp_targets_dir, prot_name)

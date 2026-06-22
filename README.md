@@ -84,13 +84,13 @@ Prepare AlphaConformers input folders from a query structure:
 ```julia
 using AlphaConformers
 
-input_pdb = "/data/queries/1ABC_A.pdb"
-pdb_folder = "/data/pdb_mmcif"
-out_folder = "/data/alphaconformers/1ABC_A"
+input_pdb = "1ABC_A.pdb"
+pdb_folder = "datasets/pdb/mmcif_files"
+out_folder = "outputs/1ABC_A"
 
 foldseek_dbs = [
-    "/data/foldseek/fullpdb",
-    "/data/foldseek/afdb",
+    "datasets/foldseek/fullpdb",
+    "datasets/foldseek/afdb",
 ]
 
 alphaconformers(
@@ -117,9 +117,9 @@ To run ColabFold on all generated cluster folders:
 ```julia
 using AlphaConformers
 
-clusters_folder = "/data/alphaconformers/1ABC_A"
-sif_path = "/containers/ColabFold_AF2_1-5-5.sif"
-cache_dir = "/data/cache/colabfold"
+clusters_folder = "outputs/1ABC_A"
+sif_path = "containers/ColabFold_AF2_1-5-5.sif"
+cache_dir = "cache/colabfold"
 
 run_alphafold_one_run(clusters_folder, sif_path, cache_dir)
 ```

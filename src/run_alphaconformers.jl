@@ -241,6 +241,10 @@ function alphaconformers(
     keep_query::Bool = true,
     full_seq::Union{Missing,String} = missing,
 )
+    input_pdb = abspath(input_pdb)
+    pdb_folder = abspath(pdb_folder)
+    out_folder = abspath(out_folder)
+
     println("----------------------------------------")
     println("AlphaConformers start running...")
     println("----------------------------------------")
@@ -255,7 +259,7 @@ function alphaconformers(
         "Clustering Hobohm",
         "Creating folders + cleanup",
     ]
-    n_steps = test_analyse ? 8 : 7   # Conditional alignment.
+    n_steps = length(steps)
     prog = Progress(steps, 0, n_steps)
 
 
