@@ -135,9 +135,9 @@ small `PreparedInputs` object that stores this folder so the high-level pipeline
 can pass it to triage automatically.
 
 When `databases` contains several paths, AlphaConformers chooses the PDB Foldseek
-result folder before running Foldseek. Use a clear database name such as
-`fullpdb`, or pass `foldseek_results_folder` explicitly if the intended PDB result
-folder cannot be inferred from the database name.
+result folder before running Foldseek. Use exactly one database name that contains
+`pdb`, such as `fullpdb`, or pass `foldseek_results_folder` explicitly if the
+intended PDB result folder cannot be inferred from the database name.
 
 For the high-level pipeline, the preparation step uses the same `databases` keyword:
 

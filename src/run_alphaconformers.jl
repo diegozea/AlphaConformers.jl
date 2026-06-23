@@ -274,13 +274,10 @@ function _foldseek_results_folder_for_database(output_dir, database)
     return abspath(joinpath(output_dir, "$(basename(String(database)))_results"))
 end
 
-function _looks_like_pdb_foldseek_database(database)
-    name = lowercase(basename(String(database)))
-    return name == "pdb" ||
-           startswith(name, "pdb_") ||
-           startswith(name, "pdb-") ||
-           occursin("fullpdb", name) ||
-           occursin("full_pdb", name)
+function _is_pdb_foldseek_database_name(database)
+    # Only inspect the database name. A parent folder such as "pdb_tests/afdb"
+    # should not make a non-PDB database look like the PDB search source.
+    return occursin("pdb", lowercase(basename(String(database))))
 end
 
 function _normalize_prepared_foldseek_results_folder(output_dir, foldseek_results_folder)
@@ -300,8 +297,8 @@ function _pdb_foldseek_database_selection_error(database_paths)
         "Triage needs the Foldseek result folder from the PDB database, but " *
         "AlphaConformers could not choose exactly one PDB database from " *
         "`databases`: $database_list. Database order is not used because it can " *
-        "select AFDB or another non-PDB result folder by mistake. Use one " *
-        "clearly named PDB database, for example `fullpdb`, or pass " *
+        "select AFDB or another non-PDB result folder by mistake. Use exactly " *
+        "one database whose name contains `pdb`, or pass " *
         "`foldseek_results_folder` explicitly.",
     )
 end
@@ -325,7 +322,7 @@ function _select_pdb_foldseek_results_folder(
 
     # Foldseek keeps the same order as `databases`, but triage needs the PDB
     # search results. Choosing the first result can silently select AFDB instead.
-    pdb_database_paths = filter(_looks_like_pdb_foldseek_database, database_paths)
+    pdb_database_paths = filter(_is_pdb_foldseek_database_name, database_paths)
     length(pdb_database_paths) == 1 &&
         return _foldseek_results_folder_for_database(output_dir, only(pdb_database_paths))
 
@@ -460,8 +457,10 @@ function prepare_inputs(
     query_struct = abspath(query_struct)
     pdb_folder = abspath(pdb_folder)
     output_dir = abspath(output_dir)
-    foldseek_db =
-        _normalize_foldseek_databases(databases; condition = "when running `prepare_inputs`")
+    foldseek_db = _normalize_foldseek_databases(
+        databases;
+        condition = "when running `prepare_inputs`",
+    )
     foldseek_results_folder = _select_pdb_foldseek_results_folder(
         output_dir,
         foldseek_db;
@@ -675,8 +674,8 @@ rejected so predictor-specific inputs are not silently ignored.
 - `folder_af2_result`: Prediction result folder name used by triage.
 - `foldseek_results_folder`: Optional Foldseek result folder used by triage. If
   omitted, the folder returned by preparation or the folder found in `output_dir` is
-  used. During preparation with several databases, AlphaConformers requires one
-  clearly named PDB database unless this folder is passed explicitly.
+  used. During preparation with several databases, AlphaConformers requires exactly
+  one database whose name contains `pdb` unless this folder is passed explicitly.
 - `kwargs...`: Keyword arguments passed only to `structure_predictor`.
 
 # Required Inputs by Step

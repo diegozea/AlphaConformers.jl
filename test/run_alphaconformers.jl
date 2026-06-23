@@ -348,20 +348,15 @@ end
     import DataFrames
 
     calls = Dict{Symbol,Any}()
-    fake_preparer = function (
-        query_struct,
-        pdb_folder,
-        output_dir;
-        foldseek_results_folder,
-        kwargs...,
-    )
-        calls[:prepare] = (foldseek_results_folder = foldseek_results_folder,)
-        return AlphaConformers.PreparedInputs(
-            query_struct,
-            output_dir,
-            foldseek_results_folder,
-        )
-    end
+    fake_preparer =
+        function (query_struct, pdb_folder, output_dir; foldseek_results_folder, kwargs...)
+            calls[:prepare] = (foldseek_results_folder = foldseek_results_folder,)
+            return AlphaConformers.PreparedInputs(
+                query_struct,
+                output_dir,
+                foldseek_results_folder,
+            )
+        end
     fake_predictor = function (output_dir, args...; kwargs...)
         calls[:predict] = true
         return :predicted
@@ -396,12 +391,12 @@ end
                 predict = true,
                 triage = true,
                 structure_predictor = fake_predictor,
-                databases = [joinpath(dir, "afdb"), joinpath(dir, "fullpdb")],
+                databases = [joinpath(dir, "afdb"), joinpath(dir, "myPDBdatabase")],
                 sifts_uniprot_mapping = mapping,
             )
         end
 
-        expected_folder = joinpath(abspath(output_dir), "fullpdb_results")
+        expected_folder = joinpath(abspath(output_dir), "myPDBdatabase_results")
         @test result.triage_result == :triaged
         @test calls[:prepare].foldseek_results_folder == expected_folder
         @test calls[:triage].foldseek_results_folder == expected_folder
@@ -592,6 +587,26 @@ end
                 query_struct,
                 pdb_folder,
                 databases = [joinpath(dir, "afdb"), joinpath(dir, "uniref")],
+                sifts_uniprot_mapping = mapping,
+                prepare = true,
+                predict = true,
+                triage = true,
+                structure_predictor = should_not_run,
+            )
+        end
+        @test prepare_called[] == false
+        @test occursin("foldseek_results_folder", msg)
+
+        msg = argument_error_message() do
+            AlphaConformers._alphaconformers(
+                fail_if_prepare_runs,
+                should_not_run,
+                "image.sif",
+                "cache";
+                output_dir,
+                query_struct,
+                pdb_folder,
+                databases = [joinpath(dir, "pdb_parent", "afdb"), joinpath(dir, "uniref")],
                 sifts_uniprot_mapping = mapping,
                 prepare = true,
                 predict = true,

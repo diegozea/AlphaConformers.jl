@@ -115,7 +115,7 @@ The query file name should include the PDB code and chain, for example
 
 The Foldseek database paths in `databases` must be set for your machine. AlphaConformers
 does not assume a default local database path. When several databases are used,
-the PDB database should have a clear name such as `fullpdb`; that lets
+exactly one database name should contain `pdb`, such as `fullpdb`; that lets
 AlphaConformers pass the PDB Foldseek result folder to triage instead of using
 database order.
 
@@ -189,9 +189,9 @@ alphaconformers(;
 
 When preparation and triage run in the same `alphaconformers` call, the
 Foldseek result folder is passed between steps automatically. If preparation uses
-several databases, AlphaConformers chooses the unique PDB-like database name, for
-example `fullpdb`. If it cannot choose one, it stops before running Foldseek and
-asks for `foldseek_results_folder`. For resumed runs, triage searches
+several databases, AlphaConformers chooses the unique database whose name contains
+`pdb`, ignoring case. If it cannot choose one, it stops before running Foldseek
+and asks for `foldseek_results_folder`. For resumed runs, triage searches
 `output_dir` for a single `*_results` folder containing `.m8` files. If several
 such folders exist, pass the folder explicitly:
 
