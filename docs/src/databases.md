@@ -111,22 +111,45 @@ If the command prints one or more hits, the database is usable.
 
 ## Use the Database with AlphaConformers
 
-Pass the same `DB_PATH` to `prepare_inputs`:
+Pass the same `DB_PATH` to `prepare_inputs` or `alphaconformers`:
 
 ```julia
 using AlphaConformers
 
-input_pdb = "1ABC_A.pdb"
+query_struct = "1ABC_A.pdb"
 pdb_folder = "datasets/pdb/mmcif_files"
 output_dir = "outputs/1ABC_A"
 
 prepare_inputs(
-    input_pdb,
+    query_struct,
     pdb_folder,
     output_dir;
-    db = [DB_PATH],
+    databases = [DB_PATH],
 )
 ```
+
+Foldseek writes AlphaConformers search results to
+`joinpath(output_dir, "$(basename(DB_PATH))_results")`. For example, a database
+named `fullpdb` creates `output_dir/fullpdb_results`. `prepare_inputs` returns a
+small `PreparedInputs` object that stores this folder so the high-level pipeline
+can pass it to triage automatically.
+
+For the high-level pipeline, the preparation step uses the same `databases` keyword:
+
+```julia
+alphaconformers(;
+    query_struct,
+    pdb_folder,
+    output_dir,
+    databases = [DB_PATH],
+    predict = false,
+    triage = false,
+)
+```
+
+If you run triage later in a separate Julia session and `output_dir` contains
+more than one `*_results` folder, pass the intended folder explicitly with
+`foldseek_results_folder`.
 
 The query file name should include the PDB code and chain, for example `1ABC_A.pdb`.
 

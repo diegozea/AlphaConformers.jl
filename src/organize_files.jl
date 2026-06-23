@@ -98,10 +98,10 @@ end
     organize_files_af3(output_dir, run_name)
 
 Reorganize raw AlphaFold3 output files into a structured directory hierarchy.
-Input : 
+Input :
 - `output_dir` : path to the folder containing raw AlphaFold3 output.
 - `run_name`   : name of the run, used to locate AlphaFold3's output subfolder.
-Output : 
+Output :
 output_dir/
 └── predictions/
     ├── config.json              ← from <run_name>_data.json
@@ -403,8 +403,42 @@ Find Foldseek hits that belong to the same UniProt entry as a query PDB structur
 
 # Returns
 A deduplicated subset of `search_results` whose targets start with PDB codes mapped to
-the query UniProt entry.
+the query UniProt entry. When the target includes a chain, both the PDB code and chain
+must match.
 """
+const _FOLDSEEK_TARGET_SUFFIXES = Set([".gz", ".cif", ".mmcif", ".pdb"])
+
+function _strip_foldseek_target_suffixes(target_name::AbstractString)
+    clean_name = String(target_name)
+    while true
+        root, ext = splitext(clean_name)
+        if !(lowercase(ext) in _FOLDSEEK_TARGET_SUFFIXES)
+            return clean_name
+        end
+        clean_name = root
+    end
+end
+
+function _foldseek_target_pdb_chain(target)
+    parts = split(String(target), "_")
+    # Foldseek target names can keep file endings before or after the chain,
+    # such as "1ABC.cif_A" or "1ABC_A.pdb". Clean both parts before comparing
+    # them to SIFTS.
+    pdb_code = uppercase(_strip_foldseek_target_suffixes(parts[1]))
+    chain =
+        length(parts) == 2 ? uppercase(_strip_foldseek_target_suffixes(parts[2])) :
+        missing
+    return pdb_code, chain
+end
+
+function _target_matches_pdb_chain(target, pdb_chain_pairs, pdb_codes)
+    pdb_code, chain = _foldseek_target_pdb_chain(target)
+    if ismissing(chain)
+        return pdb_code in pdb_codes
+    end
+    return (pdb_code, chain) in pdb_chain_pairs
+end
+
 function found_uniprot_structure(
     search_results::DataFrames.DataFrame,
     sifts_uniprot_mapping::DataFrames.DataFrame,
@@ -413,23 +447,48 @@ function found_uniprot_structure(
 )
     @show query_pdb_code, query_chain_code
 
-    query_uniprot = only(get_uniprot_acc(sifts_uniprot_mapping, query_pdb_code))
+    # PDB entries can contain chains from different proteins. Use the chain when
+    # Foldseek gives one so triage does not mix unrelated UniProt entries.
+    # Triage can pass pieces from Foldseek names, such as "1AKZ.cif" or
+    # "A.pdb". Clean those endings before asking SIFTS for the UniProt entry.
+    clean_query_pdb_code = _strip_foldseek_target_suffixes(query_pdb_code)
+    clean_query_chain_code =
+        query_chain_code isa AbstractString ?
+        _strip_foldseek_target_suffixes(query_chain_code) : query_chain_code
+    query_uniprots =
+        ismissing(clean_query_chain_code) ?
+        get_uniprot_acc(sifts_uniprot_mapping, clean_query_pdb_code) :
+        get_uniprot_acc(
+            sifts_uniprot_mapping,
+            clean_query_pdb_code,
+            clean_query_chain_code,
+        )
 
-    @show query_uniprot
+    if query_uniprots === nothing || isempty(query_uniprots)
+        @warn "No UniProt mapping found for $(clean_query_pdb_code)$(ismissing(clean_query_chain_code) ? "" : "_$(clean_query_chain_code)")."
+        return search_results[[], :]
+    end
 
-    query_structures = get_pdb_codes(sifts_uniprot_mapping, String(query_uniprot))
+    query_uniprots = String.(unique(query_uniprots))
+    @show query_uniprots
 
+    query_structures = unique(vcat(
+        (get_pdb_codes(sifts_uniprot_mapping, query_uniprot) for
+         query_uniprot in query_uniprots)...;
+        cols = :union,
+    ))
     @show query_structures
 
-    # Columns directly.
-    pdbs = String.(query_structures.PDB)
-    chains = String.(query_structures.CHAIN)
+    pdb_chain_pairs = Set(
+        (uppercase(String(row.PDB)), uppercase(String(row.CHAIN))) for
+        row in eachrow(query_structures)
+    )
+    pdb_codes = Set(first.(pdb_chain_pairs))
 
-    # Vectorized construction.
-
-
-    uniprot_result =
-        filter(r -> any(name -> startswith(r.target, name), pdbs), search_results)
+    uniprot_result = filter(
+        r -> _target_matches_pdb_chain(r.target, pdb_chain_pairs, pdb_codes),
+        search_results,
+    )
     uniprot_result = unique(uniprot_result)
     @show uniprot_result
     return uniprot_result
@@ -460,8 +519,88 @@ function found_files(file_name, possible_path1, possible_path2)
     end
     return nothing
 end
+
+function _foldseek_m8_files(folder::AbstractString)
+    return isdir(folder) ? sort(glob("*.m8", folder)) : String[]
+end
+
+function _normalize_foldseek_results_folder(
+    output_dir::AbstractString,
+    foldseek_results_folder::AbstractString,
+)
+    folder = String(foldseek_results_folder)
+    if isabspath(folder)
+        return abspath(folder)
+    end
+    if !isempty(dirname(folder)) && isdir(folder)
+        # Users may pass "fullpdb_results" or
+        # joinpath(output_dir, "fullpdb_results"). The second form is already
+        # relative to the current folder, so joining it to output_dir would
+        # repeat output_dir in the final path.
+        return abspath(folder)
+    end
+    return abspath(joinpath(output_dir, folder))
+end
+
+function _candidate_foldseek_results_folders(output_dir::AbstractString)
+    isdir(output_dir) || return String[]
+    candidates = String[]
+    for path in sort(readdir(output_dir; join = true))
+        if isdir(path) &&
+           endswith(basename(path), "_results") &&
+           basename(path) != "target_db_results" &&
+           !isempty(_foldseek_m8_files(path))
+            push!(candidates, abspath(path))
+        end
+    end
+    return candidates
+end
+
+function _resolve_foldseek_results_folder(
+    output_dir::AbstractString;
+    foldseek_results_folder = missing,
+)
+    output_dir = abspath(output_dir)
+
+    if !_is_unset(foldseek_results_folder)
+        folder = _normalize_foldseek_results_folder(output_dir, foldseek_results_folder)
+        if isempty(_foldseek_m8_files(folder))
+            throw(
+                ArgumentError(
+                    "The folder passed as `foldseek_results_folder` does not contain any `.m8` Foldseek result files: $folder. Pass the Foldseek result folder created during preparation, for example `foldseek_results_folder = joinpath(output_dir, \"fullpdb_results\")`.",
+                ),
+            )
+        end
+        return folder
+    end
+
+    candidates = _candidate_foldseek_results_folders(output_dir)
+    if length(candidates) == 1
+        return only(candidates)
+    elseif isempty(candidates)
+        throw(
+            ArgumentError(
+                "Triage needs a Foldseek `.m8` result folder, but none was found in `output_dir`: $output_dir. Run `prepare_inputs` first or pass `foldseek_results_folder = \"...\"` with the folder created by Foldseek.",
+            ),
+        )
+    else
+        candidate_list = join(candidates, ", ")
+        throw(
+            ArgumentError(
+                "Triage found multiple Foldseek result folders in `output_dir`: $candidate_list. Pass `foldseek_results_folder = \"...\"` to choose the one to use.",
+            ),
+        )
+    end
+end
+
+function _merge_triage_search_results(all_search_results, target_search_results)
+    # target_db_results has extra known structures added during preparation.
+    # Include those rows before measuring the RMSD range.
+    return unique(vcat(all_search_results, target_search_results; cols = :union))
+end
 """
-    compare_alternative_structures(search_results, sifts_uniprot_mapping, output_dir)
+    compare_alternative_structures(search_results, sifts_uniprot_mapping, output_dir;
+        foldseek_results_folder)
     -> (min_rmsd, max_rmsd) or nothing
 
 Estimate the RMSD range among known related structures in Foldseek results.
@@ -470,12 +609,22 @@ Estimate the RMSD range among known related structures in Foldseek results.
 - `search_results`: Foldseek result table containing related structures.
 - `sifts_uniprot_mapping`: SIFTS UniProt mapping table.
 - `output_dir`: AlphaConformers output folder containing Foldseek result folders.
+- `foldseek_results_folder`: Main Foldseek result folder to use for PDB hits.
 
 # Returns
 A tuple with the minimum and maximum per-entry RMSD ranges. Returns `nothing` when no
 related structures can be compared.
 """
-function compare_alternative_structures(search_results, sifts_uniprot_mapping, output_dir)
+function compare_alternative_structures(
+    search_results,
+    sifts_uniprot_mapping,
+    output_dir;
+    foldseek_results_folder = missing,
+)
+    foldseek_results_folder = _resolve_foldseek_results_folder(
+        output_dir;
+        foldseek_results_folder = foldseek_results_folder,
+    )
     range_rmsd=[]
     file_analysed=Set{String}()
     for result in eachrow(search_results)
@@ -508,7 +657,7 @@ function compare_alternative_structures(search_results, sifts_uniprot_mapping, o
             path_i=found_files(
                 center_uniprot[i, :target],
                 joinpath(output_dir, "target_db_results"),
-                joinpath(output_dir, "fullpdb_mmcif_files_results"),
+                foldseek_results_folder,
             )
             push!(file_analysed, center_uniprot[i, :target])
             struct1 = MIToS.PDB.read_file(path_i, MIToS.PDB.PDBFile, group = "ATOM")
@@ -516,7 +665,7 @@ function compare_alternative_structures(search_results, sifts_uniprot_mapping, o
                 path_j=found_files(
                     center_uniprot[j, :target],
                     joinpath(output_dir, "target_db_results"),
-                    joinpath(output_dir, "fullpdb_mmcif_files_results"),
+                    foldseek_results_folder,
                 )
                 push!(file_analysed, center_uniprot[j, :target])
                 struct2=MIToS.PDB.read_file(path_j, MIToS.PDB.PDBFile, group = "ATOM")
@@ -548,73 +697,94 @@ function compare_alternative_structures(search_results, sifts_uniprot_mapping, o
 end
 
 """
-    found_best_prediction(output_dir, query_struct, sifts_uniprot_mapping, folder_af2_result)
-    -> (cluster_close_objectif, dic_pred_ptm) 
+    found_best_prediction(output_dir, query_struct, sifts_uniprot_mapping;
+        folder_af2_result, foldseek_results_folder)
+    -> (cluster_close_objectif, dic_pred_ptm)
 
 Identify the best structure predictions by comparing them to known experimental structures
 retrieved via Foldseek, and filtering to those structurally close to the query.
-Input : 
-- `output_dir`            : working directory containing Foldseek results and prediction folders.
-- `query_struct`          : path to the query structure (PDB file) used as structural reference.
-- `sifts_uniprot_mapping` : SIFTS mapping table linking UniProt accessions to PDB entries.
-- `folder_af2_result`     : subfolder name containing the AlphaFold2/ColabFold predictions.
-Behavior
-1. Loads all predictions and their pTM scores from `folder_af2_result`.
-2. Reads Foldseek hits from `fullpdb_mmcif_files_results/*.m8` and optionally
-   from `target_db_results/*.m8`, merging known UniProt structures from both.
-3. Computes the RMSD range of known alternative structures via `compare_alternative_structures`.
-4. Filters predictions to those within `(max_rmsd + 1)` Å of the query structure.
-5. Returns only predictions that pass the RMSD threshold, along with their pTM scores.
-Output : 
-A tuple `(cluster_close_objectif, dic_pred_ptm)` where:
-- `cluster_close_objectif` : dict mapping prediction names to their RMSD to the query.
-- `dic_pred_ptm`           : dict mapping the same prediction names to their pTM scores.
-Both dicts are empty if no predictions are found, no alternative structures are available,
-or no predictions fall within the RMSD threshold.
+
+# Arguments
+- `output_dir`: Working directory containing Foldseek results and prediction folders.
+- `query_struct`: Query structure used as the structural reference.
+- `sifts_uniprot_mapping`: SIFTS mapping table linking UniProt accessions to PDB
+  entries.
+
+# Keywords
+- `folder_af2_result`: Prediction result folder inside each cluster. Defaults to
+  `"af"`.
+- `foldseek_results_folder`: Optional Foldseek result folder used for PDB hits. If
+  omitted, triage searches `output_dir` and uses the only matching folder.
+
+# Behavior
+1. Load all prediction structures and pTM scores from each cluster's
+   `folder_af2_result` folder.
+2. Resolve the Foldseek result folder and read its `.m8` hit table.
+3. Add extra known-structure hits from `target_db_results` when that folder exists.
+4. Use the SIFTS mapping to find Foldseek hits from the same UniProt entries.
+5. Estimate the RMSD range among the known alternative structures.
+6. Keep predictions within `max_rmsd + 1` Å of `query_struct`.
+7. Return the selected prediction RMSDs and their matching pTM scores.
+
+# Returns
+A tuple `(cluster_close_objectif, dic_pred_ptm)`. Both dictionaries are empty if
+no alternative structures are available or no predictions pass the RMSD threshold.
+
+# Throws
+Throws `ArgumentError` when triage cannot find a Foldseek `.m8` result folder or
+when no prediction models are found.
 """
 function found_best_prediction(
     output_dir::String,
     query_struct::String,
-    sifts_uniprot_mapping,
-    folder_af2_result,
+    sifts_uniprot_mapping;
+    folder_af2_result::AbstractString = "af",
+    foldseek_results_folder = missing,
 )
+    foldseek_results_folder = _resolve_foldseek_results_folder(
+        output_dir;
+        foldseek_results_folder = foldseek_results_folder,
+    )
     dic_pred_struct, dic_pred_ptm=get_all_predictions(output_dir, folder_af2_result)
 
     if isempty(dic_pred_struct)
-        @warn "No predictions found in $output_dir for folder $folder_af2_result"
-        return Dict(), Dict()
+        throw(
+            ArgumentError(
+                "Triage needs prediction models, but none were found in `$output_dir` for `folder_af2_result = \"$folder_af2_result\"`. Run prediction first or set `folder_af2_result` to the folder used by the predictor.",
+            ),
+        )
     end
 
-    full_m8file=glob("*.m8", joinpath(output_dir, "fullpdb_mmcif_files_results"))
+    # Foldseek names result folders from the database file name, so triage must
+    # keep the folder used for this run.
+    full_m8file=_foldseek_m8_files(foldseek_results_folder)
     @show "Reading foldseek all_search results PDB from ", full_m8file[1]
     all_search_results=read_foldseek_search_results(full_m8file[1])
     all_alternative_files=known_uniprot_structures(
         sifts_uniprot_mapping,
         all_search_results,
     )
+    search_results = deepcopy(all_search_results)
     if isdir(joinpath(output_dir, "target_db_results"))
         @show "Comparing to known structures in target_db_results folder"
         m8file=glob("*.m8", joinpath(output_dir, "target_db_results"))
         if !isempty(m8file) && isfile(m8file[1])
             @show "Reading foldseek search results from ", m8file[1]
-            search_results=read_foldseek_search_results(m8file[1])
+            target_search_results=read_foldseek_search_results(m8file[1])
 
             alternative_files=known_uniprot_structures(
                 sifts_uniprot_mapping,
-                search_results,
+                target_search_results,
             )
 
             all_alternative_files=union(all_alternative_files, alternative_files)
+            search_results =
+                _merge_triage_search_results(search_results, target_search_results)
         end
     end
     if isempty(all_alternative_files)
         @warn "No alternative structures found in foldseek results. Skipping foldseek comparison."
         return Dict(), Dict()
-    end
-    for fname in alternative_files
-
-        filtered_results=filter(r -> r.target == fname, all_search_results)
-        append!(search_results, filtered_results)
     end
 
     if nrow(search_results) < 2
@@ -623,9 +793,13 @@ function found_best_prediction(
     end
     @show "Comparing alternative structures to query structure"
     @show "Number of alternative structures found: ", nrow(search_results)
-    output =
-        compare_alternative_structures(search_results, sifts_uniprot_mapping, output_dir)
-    if isempty(output)
+    output = compare_alternative_structures(
+        search_results,
+        sifts_uniprot_mapping,
+        output_dir;
+        foldseek_results_folder = foldseek_results_folder,
+    )
+    if output === nothing
         return Dict(), Dict()
     else
         min_rmsd, max_rmsd = output
@@ -643,7 +817,8 @@ function found_best_prediction(
 end
 
 """
-    triage_outputs(output_dir, query_struct, sifts_uniprot_mapping, folder_af2_result)
+    triage_outputs(output_dir, query_struct, sifts_uniprot_mapping;
+        folder_af2_result, foldseek_results_folder)
     -> (selected_predictions, ptm_scores)
 
 Triage prediction outputs from an AlphaConformers run.
@@ -658,7 +833,11 @@ triage logic on top of that filtering step.
 - `query_struct`: Query structure used as the structural reference.
 - `sifts_uniprot_mapping`: SIFTS mapping table linking UniProt accessions to PDB
   entries.
+
+# Keywords
 - `folder_af2_result`: Prediction result folder inside each cluster.
+- `foldseek_results_folder`: Optional Foldseek result folder used for PDB hits. If
+  omitted, triage searches `output_dir` and uses the only matching folder.
 
 # Returns
 A tuple with the selected predictions and their pTM scores.
@@ -666,13 +845,15 @@ A tuple with the selected predictions and their pTM scores.
 function triage_outputs(
     output_dir::String,
     query_struct::String,
-    sifts_uniprot_mapping,
-    folder_af2_result,
+    sifts_uniprot_mapping;
+    folder_af2_result::AbstractString = "af",
+    foldseek_results_folder = missing,
 )
     return found_best_prediction(
         output_dir,
         query_struct,
         sifts_uniprot_mapping,
-        folder_af2_result,
+        folder_af2_result = folder_af2_result,
+        foldseek_results_folder = foldseek_results_folder,
     )
 end

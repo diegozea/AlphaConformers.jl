@@ -56,6 +56,8 @@ export foldseek_search, # foldseek.jl
     run_alphafold_input_structure,
     found_best_prediction,
     triage_outputs,
+    alphaconformers,
+    PreparedInputs,
     prepare_inputs,
     add_known_conformations!,
     create_template_clusters_hobohm,
