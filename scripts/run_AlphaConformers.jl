@@ -49,25 +49,23 @@ function parse_commandline()
         "--pdb_folder"
         help = "Path to the PDB mmCIF files"
         arg_type = String
-        default = "/alpha/database/pdb/mmcif_files"
+        required = true
         "--foldseek_db"
         help = "Path to the Foldseek database"
         arg_type = String
-        default = "/alpha/database/pdb/fullpdb_mmcif_files"
+        required = true
         "--alphafold_db"
         help = "Path to the AlphaFold database"
         arg_type = String
-        default = "/alpha/database/afdb_v6/fullafdb_v6"
+        required = true
         "--sif_path"
         help = "Path to the ColabFold Singularity image"
         arg_type = String
-        default = expanduser(
-            "/store/EQUIPES/AMIG/SCRIPTS/sif_images/ColabFold_AF2_1-5-5/colabfold-1.5.5-cuda12.2.2.sif",
-        )
+        required = true
         "--cache_dir"
         help = "Path to the ColabFold cache directory"
         arg_type = String
-        default = "/store/EQUIPES/AMIG/SCRIPTS/sif_images/ColabFold_AF2_1-5-5/cache"
+        required = true
         "--evalue_cutoff"
         help = "E-value cutoff for Foldseek (default: NaN = no cutoff)"
         arg_type = Float64
@@ -145,7 +143,7 @@ function run_alphaconformers(
 )
     cd(path)
 
-    db = [foldseek_db, alphafold_db]
+    databases = [foldseek_db, alphafold_db]
 
     filename = string(apo_pdb, "_", apo_chain, ".pdb")
     ref_pdb = joinpath(path, filename)
@@ -172,7 +170,7 @@ function run_alphaconformers(
         pdb_folder,
         output_dir;
         n_threads = n_threads,
-        db = db,
+        databases = databases,
         evalue_cutoff = evalue_cutoff,
         cutoff = cutoff,
         test_analyse = false,
