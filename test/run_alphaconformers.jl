@@ -344,6 +344,70 @@ end
     end
 end
 
+@testitem "alphaconformers selects the PDB Foldseek result folder before preparation" begin
+    import DataFrames
+
+    calls = Dict{Symbol,Any}()
+    fake_preparer = function (
+        query_struct,
+        pdb_folder,
+        output_dir;
+        foldseek_results_folder,
+        kwargs...,
+    )
+        calls[:prepare] = (foldseek_results_folder = foldseek_results_folder,)
+        return AlphaConformers.PreparedInputs(
+            query_struct,
+            output_dir,
+            foldseek_results_folder,
+        )
+    end
+    fake_predictor = function (output_dir, args...; kwargs...)
+        calls[:predict] = true
+        return :predicted
+    end
+    fake_triager = function (
+        output_dir,
+        query_struct,
+        sifts_uniprot_mapping;
+        foldseek_results_folder,
+        kwargs...,
+    )
+        calls[:triage] = (foldseek_results_folder = foldseek_results_folder,)
+        return :triaged
+    end
+
+    mktempdir() do dir
+        query_struct = joinpath(dir, "1ABC_A.pdb")
+        pdb_folder = joinpath(dir, "pdb")
+        output_dir = joinpath(dir, "run")
+        mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
+
+        result = redirect_stdout(devnull) do
+            AlphaConformers._alphaconformers(
+                fake_preparer,
+                fake_triager,
+                "image.sif",
+                "cache";
+                query_struct,
+                pdb_folder,
+                output_dir,
+                prepare = true,
+                predict = true,
+                triage = true,
+                structure_predictor = fake_predictor,
+                databases = [joinpath(dir, "afdb"), joinpath(dir, "fullpdb")],
+                sifts_uniprot_mapping = mapping,
+            )
+        end
+
+        expected_folder = joinpath(abspath(output_dir), "fullpdb_results")
+        @test result.triage_result == :triaged
+        @test calls[:prepare].foldseek_results_folder == expected_folder
+        @test calls[:triage].foldseek_results_folder == expected_folder
+    end
+end
+
 @testitem "alphaconformers reports invalid step and keyword combinations clearly" begin
     import DataFrames
 
@@ -512,5 +576,50 @@ end
             AlphaConformers.prepare_inputs(query_struct, pdb_folder, output_dir)
         end
         @test occursin("`databases` is required when running `prepare_inputs`", msg)
+
+        prepare_called = Ref(false)
+        fail_if_prepare_runs = function (args...; kwargs...)
+            prepare_called[] = true
+            error("Preparation should not run when the PDB Foldseek database is unclear.")
+        end
+        msg = argument_error_message() do
+            AlphaConformers._alphaconformers(
+                fail_if_prepare_runs,
+                should_not_run,
+                "image.sif",
+                "cache";
+                output_dir,
+                query_struct,
+                pdb_folder,
+                databases = [joinpath(dir, "afdb"), joinpath(dir, "uniref")],
+                sifts_uniprot_mapping = mapping,
+                prepare = true,
+                predict = true,
+                triage = true,
+                structure_predictor = should_not_run,
+            )
+        end
+        @test prepare_called[] == false
+        @test occursin("foldseek_results_folder", msg)
+
+        msg = argument_error_message() do
+            AlphaConformers._alphaconformers(
+                fail_if_prepare_runs,
+                should_not_run,
+                "image.sif",
+                "cache";
+                output_dir,
+                query_struct,
+                pdb_folder,
+                databases = [joinpath(dir, "fullpdb"), joinpath(dir, "pdb")],
+                sifts_uniprot_mapping = mapping,
+                prepare = true,
+                predict = true,
+                triage = true,
+                structure_predictor = should_not_run,
+            )
+        end
+        @test prepare_called[] == false
+        @test occursin("foldseek_results_folder", msg)
     end
 end

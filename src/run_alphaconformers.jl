@@ -262,6 +262,76 @@ function _normalize_foldseek_databases(databases; condition = "when preparing in
     end
 end
 
+function _foldseek_database_paths(databases)
+    if databases isa AbstractString
+        parts = occursin(',', databases) ? strip.(split(databases, ',')) : [databases]
+        return String.(parts)
+    end
+    return String.(databases)
+end
+
+function _foldseek_results_folder_for_database(output_dir, database)
+    return abspath(joinpath(output_dir, "$(basename(String(database)))_results"))
+end
+
+function _looks_like_pdb_foldseek_database(database)
+    name = lowercase(basename(String(database)))
+    return name == "pdb" ||
+           startswith(name, "pdb_") ||
+           startswith(name, "pdb-") ||
+           occursin("fullpdb", name) ||
+           occursin("full_pdb", name)
+end
+
+function _normalize_prepared_foldseek_results_folder(output_dir, foldseek_results_folder)
+    folder = String(foldseek_results_folder)
+    if isabspath(folder)
+        return abspath(folder)
+    elseif isempty(dirname(folder))
+        return abspath(joinpath(output_dir, folder))
+    else
+        return abspath(folder)
+    end
+end
+
+function _pdb_foldseek_database_selection_error(database_paths)
+    database_list = join(String.(database_paths), ", ")
+    return ArgumentError(
+        "Triage needs the Foldseek result folder from the PDB database, but " *
+        "AlphaConformers could not choose exactly one PDB database from " *
+        "`databases`: $database_list. Database order is not used because it can " *
+        "select AFDB or another non-PDB result folder by mistake. Use one " *
+        "clearly named PDB database, for example `fullpdb`, or pass " *
+        "`foldseek_results_folder` explicitly.",
+    )
+end
+
+function _select_pdb_foldseek_results_folder(
+    output_dir,
+    databases;
+    foldseek_results_folder = missing,
+)
+    if !_is_unset(foldseek_results_folder)
+        return _normalize_prepared_foldseek_results_folder(
+            output_dir,
+            foldseek_results_folder,
+        )
+    end
+
+    database_paths = _foldseek_database_paths(databases)
+    if length(database_paths) == 1
+        return _foldseek_results_folder_for_database(output_dir, only(database_paths))
+    end
+
+    # Foldseek keeps the same order as `databases`, but triage needs the PDB
+    # search results. Choosing the first result can silently select AFDB instead.
+    pdb_database_paths = filter(_looks_like_pdb_foldseek_database, database_paths)
+    length(pdb_database_paths) == 1 &&
+        return _foldseek_results_folder_for_database(output_dir, only(pdb_database_paths))
+
+    throw(_pdb_foldseek_database_selection_error(database_paths))
+end
+
 function _prepared_foldseek_results_folder(prepared_inputs)
     prepared_inputs === nothing && return missing
     prepared_inputs === missing && return missing
@@ -361,6 +431,8 @@ structures, and writes one output folder per template cluster.
   sequence.
 - `sifts_uniprot_mapping`: Optional SIFTS UniProt mapping table. If omitted, it is
   loaded with `get_uniprot_mapping()`.
+- `foldseek_results_folder`: Optional PDB Foldseek result folder to store for later
+  triage. If omitted, it is inferred from `databases` before Foldseek runs.
 
 # Returns
 A `PreparedInputs` object with the paths needed by later pipeline steps. Results are
@@ -369,7 +441,7 @@ also written under `output_dir`.
 # Throws
 Throws an error if the query file name does not include a PDB code and chain, or if
 no targets remain after optional query-conformation removal. Throws `ArgumentError`
-if `databases` is not provided.
+if `databases` is not provided or if the PDB Foldseek result folder is unclear.
 """
 function prepare_inputs(
     query_struct::AbstractString,
@@ -383,12 +455,18 @@ function prepare_inputs(
     keep_query::Bool = true,
     full_seq::Union{Missing,String} = missing,
     sifts_uniprot_mapping = missing,
+    foldseek_results_folder = missing,
 )
     query_struct = abspath(query_struct)
     pdb_folder = abspath(pdb_folder)
     output_dir = abspath(output_dir)
     foldseek_db =
         _normalize_foldseek_databases(databases; condition = "when running `prepare_inputs`")
+    foldseek_results_folder = _select_pdb_foldseek_results_folder(
+        output_dir,
+        foldseek_db;
+        foldseek_results_folder,
+    )
 
     println("----------------------------------------")
     println("AlphaConformers input preparation started.")
@@ -416,7 +494,6 @@ function prepare_inputs(
 
     println("Running Foldseek")
     output = run_foldseek(query_struct, n_threads, foldseek_db, out_folder = output_dir)
-    foldseek_results_folder = dirname(first(output).table_file)
     progress_bar(prog, "Foldseek search")
     # Init empty vector to store the table files
     output_vector = Vector{String}()
@@ -598,7 +675,8 @@ rejected so predictor-specific inputs are not silently ignored.
 - `folder_af2_result`: Prediction result folder name used by triage.
 - `foldseek_results_folder`: Optional Foldseek result folder used by triage. If
   omitted, the folder returned by preparation or the folder found in `output_dir` is
-  used.
+  used. During preparation with several databases, AlphaConformers requires one
+  clearly named PDB database unless this folder is passed explicitly.
 - `kwargs...`: Keyword arguments passed only to `structure_predictor`.
 
 # Required Inputs by Step
@@ -662,6 +740,13 @@ function _alphaconformers(
         prepare ?
         _normalize_foldseek_databases(databases; condition = "when `prepare=true`") :
         databases
+    prepared_foldseek_results_folder =
+        prepare ?
+        _select_pdb_foldseek_results_folder(
+            output_dir,
+            foldseek_db;
+            foldseek_results_folder,
+        ) : missing
 
     if prepare && _is_unset(sifts_uniprot_mapping)
         sifts_uniprot_mapping = get_uniprot_mapping()
@@ -685,6 +770,7 @@ function _alphaconformers(
             keep_query,
             full_seq,
             sifts_uniprot_mapping,
+            foldseek_results_folder = prepared_foldseek_results_folder,
         )
         progress_bar(progress, "Prepare inputs")
     end

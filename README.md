@@ -114,7 +114,10 @@ The query file name should include the PDB code and chain, for example
 `1ABC_A.pdb`.
 
 The Foldseek database paths in `databases` must be set for your machine. AlphaConformers
-does not assume a default local database path.
+does not assume a default local database path. When several databases are used,
+the PDB database should have a clear name such as `fullpdb`; that lets
+AlphaConformers pass the PDB Foldseek result folder to triage instead of using
+database order.
 
 ## Pipeline Steps
 
@@ -185,9 +188,12 @@ alphaconformers(;
 ```
 
 When preparation and triage run in the same `alphaconformers` call, the
-Foldseek result folder is passed between steps automatically. For resumed runs,
-triage searches `output_dir` for a single `*_results` folder containing `.m8`
-files. If several such folders exist, pass the folder explicitly:
+Foldseek result folder is passed between steps automatically. If preparation uses
+several databases, AlphaConformers chooses the unique PDB-like database name, for
+example `fullpdb`. If it cannot choose one, it stops before running Foldseek and
+asks for `foldseek_results_folder`. For resumed runs, triage searches
+`output_dir` for a single `*_results` folder containing `.m8` files. If several
+such folders exist, pass the folder explicitly:
 
 ```julia
 alphaconformers(;
@@ -203,7 +209,7 @@ alphaconformers(;
 
 Any extra positional arguments and any unknown keyword arguments are passed only
 to `structure_predictor`. If `predict=false`, predictor-specific arguments are
-rejected because they would be ignored.
+rejected so they are not silently ignored.
 
 For a custom predictor:
 
