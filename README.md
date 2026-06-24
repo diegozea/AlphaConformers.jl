@@ -297,6 +297,14 @@ The exact prediction subfolder depends on the runner:
 - `af3/` for AlphaFold3.
 - `bz/` for Boltz2.
 
+Full runs can take time because preparation writes one `cluster_*` folder per
+structural cluster, and the default `run_alphafold` predictor runs ColabFold once
+for each cluster. With the current default ColabFold settings, each processed
+cluster can produce up to 10 model predictions before triage. Choose an
+`output_dir` with a couple of GB free to store all those predictions. This is 
+separate from `cache_dir`, which stores reusable ColabFold files and can require 
+around 4 GB or more.
+
 ## Common Helpers
 
 Some lower-level helpers are useful when building custom workflows:
