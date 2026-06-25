@@ -179,8 +179,13 @@ end
     @test AlphaConformers._resolve_reference(refs, "1ABC_A") == joinpath(refs, "1ABC_A.pdb")
     # `.cif` fallback when no `.pdb` exists.
     @test AlphaConformers._resolve_reference(refs, "9XYZ_B") == joinpath(refs, "9XYZ_B.cif")
-    # Case-insensitive lowercase-id fallback that keeps the chain letter.
-    @test AlphaConformers._resolve_reference(refs, "2DEF_C") == joinpath(refs, "2def_C.pdb")
+    # Case-insensitive lowercase-id fallback that keeps the chain letter. Compared by file
+    # identity rather than path string, so a case-insensitive filesystem (which resolves the
+    # exact-case stem to the same on-disk file) passes too.
+    @test Base.Filesystem.samefile(
+        AlphaConformers._resolve_reference(refs, "2DEF_C"),
+        joinpath(refs, "2def_C.pdb"),
+    )
     # Unresolvable stem raises a clear error.
     @test_throws ErrorException AlphaConformers._resolve_reference(refs, "0NON_E")
 end
