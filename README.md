@@ -338,8 +338,6 @@ cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E";
 The input under `data_root/<system>/` is an AlphaConformers output tree. Only the
 predicted structures are clustered: the `.pdb`/`.cif` files inside `models/`
 folders (the prediction location, `cluster_*/.../predictions/sequences/models/`).
-Input templates (`templates_complete/`, `templates_adaptative/`) and search
-results are skipped, so they are never treated as conformers.
 
 A reference stem is `<PDBID>_<CHAIN>` (for example `1AKZ_A`) resolved against
 `refs_dir`.
