@@ -15,6 +15,9 @@ import PairwiseListMatrices
 import Distributed
 import ProgressMeter
 import Combinatorics
+import Random
+import Statistics
+import LinearAlgebra
 import Plots as plt
 import HTTP
 import JSON3
@@ -63,7 +66,8 @@ export foldseek_search, # foldseek.jl
     create_template_clusters_hobohm,
     create_folder_structure_hobohm,
     run_cmd,
-    run_alphafold
+    run_alphafold,
+    cluster_conformers 
 
 include("utils.jl")
 include("foldseek.jl")
@@ -75,5 +79,6 @@ include("af_input.jl")
 include("run_alphafold.jl")
 include("organize_files.jl")
 include("run_alphaconformers.jl")
+include("conformer_clustering.jl")
 
 end
