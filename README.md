@@ -305,6 +305,132 @@ cluster can produce up to 10 model predictions before triage. Choose an
 separate from `cache_dir`, which stores reusable ColabFold files and can require 
 around 4 GB or more.
 
+
+## Conformer Clustering
+
+`cluster_conformers` groups an AlphaConformer prediction ensemble for one
+protein system by shape. It runs three stages - KMeans clustering, an optional
+DeepAccNet score filter, and agglomerative sub-clustering, it writes a
+per-system output tree plus the essential figures. 
+
+```julia
+using AlphaConformers
+
+# Reference-free: just cluster the ensemble under data_root/<system>.
+cluster_conformers("1AKZ")
+
+# One reference (apo) or two references (apo + holo). The reference mode is
+# auto-detected from the stems; there is no mode flag and no chain argument.
+cluster_conformers("1AKZ", "1AKZ_A")
+cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E")
+
+# Common options (shown with their defaults).
+cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E";
+    data_root = "/data/alphaconformers/pdb",  # holds <system>/ AlphaConformers output trees
+    refs_dir  = "refs",                        # holds the apo/holo reference files
+    out_dir   = "results",                     # output root
+    kmeans_k  = 30,
+    threshold = 1.0,                           # agglomerative cut in Å
+    linkage   = :average,
+    seed      = 42)
+```
+
+The input under `data_root/<system>/` is an AlphaConformers output tree. Only the
+predicted structures are clustered: the `.pdb`/`.cif` files inside `models/`
+folders (the prediction location, `cluster_*/.../predictions/sequences/models/`).
+Input templates (`templates_complete/`, `templates_adaptative/`) and search
+results are skipped, so they are never treated as conformers.
+
+A reference stem is `<PDBID>_<CHAIN>` (for example `1AKZ_A`) resolved against
+`refs_dir`.
+
+To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
+`DataFrame` or a path to a CSV with a `Name` column and the score column:
+
+```julia
+cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E"; score_table = "deepaccnet_results.csv")
+```
+
+### Query path
+
+The query-path figure (`query_path.png`) ranks the clusters by their RMSD to a
+**query** structure, starting from the cluster the query falls into. The query
+defaults to a reference, so you usually do not set it:
+
+- One reference (apo only): that reference is used as the query.
+- Two references (apo + holo): the **apo** reference is used as the query.
+- Reference-free: no query is used unless you pass one, so no query-path figure.
+
+```julia
+# query_path.png is produced automatically - the apo reference is the query.
+cluster_conformers("1AKZ", "1AKZ_A")            # 1 reference  → that ref is the query
+cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E")  # 2 references → apo is the query
+```
+
+To override the default, pass `query` explicitly - either a conformer name (as it
+appears in the clustering table) or a path to a structure file (assigned to the
+nearest cluster):
+
+```julia
+# A conformer name from the ensemble.
+cluster_conformers("1AKZ"; query = "cluster_1/.../model_1.pdb")
+
+# A structure file; here it overrides the apo default in two-reference mode.
+cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E"; query = "/path/to/my_query.pdb")
+```
+
+### Output structure
+
+Everything for one run is written under `out_dir/<system>/`. The tree has three
+parts: flat tables and figures at the system root, one `kmeans<C>/` folder per
+cluster, and an optional `deepaccnet/` folder when a score table was supplied.
+
+```text
+results/<SYSTEM>/
+|
+|   # --- system-root tables ---
+|-- aligned_clustering_results.csv   # Stage 1 KMeans labels.  Columns: Name, KMeans_K<k> (labels 0..k-1)
+|-- aligned_cluster_rmsd.csv         # Stage 1 intra-cluster RMSD.  Columns: Method, Cluster, Size, Mean_RMSD_Angstrom
+|-- agglomerative_assignments.csv    # Stage 3 flat table for ALL conformers.  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
+|-- dist_external_rmsds.csv          # conformer-to-reference RMSD (only with >=1 reference).  Columns: Name, RMSD_Apo[, RMSD_Holo]
+|-- reference_clusters.csv           # each reference's best cluster (only with >=1 reference).  Columns: Reference, Stem, Cluster, Mean_RMSD_Angstrom
+|
+|   # --- system-level figures ---
+|-- cluster_overview.png             # PCA scatter, colored by KMeans cluster
+|-- reference_scatter.png            # adaptive: apo-vs-holo (2 refs) / embedding-vs-reference (1 ref) / plain embedding (0 refs)
+|-- query_path.png                   # when a reference is given (tracks apo) or a `query` is passed
+|
+|   # --- one folder per occupied KMeans cluster C ---
+|   # (when the score filter ran, only the SURVIVING clusters get a folder)
+|-- kmeans<C>/
+|   |-- members.csv                  # this cluster's members.  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
+|   |-- dendrogram.png               # agglomerative tree of this cluster's members
+|   |-- subcluster_scatter.png       # members colored by sub-cluster
+|   `-- minicluster_graph.png        # sub-cluster MST graph (skipped if the cluster has one sub-cluster)
+|
+`-- deepaccnet/                      # Stage 2, only when a score table is supplied
+    |-- surviving/
+    |   `-- surviving_rel<rel>_frac<frac>.csv   # the configured surviving cut (default rel=25, frac=75).  Columns: Name, KMeans_K<k>
+    |-- rmsd_scatter_by_score.png    # conformer RMSD colored by DeepAccNet score
+    `-- kmeans_deepaccnet_filtered.png   # clusters with the filtered-out ones de-emphasized
+```
+
+Stage notes:
+
+- Stage 1 (KMeans) and Stage 3 (agglomerative sub-clustering) always run, so the
+  three system-root tables and the `kmeans<C>/` folders are always produced.
+- The `dist_external_rmsds.csv` / `reference_clusters.csv` tables and the
+  reference-aware figures appear only when at least one reference is passed.
+- `deepaccnet/` and the surviving-cluster tables appear only when a score table
+  is supplied. With the filter on, only surviving clusters become `kmeans<C>/`
+  folders, so a run with DeepAccNet typically has fewer cluster folders than the
+  same run without it.
+
+The matching fields on the returned named tuple are `system_dir` (the root
+above), `cluster_dirs` (the `kmeans<C>/` paths), `deepaccnet_dir`, and `figures`
+(the list of written figure paths).
+
+
 ## Common Helpers
 
 Some lower-level helpers are useful when building custom workflows:
