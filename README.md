@@ -389,7 +389,7 @@ results/<SYSTEM>/
 |   # --- system-root tables ---
 |-- aligned_clustering_results.csv   # Stage 1 KMeans labels.  Columns: Name, KMeans_K<k> (labels 0..k-1)
 |-- aligned_cluster_rmsd.csv         # Stage 1 intra-cluster RMSD.  Columns: Method, Cluster, Size, Mean_RMSD_Angstrom
-|-- agglomerative_assignments.csv    # Stage 3 flat table for ALL conformers.  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
+|-- agglomerative_assignments.csv    # Stage 3 flat table for sub-clustered conformers (all conformers when no score filter runs; otherwise only scored conformers in surviving clusters).  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
 |-- dist_external_rmsds.csv          # conformer-to-reference RMSD (only with >=1 reference).  Columns: Name, RMSD_Apo[, RMSD_Holo]
 |-- reference_clusters.csv           # each reference's best cluster (only with >=1 reference).  Columns: Reference, Stem, Cluster, Mean_RMSD_Angstrom
 |
