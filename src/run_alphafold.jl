@@ -29,6 +29,17 @@ function run_cmd(cmd::Cmd; check::Bool = false)
     end
 end
 
+function _container_runtime(container_runtime::String)
+    if container_runtime == "apptainer" || container_runtime == "singularity"
+        return container_runtime
+    end
+    throw(
+        ArgumentError(
+            "container_runtime must be either \"apptainer\" or \"singularity\".",
+        ),
+    )
+end
+
 function _colabfold_batch_command(
     input_dir::AbstractString,
     prediction_dir::AbstractString,
@@ -36,10 +47,12 @@ function _colabfold_batch_command(
     cache_dir::AbstractString;
     seed::Integer,
     tmp_dir::AbstractString,
+    container_runtime::String = "apptainer",
 )
+    runtime = _container_runtime(container_runtime)
     # ColabFold looks for its model parameters in /cache/colabfold inside the
     # container, so the user cache folder must be bound to that exact path.
-    return `apptainer exec --nv --no-home --cleanenv \
+    return `$runtime exec --nv --no-home --cleanenv \
         --env TF_FORCE_UNIFIED_MEMORY=1,XLA_PYTHON_CLIENT_MEM_FRACTION=4.0,OPENMM_CPU_THREADS=8,TMPDIR=/mnt/tmp \
         --bind $input_dir:/mnt/input \
         --bind $prediction_dir:/mnt/output \
@@ -58,26 +71,36 @@ function _colabfold_batch_command(
 end
 
 """
-    run_alphafold(output_dir, sif_path, cache_dir)
+    run_alphafold(output_dir, sif_path, cache_dir; container_runtime="apptainer")
 
 Run ColabFold structure predictions for all `cluster_*` subfolders, using
 custom structural templates from each cluster's `templates_adaptative/` folder.
-Run with a ColabFold Apptainer `.sif` image.
+Run with a ColabFold Apptainer/Singularity `.sif` image.
 
 # Arguments
 - `output_dir`: AlphaConformers folder containing `cluster_*` subfolders.
-- `sif_path`: ColabFold Apptainer `.sif` image.
+- `sif_path`: ColabFold Apptainer/Singularity `.sif` image.
 - `cache_dir`: ColabFold cache or params folder. It is mounted in the
   container as `/cache/colabfold`.
+
+# Keywords
+- `container_runtime`: Container runtime. Must be `"apptainer"` or
+  `"singularity"`. Defaults to `"apptainer"`.
 
 # Returns
 `nothing`.
 
 # Throws
 Throws `ArgumentError` when `output_dir` is not a prepared AlphaConformers
-folder. Throws an error when ColabFold fails for a cluster.
+folder. Throws `ArgumentError` when `container_runtime` is not `"apptainer"` or
+`"singularity"`. Throws an error when ColabFold fails for a cluster.
 """
-function run_alphafold(output_dir::String, sif_path::String, cache_dir::String)
+function run_alphafold(
+    output_dir::String,
+    sif_path::String,
+    cache_dir::String;
+    container_runtime::String = "apptainer",
+)
     if isempty(output_dir)
         throw(ArgumentError("output_dir is required for run_alphafold."))
     end
@@ -105,6 +128,7 @@ function run_alphafold(output_dir::String, sif_path::String, cache_dir::String)
     end
 
     println("📂 Number of folder found: ", length(input_dirs))
+    runtime = _container_runtime(container_runtime)
     seed = rand(10_000:99_999)
     #seed = 96826
     for input_dir in input_dirs
@@ -134,6 +158,7 @@ function run_alphafold(output_dir::String, sif_path::String, cache_dir::String)
             cache_dir;
             seed,
             tmp_dir,
+            container_runtime = runtime,
         )
         # Stop here if ColabFold failed; organizing missing outputs hides the
         # real prediction error and produces confusing downstream failures.
@@ -219,7 +244,14 @@ function parse_plddt_info_in_line(line::String)
 end
 
 """
-    run_alphafold_input_structure(uniprot, output_path, SIF_PATH, CACHE_DIR; msa_path_save)
+    run_alphafold_input_structure(
+        uniprot,
+        output_path,
+        SIF_PATH,
+        CACHE_DIR;
+        msa_path_save,
+        container_runtime="apptainer",
+    )
     -> path or nothing
 
 Run a ColabFold structure prediction for a UniProt entry using its AlphaFold DB MSA,
@@ -231,6 +263,8 @@ Input :
 - `CACHE_DIR`   : path to the cache directory for Apptainer.
 - `msa_path_save` : if provided, use this `.a3m` file instead of downloading from AlphaFold DB.
                     The file is copied into `output_path` before the run.
+- `container_runtime` : container runtime. Must be `"apptainer"` or
+  `"singularity"`. Defaults to `"apptainer"`.
 
 Downloads (or copies) the MSA to `output_path`
 Runs ColabFold with 5 models × 5 seeds and dropout enabled.
@@ -246,7 +280,9 @@ function run_alphafold_input_structure(
     SIF_PATH::String,
     CACHE_DIR::String;
     msa_path_save::Union{String,Missing} = missing,
+    container_runtime::String = "apptainer",
 )
+    runtime = _container_runtime(container_runtime)
     ## Get afdb a3M
     if ismissing(msa_path_save)
         msa_path_save=get_msa_sequence_afdb(uniprot, output_path)
@@ -269,7 +305,7 @@ function run_alphafold_input_structure(
     mkdir(output_dir)
 
     seed = rand(10_000:99_999)
-    cmd = `apptainer exec --nv --no-home --cleanenv \
+    cmd = `$runtime exec --nv --no-home --cleanenv \
         --bind $output_path:/mnt/input \
         --bind $output_dir:/mnt/output \
         --bind $CACHE_DIR:/cache \
@@ -418,7 +454,13 @@ function aligned_indices(query_aln::String, template_aln::String)
 end
 
 """
-    run_alphafold3(clusters_folder, SIF_IMAGE_PATH, MODEL_PARAMETERS_DIR, DB_DIR)
+    run_alphafold3(
+        clusters_folder,
+        SIF_IMAGE_PATH,
+        MODEL_PARAMETERS_DIR,
+        DB_DIR;
+        container_runtime="apptainer",
+    )
 
 Run AlphaFold3 predictions for all `cluster_*` subfolders in a given directory.
 Tested with version 22b9ab8
@@ -427,6 +469,8 @@ Input :
 - `SIF_IMAGE_PATH`     : path to the folder containing the `alphafold3.sif` Apptainer image.
 - `MODEL_PARAMETERS_DIR` : path to the AlphaFold3 model weights.
 - `DB_DIR`             : path to the AlphaFold3 genetic databases.
+- `container_runtime` : container runtime. Must be `"apptainer"` or
+  `"singularity"`. Defaults to `"apptainer"`.
 Output :
 For each `cluster_*` subfolder:
 1. Patches any `.cif` template files for AlphaFold3 compatibility.
@@ -440,11 +484,13 @@ function run_alphafold3(
     clusters_folder::String,
     SIF_IMAGE_PATH::String,
     MODEL_PARAMETERS_DIR::String,
-    DB_DIR::String,
+    DB_DIR::String;
+    container_runtime::String = "apptainer",
 )
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
     end
+    runtime = _container_runtime(container_runtime)
 
     input_dirs = sort(
         filter(
@@ -572,7 +618,7 @@ function run_alphafold3(
 
         println("🚀Start $cluster_name ...")
         # Run AlphaFold3
-        cmd = `apptainer exec \
+        cmd = `$runtime exec \
             --nv --no-home --cleanenv \
             --bind $input_dir:/root/af_input \
             --bind $output_dir:/root/af_output \
@@ -598,7 +644,12 @@ end
 
 #Run Boltz
 """
-    run_boltz2(clusters_folder, SIF_IMAGE_PATH, CACHE_DIR_Boltz)
+    run_boltz2(
+        clusters_folder,
+        SIF_IMAGE_PATH,
+        CACHE_DIR_Boltz;
+        container_runtime="apptainer",
+    )
 
 Run Boltz2 structure predictions for all subfolders in a given directory.
 Tested with version fd69c81
@@ -606,6 +657,8 @@ Input :
 - `clusters_folder`  : path to the folder containing cluster subfolders.
 - `SIF_IMAGE_PATH`   : path to the Boltz2 Apptainer `.sif` image.
 - `CACHE_DIR_Boltz`  : path to the cache directory (Numba, Triton, CUDA, etc.).
+- `container_runtime` : container runtime. Must be `"apptainer"` or
+  `"singularity"`. Defaults to `"apptainer"`.
 For each subfolder:
 1. Reads the query sequence and MSA from `sequences.a3m`.
 2. Writes a `boltz_config.yaml` input file with a structural template if a
@@ -618,11 +671,13 @@ For each subfolder:
 function run_boltz2(
     clusters_folder::String,
     SIF_IMAGE_PATH::String,
-    CACHE_DIR_Boltz::String,
+    CACHE_DIR_Boltz::String;
+    container_runtime::String = "apptainer",
 )
     if isempty(clusters_folder)
         throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
     end
+    runtime = _container_runtime(container_runtime)
     #=
     input_dirs = sort(
         filter(
@@ -722,7 +777,7 @@ function run_boltz2(
             # Run AlphaFold3
             output_dir_seed=joinpath(output_dir, "seed_$s")
             isdir(output_dir_seed) || mkdir(output_dir_seed)
-            cmd = `apptainer exec --nv --no-home --cleanenv \
+            cmd = `$runtime exec --nv --no-home --cleanenv \
                 --bind $input_dir:/mnt/input \
                 --bind $output_dir_seed:/mnt/output \
                 --bind $CACHE_DIR_Boltz:/cache \

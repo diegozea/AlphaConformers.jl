@@ -43,7 +43,10 @@ You need:
 
 If you want to run predictions from Julia, you also need the corresponding
 Apptainer image and cache/model/database folders for the predictor you choose.
-The input-preparation step does not require a GPU.
+The default ColabFold runner uses the `apptainer` command. If your system uses
+Singularity instead, pass `container_runtime = "singularity"` to the prediction
+helper. The input-preparation step does not require a GPU, but ColabFold
+prediction is meant to run on a CUDA-capable Linux or HPC system.
 
 Useful environment variables:
 
@@ -77,6 +80,30 @@ Then load the package:
 using AlphaConformers
 ```
 
+## ColabFold Container Setup
+
+AlphaConformers can run ColabFold with an Apptainer/Singularity image. A
+ColabFold 1.5.5 image is available from Zenodo:
+
+https://zenodo.org/records/20842530
+
+Change `CONTAINER_DIR` to the folder where you want to store the image. The file
+name and download URL are fixed for this Zenodo image.
+
+```julia
+using Downloads
+
+CONTAINER_DIR = "/path/to/container/files"
+COLABFOLD_SIF = joinpath(CONTAINER_DIR, "colabfold-1.5.5-cuda12.2.2.sif")
+
+mkpath(CONTAINER_DIR)
+
+Downloads.download(
+    "https://zenodo.org/records/20842530/files/colabfold-1.5.5-cuda12.2.2.sif?download=1",
+    COLABFOLD_SIF,
+)
+```
+
 ## Quick Start
 
 Run the default pipeline with input preparation, ColabFold prediction, and output
@@ -85,53 +112,59 @@ triage:
 ```julia
 using AlphaConformers
 
-query_struct = "1ABC_A.pdb"
-pdb_folder = "datasets/pdb/mmcif_files"
-output_dir = "outputs/1ABC_A"
+QUERY_STRUCT = "1ABC_A.pdb"
+PDB_FOLDER = "datasets/pdb/mmcif_files"
+OUTPUT_DIR = "outputs/1ABC_A"
 
-foldseek_dbs = [
+FOLDSEEK_DBS = [
     "datasets/foldseek/fullpdb",
     "datasets/foldseek/afdb",
 ]
 
-sif_path = "containers/ColabFold_AF2_1-5-5.sif"
-cache_dir = "cache/colabfold"
+COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
+COLABFOLD_CACHE_DIR = "cache/colabfold"
 
 alphaconformers(
-    sif_path,
-    cache_dir;
-    query_struct,
-    pdb_folder,
-    output_dir,
-    databases = foldseek_dbs,
+    COLABFOLD_SIF,
+    COLABFOLD_CACHE_DIR;
+    query_struct = QUERY_STRUCT,
+    pdb_folder = PDB_FOLDER,
+    output_dir = OUTPUT_DIR,
+    databases = FOLDSEEK_DBS,
     n_threads = 16,
     evalue_cutoff = 1e-5,
     cutoff = 1.0,
 )
 ```
 
+If your system uses Singularity instead of Apptainer, add the runtime keyword:
+
+```julia
+container_runtime = "singularity"
+```
+
 The query file name should include the PDB code and chain, for example
 `1ABC_A.pdb`.
 
-The Foldseek database paths in `databases` must be set for your machine. AlphaConformers
-does not assume a default local database path. When several databases are used,
-exactly one database name should contain `pdb`, such as `fullpdb`; that lets
-AlphaConformers pass the PDB Foldseek result folder to triage instead of using
-database order.
+The Foldseek database paths in `databases` must be set for your machine.
+AlphaConformers does not assume a default local database path. When several
+databases are used, exactly one database name should contain `pdb`, such as
+`fullpdb`; that lets AlphaConformers pass the PDB Foldseek result folder to
+triage instead of using database order.
 
 ## Pipeline Steps
 
 Each step can also be run separately with `alphaconformers`. The examples below
-reuse `query_struct`, `pdb_folder`, `output_dir`, and `foldseek_dbs` from the
-quick start.
+reuse `QUERY_STRUCT`, `PDB_FOLDER`, `OUTPUT_DIR`, and `FOLDSEEK_DBS` from
+the quick start.
 
 ```julia
 # Prepare only. Requires query_struct, pdb_folder, output_dir, and databases.
 alphaconformers(;
-    query_struct,
-    pdb_folder,
-    output_dir,
-    databases = foldseek_dbs,
+    query_struct = QUERY_STRUCT,
+    pdb_folder = PDB_FOLDER,
+    output_dir = OUTPUT_DIR,
+    databases = FOLDSEEK_DBS,
     predict = false,
     triage = false,
 )
@@ -139,10 +172,10 @@ alphaconformers(;
 
 Prediction uses the default `structure_predictor = run_alphafold`. That predictor
 expects two positional arguments before the semicolon: `sif_path` and `cache_dir`.
-`sif_path` is the ColabFold Apptainer `.sif` image:
+`sif_path` is the ColabFold Apptainer/Singularity `.sif` image:
 
 ```julia
-sif_path = "containers/ColabFold_AF2_1-5-5.sif"
+COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
 ```
 
 The `cache_dir` folder is important for ColabFold runs. It is mounted inside the
@@ -154,7 +187,7 @@ space or more. Prediction outputs are not written to this folder; they are
 written inside each cluster's `af/` directory.
 
 ```julia
-cache_dir = "cache/colabfold"
+COLABFOLD_CACHE_DIR = "cache/colabfold"
 ```
 
 Now prediction can be run by itself:
@@ -162,11 +195,25 @@ Now prediction can be run by itself:
 ```julia
 # Predict only. Requires output_dir plus the predictor-specific arguments.
 alphaconformers(
-    sif_path,
-    cache_dir;
-    output_dir,
+    COLABFOLD_SIF,
+    COLABFOLD_CACHE_DIR;
+    output_dir = OUTPUT_DIR,
     prepare = false,
     triage = false,
+)
+```
+
+The default container runtime is `"apptainer"`. Use `"singularity"` when that is
+the command available on your system:
+
+```julia
+alphaconformers(
+    COLABFOLD_SIF,
+    COLABFOLD_CACHE_DIR;
+    output_dir = OUTPUT_DIR,
+    prepare = false,
+    triage = false,
+    container_runtime = "singularity",
 )
 ```
 
@@ -178,8 +225,8 @@ sifts_uniprot_mapping = get_uniprot_mapping()
 
 # Triage only. Requires output_dir, query_struct, and a SIFTS mapping.
 alphaconformers(;
-    output_dir,
-    query_struct,
+    output_dir = OUTPUT_DIR,
+    query_struct = QUERY_STRUCT,
     prepare = false,
     predict = false,
     triage = true,
@@ -197,13 +244,13 @@ such folders exist, pass the folder explicitly:
 
 ```julia
 alphaconformers(;
-    output_dir,
-    query_struct,
+    output_dir = OUTPUT_DIR,
+    query_struct = QUERY_STRUCT,
     prepare = false,
     predict = false,
     triage = true,
     sifts_uniprot_mapping,
-    foldseek_results_folder = joinpath(output_dir, "fullpdb_results"),
+    foldseek_results_folder = joinpath(OUTPUT_DIR, "fullpdb_results"),
 )
 ```
 
@@ -216,7 +263,7 @@ For a custom predictor:
 ```julia
 alphaconformers(
     predictor_arg;
-    output_dir,
+    output_dir = OUTPUT_DIR,
     prepare = false,
     triage = false,
     structure_predictor = my_predictor,
@@ -227,11 +274,16 @@ alphaconformers(
 The lower-level step functions remain available:
 
 ```julia
-prepared = prepare_inputs(query_struct, pdb_folder, output_dir; databases = foldseek_dbs)
-run_alphafold(output_dir, sif_path, cache_dir)
+prepared = prepare_inputs(
+    QUERY_STRUCT,
+    PDB_FOLDER,
+    OUTPUT_DIR;
+    databases = FOLDSEEK_DBS,
+)
+run_alphafold(OUTPUT_DIR, COLABFOLD_SIF, COLABFOLD_CACHE_DIR)
 triage_outputs(
-    output_dir,
-    query_struct,
+    OUTPUT_DIR,
+    QUERY_STRUCT,
     sifts_uniprot_mapping;
     foldseek_results_folder = prepared.foldseek_results_folder,
 )
@@ -253,7 +305,8 @@ run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
 ```
 
 These helpers expect local container images and local model or database paths.
-They do not download model weights.
+They do not download model weights. They also accept
+`container_runtime = "singularity"` when needed.
 
 ## Output
 
@@ -302,8 +355,8 @@ structural cluster, and the default `run_alphafold` predictor runs ColabFold onc
 for each cluster. With the current default ColabFold settings, each processed
 cluster can produce up to 10 model predictions before triage. Choose an
 `output_dir` with a couple of GB free to store all those predictions. This is 
-separate from `cache_dir`, which stores reusable ColabFold files and can require 
-around 4 GB or more.
+separate from `COLABFOLD_CACHE_DIR`, which stores reusable ColabFold files and
+can require around 4 GB or more.
 
 ## Common Helpers
 

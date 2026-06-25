@@ -17,6 +17,12 @@ using TestItems
 
     @test_throws ErrorException AlphaConformers.run_cmd(`false`; check = true)
 
+    @test AlphaConformers._container_runtime("apptainer") == "apptainer"
+    @test AlphaConformers._container_runtime("singularity") == "singularity"
+    @test_throws ArgumentError AlphaConformers._container_runtime("")
+    @test_throws ArgumentError AlphaConformers._container_runtime(" apptainer ")
+    @test_throws ArgumentError AlphaConformers._container_runtime("/opt/site/bin/container")
+
     cmd = AlphaConformers._colabfold_batch_command(
         "/tmp/cluster_1",
         "/tmp/cluster_1/af",
@@ -25,10 +31,44 @@ using TestItems
         seed = 12_345,
         tmp_dir = "/tmp/cluster_1/af/tmp",
     )
+    @test cmd.exec[1] == "apptainer"
+    @test cmd.exec[2] == "exec"
     @test "/tmp/colabfold-cache:/cache/colabfold" in cmd.exec
     @test "/tmp/cluster_1/af/tmp:/mnt/tmp" in cmd.exec
     @test any(arg -> occursin("TMPDIR=/mnt/tmp", arg), cmd.exec)
     @test "colabfold_batch" in cmd.exec
+
+    singularity_cmd = AlphaConformers._colabfold_batch_command(
+        "/tmp/cluster_1",
+        "/tmp/cluster_1/af",
+        "/tmp/colabfold.sif",
+        "/tmp/colabfold-cache";
+        seed = 12_345,
+        tmp_dir = "/tmp/cluster_1/af/tmp",
+        container_runtime = "singularity",
+    )
+    @test singularity_cmd.exec[1] == "singularity"
+    @test singularity_cmd.exec[2] == "exec"
+
+    @test_throws ArgumentError AlphaConformers._colabfold_batch_command(
+        "/tmp/cluster_1",
+        "/tmp/cluster_1/af",
+        "/tmp/colabfold.sif",
+        "/tmp/colabfold-cache";
+        seed = 12_345,
+        tmp_dir = "/tmp/cluster_1/af/tmp",
+        container_runtime = "",
+    )
+
+    @test_throws ArgumentError AlphaConformers._colabfold_batch_command(
+        "/tmp/cluster_1",
+        "/tmp/cluster_1/af",
+        "/tmp/colabfold.sif",
+        "/tmp/colabfold-cache";
+        seed = 12_345,
+        tmp_dir = "/tmp/cluster_1/af/tmp",
+        container_runtime = "/opt/site/bin/container",
+    )
 
     mktempdir() do dir
         @test_throws ArgumentError AlphaConformers.run_alphafold(
