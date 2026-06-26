@@ -17,7 +17,8 @@ import ProgressMeter
 import Combinatorics
 import Random
 import Statistics
-import LinearAlgebra
+import MultivariateStats
+import Distances
 import Plots as plt
 import HTTP
 import JSON3
@@ -67,7 +68,7 @@ export foldseek_search, # foldseek.jl
     create_folder_structure_hobohm,
     run_cmd,
     run_alphafold,
-    cluster_conformers 
+    cluster_conformers
 
 include("utils.jl")
 include("foldseek.jl")
@@ -80,5 +81,6 @@ include("run_alphafold.jl")
 include("organize_files.jl")
 include("run_alphaconformers.jl")
 include("conformer_clustering.jl")
+include("conformer_clustering_plots.jl")
 
 end

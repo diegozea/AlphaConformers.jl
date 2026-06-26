@@ -6,20 +6,23 @@ using TestItems
     @test AlphaConformers._normalize_reference("   ") === nothing
     @test AlphaConformers._normalize_reference("1ABC_A") == "1ABC_A"
 
-    # Test _reference_mode helper.
+    # Test _reference_mode helper: just the count of references supplied; either slot may be given
+    # on its own (no required ordering).
     @test AlphaConformers._reference_mode(nothing, nothing) == 0  # 0-ref
-    @test AlphaConformers._reference_mode("1ABC_A", nothing) == 1  # 1-ref (apo)
+    @test AlphaConformers._reference_mode("1ABC_A", nothing) == 1  # 1-ref (first slot)
+    @test AlphaConformers._reference_mode(nothing, "1DEF_B") == 1  # 1-ref (second slot only)
     @test AlphaConformers._reference_mode("1ABC_A", "1DEF_B") == 2  # 2-ref
-    @test_throws ErrorException AlphaConformers._reference_mode(nothing, "1DEF_B")  # holo without apo
 
     # Test cluster_conformers validation errors.
     @test_throws ErrorException cluster_conformers("")  # blank system
     @test_throws ErrorException cluster_conformers("   ")  # whitespace-only system
     @test_throws ErrorException cluster_conformers("sys1"; kmeans_k = 0)  # invalid k
     @test_throws ErrorException cluster_conformers("sys1"; kmeans_k = -5)  # negative k
-    @test_throws ErrorException cluster_conformers("sys1"; threshold = 0.0)  # invalid threshold
-    @test_throws ErrorException cluster_conformers("sys1"; threshold = -1.5)  # negative threshold
-    @test_throws ErrorException cluster_conformers("sys1", "", "1ABC_A")  # holo without apo
+    @test_throws ErrorException cluster_conformers("sys1"; subcluster_threshold = 0.0)
+    @test_throws ErrorException cluster_conformers("sys1"; subcluster_threshold = -1.5)
+    # A second-slot reference on its own is allowed (no asymmetry); this still errors only because
+    # there is no discoverable data at the default data_root.
+    @test_throws ErrorException cluster_conformers("sys1", "", "1ABC_A")
 
     # Reference modes run now; with no discoverable conformers the run still errors clearly.
     @test_throws ErrorException cluster_conformers(
@@ -111,14 +114,14 @@ end
     @test DataFrames.nrow(clustering) == n_conformers          # every conformer is labelled
     labels = clustering[!, label_col]
     @test !any(ismissing, labels)
-    @test all(0 .<= labels .<= k - 1)                          # labels fall in 0:k-1
+    @test all(1 .<= labels .<= k)                              # labels fall in 1:k
     @test length(unique(clustering.Name)) == n_conformers      # one row per conformer
 
     # Intra-cluster RMSD table schema and invariants.
     cluster_rmsd = CSV.read(rmsd_csv, DataFrames.DataFrame)
     @test names(cluster_rmsd) == ["Method", "Cluster", "Size", "Mean_RMSD_Angstrom"]
     @test all(cluster_rmsd.Method .== label_col)
-    @test all(0 .<= cluster_rmsd.Cluster .<= k - 1)
+    @test all(1 .<= cluster_rmsd.Cluster .<= k)
     @test sum(cluster_rmsd.Size) == n_conformers               # sizes cover all conformers
     @test all(cluster_rmsd.Mean_RMSD_Angstrom .>= 0)
 
@@ -148,37 +151,70 @@ end
 @testitem "Conformer clustering helper seams" begin
     import MIToS
 
+    # Build a vector of CA-only poly-ALA PDBResidues from an L×3 coordinate matrix (the test
+    # fixtures' counterpart to a real structure read).
+    function make_ca_residues(coords)
+        n = size(coords, 1)
+        residues = Vector{MIToS.PDB.PDBResidue}(undef, n)
+        for i = 1:n
+            atom = MIToS.PDB.PDBAtom(
+                MIToS.PDB.Coordinates(coords[i, 1], coords[i, 2], coords[i, 3]),
+                "CA",
+                "C",
+                1.0,
+                "0.00",
+                " ",
+                " ",
+            )
+            res_id = MIToS.PDB.PDBResidueIdentifier(" ", string(i), "ALA", "ATOM", "1", "A")
+            residues[i] = MIToS.PDB.PDBResidue(res_id, [atom])
+        end
+        return residues
+    end
+
     # _intra_cluster_rmsd: centroid metric is exact; singletons get 0.0.
     # Columns are observations; here one CA atom (3 coordinates), so n_atoms = 1.
     spread = Float64[0 2; 0 0; 0 0]                 # two members at x=0 and x=2
     @test AlphaConformers._intra_cluster_rmsd(spread, [7, 7], 1)[7] ≈ 1.0  # |±1| → mean 1.0
 
-    mixed = Float64[0 0 5; 0 0 0; 0 0 0]            # cluster 0 = two identical; cluster 1 singleton
-    rmsd = AlphaConformers._intra_cluster_rmsd(mixed, [0, 0, 1], 1)
-    @test rmsd[0] == 0.0                             # identical members
-    @test rmsd[1] == 0.0                             # singleton cluster branch
+    mixed = Float64[0 0 5; 0 0 0; 0 0 0]            # cluster 1 = two identical; cluster 2 singleton
+    rmsd = AlphaConformers._intra_cluster_rmsd(mixed, [1, 1, 2], 1)
+    @test rmsd[1] == 0.0                             # identical members
+    @test rmsd[2] == 0.0                             # singleton cluster branch
 
-    # _parse_ca reads CA traces from .cif as well as .pdb.
+    # _read_ca_residues reads CA traces from .cif as well as .pdb, and CAmatrix recovers them.
     tmp = mktempdir()
-    residues = AlphaConformers._make_ca_residues(Float64[0 0 0; 3.8 0 0; 7.6 0 0])
+    residues = make_ca_residues(Float64[0 0 0; 3.8 0 0; 7.6 0 0])
     cif = joinpath(tmp, "ca_only.cif")
     MIToS.PDB.write_file(cif, residues, MIToS.PDB.MMCIFFile)
-    resids, coords = AlphaConformers._parse_ca(cif)
-    @test length(resids) == 3
+    got = AlphaConformers._read_ca_residues(cif)
+    coords = MIToS.PDB.CAmatrix(got)
+    @test length(got) == 3
     @test size(coords) == (3, 3)
     @test coords[2, 1] ≈ 3.8
 end
 
 @testitem "Conformer clustering reference resolution" begin
+    import MIToS
+
     refs = mktempdir()
-    touch(joinpath(refs, "1ABC_A.pdb"))   # exact .pdb match
-    touch(joinpath(refs, "9XYZ_B.cif"))   # only .cif present
-    touch(joinpath(refs, "2def_C.pdb"))   # lowercase-id file for stem 2DEF_C
+    touch(joinpath(refs, "1ABC_A.pdb"))    # exact .pdb match
+    touch(joinpath(refs, "9XYZ_B.cif"))    # only .cif present
+    touch(joinpath(refs, "2def_C.pdb"))    # lowercase-id file for stem 2DEF_C
+    touch(joinpath(refs, "3GZP_A.cif.gz")) # only a gzip-compressed reference present
 
     # Exact stem, .pdb preferred.
     @test AlphaConformers._resolve_reference(refs, "1ABC_A") == joinpath(refs, "1ABC_A.pdb")
     # `.cif` fallback when no `.pdb` exists.
     @test AlphaConformers._resolve_reference(refs, "9XYZ_B") == joinpath(refs, "9XYZ_B.cif")
+    # A compressed `.cif.gz` reference resolves (MIToS decompresses `.gz` on read).
+    @test AlphaConformers._resolve_reference(refs, "3GZP_A") ==
+          joinpath(refs, "3GZP_A.cif.gz")
+    # `_structure_format` looks past a trailing `.gz` to pick the MIToS format.
+    @test AlphaConformers._structure_format("x.pdb") == MIToS.PDB.PDBFile
+    @test AlphaConformers._structure_format("x.cif") == MIToS.PDB.MMCIFFile
+    @test AlphaConformers._structure_format("x.pdb.gz") == MIToS.PDB.PDBFile
+    @test AlphaConformers._structure_format("x.cif.gz") == MIToS.PDB.MMCIFFile
     # Case-insensitive lowercase-id fallback that keeps the chain letter. Compared by file
     # identity rather than path string, so a case-insensitive filesystem (which resolves the
     # exact-case stem to the same on-disk file) passes too.
@@ -193,17 +229,36 @@ end
 @testitem "Conformer clustering reference RMSD seams" begin
     import MIToS
 
+    function make_ca_residues(coords)
+        n = size(coords, 1)
+        residues = Vector{MIToS.PDB.PDBResidue}(undef, n)
+        for i = 1:n
+            atom = MIToS.PDB.PDBAtom(
+                MIToS.PDB.Coordinates(coords[i, 1], coords[i, 2], coords[i, 3]),
+                "CA",
+                "C",
+                1.0,
+                "0.00",
+                " ",
+                " ",
+            )
+            res_id = MIToS.PDB.PDBResidueIdentifier(" ", string(i), "ALA", "ATOM", "1", "A")
+            residues[i] = MIToS.PDB.PDBResidue(res_id, [atom])
+        end
+        return residues
+    end
+
     # CA-only poly-ALA structures built from coordinate matrices (a small 3-D shape so the
     # superposition is non-degenerate).
     coords = Float64[0 0 0; 3.8 0 0; 3.8 3.8 0; 0 3.8 0; 1.9 1.9 3.0]
-    ref = AlphaConformers._make_ca_residues(coords)
+    ref = make_ca_residues(coords)
 
     # Self-RMSD ≈ 0.
-    self = AlphaConformers._make_ca_residues(coords)
+    self = make_ca_residues(coords)
     @test AlphaConformers._reference_rmsds(ref, [self])[1] ≈ 0.0 atol = 1e-6
 
     # Pure translation is removed by the superposition → ≈ 0.
-    translated = AlphaConformers._make_ca_residues(coords .+ [5.0 -3.0 2.0])
+    translated = make_ca_residues(coords .+ [5.0 -3.0 2.0])
     @test AlphaConformers._reference_rmsds(ref, [translated])[1] ≈ 0.0 atol = 1e-6
 
     # Known pair: scaling about the centroid by `c` cannot be undone by a rigid move, so the
@@ -212,7 +267,7 @@ end
     natoms = size(coords, 1)
     centroid = sum(coords; dims = 1) ./ natoms
     scaled = centroid .+ c .* (coords .- centroid)
-    conf = AlphaConformers._make_ca_residues(scaled)
+    conf = make_ca_residues(scaled)
     rgyr = sqrt(sum(abs2, coords .- centroid) / natoms)
     @test AlphaConformers._reference_rmsds(ref, [conf])[1] ≈ abs(1 - c) * rgyr atol = 1e-4
 
@@ -228,19 +283,21 @@ end
 
     # _assign_reference_cluster: lowest mean RMSD wins; NaN ignored; all-NaN cluster skipped.
     rmsds = [0.1, 0.2, 5.0, 5.0, NaN, 0.05]
-    labels = [0, 0, 1, 1, 2, 2]
+    labels = [1, 1, 2, 2, 3, 3]
     cluster, mean_rmsd = AlphaConformers._assign_reference_cluster(rmsds, labels)
-    @test cluster == 2                 # cluster 2's only finite value (0.05) is the smallest mean
+    @test cluster == 3                 # cluster 3's only finite value (0.05) is the smallest mean
     @test mean_rmsd ≈ 0.05
     @test_throws ErrorException AlphaConformers._assign_reference_cluster(
         [NaN, NaN],
-        [0, 1],
+        [1, 2],
     )
 
-    # _normalize_modified_residues! maps a modified residue to its standard parent.
-    one = AlphaConformers._make_ca_residues(Float64[0 0 0])
-    old = one[1].id
-    one[1].id = MIToS.PDB.PDBResidueIdentifier(
+    # Modified residues are handled by MIToS' modelled_sequences (used inside structural_alignment),
+    # so the pipeline needs no bespoke modified-residue table: a selenomethionine (MSE) maps to the
+    # standard methionine letter in the extracted sequence.
+    modres = make_ca_residues(Float64[0 0 0; 3.8 0 0; 7.6 0 0])
+    old = modres[2].id
+    modres[2].id = MIToS.PDB.PDBResidueIdentifier(
         old.PDBe_number,
         old.number,
         "MSE",
@@ -248,8 +305,8 @@ end
         old.model,
         old.chain,
     )
-    AlphaConformers._normalize_modified_residues!(one)
-    @test one[1].id.name == "MET"
+    seq = string(first(values(MIToS.PDB.modelled_sequences(modres))))
+    @test seq[2] == 'M'
 end
 
 @testitem "Conformer clustering with references" begin
@@ -335,27 +392,44 @@ end
     @test isfile(refclu_csv)
 
     rmsd_tbl = CSV.read(rmsd_csv, DataFrames.DataFrame)
-    @test names(rmsd_tbl) == ["Name", "RMSD_Apo"]          # one column for the single reference
+    # Default labels are the generic ref1/ref2, so the column follows the first label.
+    @test names(rmsd_tbl) == ["Name", "RMSD_ref1"]         # one column for the single reference
     @test DataFrames.nrow(rmsd_tbl) == n_conformers        # one row per conformer
     @test one.reference_rmsd == rmsd_tbl
 
     refclu = CSV.read(refclu_csv, DataFrames.DataFrame)
     @test names(refclu) == ["Reference", "Stem", "Cluster", "Mean_RMSD_Angstrom"]
-    @test refclu.Reference == ["apo"]
+    @test refclu.Reference == ["ref1"]
     @test refclu.Stem == ["REFAP_A"]
-    @test all(0 .<= refclu.Cluster .<= k - 1)              # a valid cluster id
+    @test all(1 .<= refclu.Cluster .<= k)                 # a valid cluster id
     @test one.reference_clusters == refclu
-    # The apo reference is conf_A1, so it is assigned to conf_A1's cluster.
+    # The first reference is conf_A1, so it is assigned to conf_A1's cluster.
     @test refclu.Cluster[1] == label_of("models/conf_A1.pdb")
-    # That conformer's own RMSD to the apo reference is ~0.
-    apo_row = rmsd_tbl[findfirst(==("models/conf_A1.pdb"), rmsd_tbl.Name), :]
-    @test apo_row.RMSD_Apo ≈ 0.0 atol = 1e-4
+    # That conformer's own RMSD to the reference is ~0.
+    ref1_row = rmsd_tbl[findfirst(==("models/conf_A1.pdb"), rmsd_tbl.Name), :]
+    @test ref1_row.RMSD_ref1 ≈ 0.0 atol = 1e-4
+
+    # Custom `ref_labels` flow through to the column and assignment labels.
+    out_lbl = mktempdir()
+    labelled = cluster_conformers(
+        system,
+        "REFAP_A",
+        "REFHO_B";
+        ref_labels = ("apo", "holo"),
+        refs_dir = refs,
+        data_root = fixtures,
+        out_dir = out_lbl,
+        kmeans_k = k,
+        seed = 42,
+    )
+    @test names(labelled.reference_rmsd) == ["Name", "RMSD_apo", "RMSD_holo"]
+    @test labelled.reference_clusters.Reference == ["apo", "holo"]
 
     # 0-reference mode leaves the reference fields empty.
     @test base.reference_rmsd === nothing
     @test base.reference_clusters === nothing
 
-    # 2-reference mode (apo + holo).
+    # 2-reference mode (default ref1/ref2 labels).
     out2 = mktempdir()
     two = cluster_conformers(
         system,
@@ -369,10 +443,10 @@ end
     )
     rmsd2 =
         CSV.read(joinpath(out2, system, "dist_external_rmsds.csv"), DataFrames.DataFrame)
-    @test names(rmsd2) == ["Name", "RMSD_Apo", "RMSD_Holo"]
+    @test names(rmsd2) == ["Name", "RMSD_ref1", "RMSD_ref2"]
     refclu2 = two.reference_clusters
-    @test refclu2.Reference == ["apo", "holo"]
-    @test all(0 .<= refclu2.Cluster .<= k - 1)
+    @test refclu2.Reference == ["ref1", "ref2"]
+    @test all(1 .<= refclu2.Cluster .<= k)
     # apo == conf_A1, holo == conf_C1, each assigned to its own conformer's cluster.
     @test refclu2.Cluster[1] == label_of("models/conf_A1.pdb")
     @test refclu2.Cluster[2] == label_of("models/conf_C1.pdb")
@@ -429,11 +503,34 @@ end
 end
 
 @testitem "Conformer clustering pairwise RMSD matrix" begin
-    # Two identical squares and a translated copy: the matrix is symmetric, zero on the
-    # diagonal, and a pure translation is removed by the superposition (off-diagonal ≈ 0).
-    square = Float64[0 0 0; 3.8 0 0; 3.8 3.8 0; 0 3.8 0]
-    translated = square .+ [5.0 -2.0 1.0]
-    dist = AlphaConformers._pairwise_rmsd_matrix([square, copy(square), translated])
+    import MIToS
+
+    function make_ca_residues(coords)
+        n = size(coords, 1)
+        residues = Vector{MIToS.PDB.PDBResidue}(undef, n)
+        for i = 1:n
+            atom = MIToS.PDB.PDBAtom(
+                MIToS.PDB.Coordinates(coords[i, 1], coords[i, 2], coords[i, 3]),
+                "CA",
+                "C",
+                1.0,
+                "0.00",
+                " ",
+                " ",
+            )
+            res_id = MIToS.PDB.PDBResidueIdentifier(" ", string(i), "ALA", "ATOM", "1", "A")
+            residues[i] = MIToS.PDB.PDBResidue(res_id, [atom])
+        end
+        return residues
+    end
+
+    # Two identical squares and a translated copy (as CA-only residue vectors): the matrix is
+    # symmetric, zero on the diagonal, and a pure translation is removed by the superposition
+    # (off-diagonal ≈ 0).
+    square = make_ca_residues(Float64[0 0 0; 3.8 0 0; 3.8 3.8 0; 0 3.8 0])
+    translated =
+        make_ca_residues(Float64[0 0 0; 3.8 0 0; 3.8 3.8 0; 0 3.8 0] .+ [5.0 -2.0 1.0])
+    dist = AlphaConformers._pairwise_rmsd_matrix([square, deepcopy(square), translated])
 
     @test size(dist) == (3, 3)
     @test dist == dist'                       # symmetric
@@ -572,7 +669,7 @@ end
 
     table = DataFrames.DataFrame("Name" => ["a", "b", "c"], "cb-lddt" => [0.5, 0.9, 0.1])
 
-    # Names are matched in order; an unscored conformer (`x`) is dropped (Python-like join).
+    # Names are matched in order; an unscored conformer (`x`) is dropped by the inner join.
     idx, scores = AlphaConformers._align_scores(table, ["a", "c", "x"])
     @test idx == [1, 2]
     @test scores == [0.5, 0.1]
@@ -682,18 +779,17 @@ end
         surviving_frac = 50,
     )
 
-    # The deepaccnet/ tree holds only the single configured cut — no leftover grid sweep.
+    # The deepaccnet/ tree holds only the single configured cut — no leftover grid sweep, and the
+    # filename no longer encodes the rel/frac values.
     @test result.deepaccnet_dir == joinpath(out, system, "deepaccnet")
     surv_dir = joinpath(result.deepaccnet_dir, "surviving")
     @test isdir(surv_dir)
-    @test isfile(joinpath(surv_dir, "surviving_rel50_frac50.csv"))
-    @test readdir(surv_dir) == ["surviving_rel50_frac50.csv"]
-    @test !isfile(joinpath(surv_dir, "surviving_rel25_frac75.csv"))
+    @test isfile(joinpath(surv_dir, "surviving.csv"))
+    @test readdir(surv_dir) == ["surviving.csv"]
 
     # The configured cut drops exactly the target cluster.
     @test result.surviving == survivors
-    chosen =
-        CSV.read(joinpath(surv_dir, "surviving_rel50_frac50.csv"), DataFrames.DataFrame)
+    chosen = CSV.read(joinpath(surv_dir, "surviving.csv"), DataFrames.DataFrame)
     @test DataFrames.names(chosen) == ["Name", label_col]
     @test Set(chosen.Name) == survivor_names
     @test all(in(Set(survivors)), chosen[!, label_col])
@@ -788,7 +884,7 @@ end
     )
 
     @test result.deepaccnet_dir == joinpath(out, system, "deepaccnet")
-    surv_csv = joinpath(result.deepaccnet_dir, "surviving", "surviving_rel25_frac75.csv")
+    surv_csv = joinpath(result.deepaccnet_dir, "surviving", "surviving.csv")
     surviving = CSV.read(surv_csv, DataFrames.DataFrame)
     @test !(omitted in surviving.Name)
     @test Set(surviving.Name) == Set(kept)
@@ -799,20 +895,27 @@ end
 end
 
 @testitem "Conformer clustering dimensionality reduction" begin
-    # _pca: points on a line collapse to one principal axis. Columns are observations.
+    # _pca (MultivariateStats): points on a line span one principal axis, so the projection has a
+    # single real dimension. Columns are observations.
     line = Float64[-1.5 -0.5 0.5 1.5; -1.5 -0.5 0.5 1.5]   # 2 features, 4 points on y = x
     proj = AlphaConformers._pca(line, 2)
-    @test size(proj) == (2, 4)
-    @test all(abs.(proj[2, :]) .< 1e-8)                    # no spread on the second axis
+    @test size(proj) == (1, 4)                             # only one real direction (no padding)
     @test maximum(proj[1, :]) - minimum(proj[1, :]) > 0    # all spread on the first axis
     # The projection of evenly spaced points stays evenly spaced (orthogonal transform).
     @test proj[1, 2] - proj[1, 1] ≈ -(proj[1, 3] - proj[1, 4]) atol = 1e-8
 
-    # Fewer data directions than requested → the missing rows are zero, shape still ndims×N.
+    # A single-feature input has a single direction too.
     flat = Float64[1.0 2.0 3.0]                            # 1 feature, 3 points
     proj_flat = AlphaConformers._pca(flat, 2)
-    @test size(proj_flat) == (2, 3)
-    @test all(proj_flat[2, :] .== 0.0)
+    @test size(proj_flat) == (1, 3)
+
+    # _ensure_2d pads a sub-2-D projection to 2×N with a zero row, for plotting.
+    padded = AlphaConformers._ensure_2d(proj)
+    @test size(padded) == (2, 4)
+    @test padded[1, :] == proj[1, :]
+    @test all(padded[2, :] .== 0.0)
+    already = Float64[1 2; 3 4]
+    @test AlphaConformers._ensure_2d(already) === already   # a ≥2-row matrix is returned as-is
 
     # _classical_mds recovers a known geometry up to rotation/reflection: a 3-4-5 triangle.
     dist = Float64[0 3 4; 3 0 5; 4 5 0]
@@ -988,7 +1091,7 @@ end
         data_root = fixtures,
         out_dir = out0,
         kmeans_k = k,
-        threshold = 0.001,   # split each cluster so the mini-cluster graph is produced
+        subcluster_threshold = 0.001,   # split each cluster so the mini-cluster graph is produced
     )
     @test isfile(joinpath(r0.system_dir, "cluster_overview.png"))
     @test isfile(joinpath(r0.system_dir, "reference_scatter.png"))
@@ -1042,10 +1145,10 @@ end
     @test isfile(joinpath(r2.system_dir, "reference_scatter.png"))
     @test !isfile(joinpath(r2.system_dir, "individual_rmsd.png"))
     @test !isfile(joinpath(r2.system_dir, "reference_affinity.png"))
-    # With two references and no explicit query, the query defaults to the apo reference, so the
-    # query-path view is produced and starts from the apo's cluster.
+    # With two references and no explicit query, the query defaults to the first reference, so the
+    # query-path view is produced and starts from that reference's cluster.
     @test isfile(joinpath(r2.system_dir, "query_path.png"))
-    @test r2.reference_clusters.Reference[1] == "apo"
+    @test r2.reference_clusters.Reference[1] == "ref1"
     @test all(isfile, r2.figures)
     assert_no_dropped(out2)
 
@@ -1159,6 +1262,27 @@ end
     mkpath(tdir)
     touch(joinpath(tdir, "tmpl.pdb"))
     @test_throws ErrorException AlphaConformers._discover_conformers(bare, system)
+
+    # An explicit `subdir` (with glob wildcards) reads only that method subfolder, skipping the
+    # full walk. Both the literal and the wildcard form find exactly the two prediction models.
+    literal = AlphaConformers._discover_conformers(
+        root,
+        system;
+        subdir = joinpath("cluster_1", "af", "predictions", "sequences", "models"),
+    )
+    @test Set(first.(literal)) == Set(names_found)
+    wildcard = AlphaConformers._discover_conformers(
+        root,
+        system;
+        subdir = joinpath("cluster_*", "af", "predictions", "sequences", "models"),
+    )
+    @test Set(first.(wildcard)) == Set(names_found)
+    # A subdir that matches nothing errors clearly.
+    @test_throws ErrorException AlphaConformers._discover_conformers(
+        root,
+        system;
+        subdir = "no_such_folder",
+    )
 end
 
 @testitem "cluster_conformers is the documented public entry point" begin
