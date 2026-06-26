@@ -157,6 +157,17 @@ written inside each cluster's `af/` directory.
 COLABFOLD_CACHE_DIR = "cache/colabfold"
 ```
 
+AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
+
+```julia
+run_alphafold3(output_dir, sif_image_dir, model_parameters_dir, db_dir)
+run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
+```
+
+These helpers expect local container images and local model or database paths.
+They do not download model weights. They also accept
+`container_runtime = "singularity"` when needed.
+
 ## Pipeline Steps
 
 Each step can also be run separately with `alphaconformers`. 
@@ -186,16 +197,6 @@ alphaconformers(
     triage = false,
 )
 ```
-AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
-
-```julia
-run_alphafold3(output_dir, sif_image_dir, model_parameters_dir, db_dir)
-run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
-```
-
-These helpers expect local container images and local model or database paths.
-They do not download model weights. They also accept
-`container_runtime = "singularity"` when needed.
 
 The input-preparation step does not require a GPU, but ColabFold
 prediction is meant to run on a CUDA-capable Linux or HPC system.
