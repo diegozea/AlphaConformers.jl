@@ -634,17 +634,17 @@ end
 
     label_col = names(base.clustering)[2]
     labels = base.clustering[!, label_col]
-    names = base.clustering.Name
+    conformer_names = base.clustering.Name
 
     # Target the smallest cluster (a strict minority of the ensemble) so that giving its members
     # a low score and everyone else a high score makes only that cluster fail at rel 50 / frac 50.
     target = sort(unique(labels); by = l -> (count(==(l), labels), l))[1]
     target_size = count(==(target), labels)
     survivors = sort([l for l in unique(labels) if l != target])
-    survivor_names = Set(names[labels .!= target])
+    survivor_names = Set(conformer_names[labels .!= target])
 
     score_table = DataFrames.DataFrame(
-        "Name" => names,
+        "Name" => conformer_names,
         "cb-lddt" => [lbl == target ? 0.0 : 1.0 for lbl in labels],
     )
 
@@ -728,12 +728,12 @@ end
         out_dir = mktempdir(),
     )
     label_col = names(base.clustering)[2]
-    names = base.clustering.Name
+    conformer_names = base.clustering.Name
 
     # All conformers score equally (every cluster survives), but one conformer is left out of the
     # score table. It must be dropped from both the surviving tables and the hierarchical output.
-    omitted = names[1]
-    kept = names[2:end]
+    omitted = conformer_names[1]
+    kept = conformer_names[2:end]
     score_table = DataFrames.DataFrame("Name" => kept, "cb-lddt" => fill(1.0, length(kept)))
 
     out = mktempdir()
