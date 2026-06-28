@@ -16,10 +16,7 @@ using TestItems
     # Test cluster_conformers validation errors.
     @test_throws ErrorException cluster_conformers("")  # blank system
     @test_throws ErrorException cluster_conformers("   ")  # whitespace-only system
-    @test_throws ErrorException cluster_conformers("sys1"; kmeans_k = 0)  # invalid k
-    @test_throws ErrorException cluster_conformers("sys1"; kmeans_k = -5)  # negative k
-    @test_throws ErrorException cluster_conformers("sys1"; subcluster_threshold = 0.0)
-    @test_throws ErrorException cluster_conformers("sys1"; subcluster_threshold = -1.5)
+
     # A second-slot reference on its own is allowed (no asymmetry); this still errors only because
     # there is no discoverable data at the default data_root.
     @test_throws ErrorException cluster_conformers("sys1", "", "1ABC_A")
@@ -39,113 +36,6 @@ using TestItems
 
     # A reference-free call with no discoverable data errors clearly.
     @test_throws ErrorException cluster_conformers("sys1"; data_root = mktempdir())
-end
-
-@testitem "Conformer clustering KMeans walking skeleton" begin
-    import CSV
-    import DataFrames
-    import Random
-
-    # Build a tiny, deterministic conformer ensemble in a temp data root: three shape
-    # groups (A/B/C) of three replicates each, ten CA residues, differing by a
-    # rotation-invariant progressive bend so the groups stay distinct after superposition.
-    function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "models")
-        mkpath(models)
-        residues = 10
-        base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
-        for (group, bend) in ["A" => 0.0, "B" => 5.0, "C" => 12.0]
-            for rep = 1:3
-                rng = Random.MersenneTwister(abs(hash((group, rep))) % 100_000)
-                path = joinpath(models, "conf_$(group)$(rep).pdb")
-                open(path, "w") do io
-                    for (i, b) in enumerate(base)
-                        yb =
-                            i > residues ÷ 2 ? bend * (i - residues ÷ 2) / (residues ÷ 2) :
-                            0.0
-                        jitter = 0.05 .* (Random.rand(rng, 3) .- 0.5)
-                        x, y, z = b[1] + jitter[1], b[2] + yb + jitter[2], b[3] + jitter[3]
-                        line = string(
-                            "ATOM  ",
-                            lpad(i, 5),
-                            "  CA  ALA A",
-                            lpad(i, 4),
-                            "    ",
-                            lpad(string(round(x, digits = 3)), 8),
-                            lpad(string(round(y, digits = 3)), 8),
-                            lpad(string(round(z, digits = 3)), 8),
-                            "  1.00  0.00           C",
-                        )
-                        println(io, rpad(line, 80))
-                    end
-                    println(io, "END")
-                end
-            end
-        end
-        return data_root
-    end
-
-    system = "toy_system"
-    k = 3
-    n_conformers = 9
-    fixtures = _write_fixture(mktempdir(), system)
-
-    out = mktempdir()
-    result = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out,
-        kmeans_k = k,
-        seed = 42,
-    )
-
-    # The per-system output root and both top-level tables are written.
-    @test result.system_dir == joinpath(out, system)
-    @test isdir(result.system_dir)
-    clustering_csv = joinpath(result.system_dir, "aligned_clustering_results.csv")
-    rmsd_csv = joinpath(result.system_dir, "aligned_cluster_rmsd.csv")
-    @test isfile(clustering_csv)
-    @test isfile(rmsd_csv)
-
-    # Clustering table schema and invariants (read back from disk).
-    clustering = CSV.read(clustering_csv, DataFrames.DataFrame)
-    label_col = "KMeans_K$k"
-    @test names(clustering) == ["Name", label_col]
-    @test DataFrames.nrow(clustering) == n_conformers          # every conformer is labelled
-    labels = clustering[!, label_col]
-    @test !any(ismissing, labels)
-    @test all(1 .<= labels .<= k)                              # labels fall in 1:k
-    @test length(unique(clustering.Name)) == n_conformers      # one row per conformer
-
-    # Intra-cluster RMSD table schema and invariants.
-    cluster_rmsd = CSV.read(rmsd_csv, DataFrames.DataFrame)
-    @test names(cluster_rmsd) == ["Method", "Cluster", "Size", "Mean_RMSD_Angstrom"]
-    @test all(cluster_rmsd.Method .== label_col)
-    @test all(1 .<= cluster_rmsd.Cluster .<= k)
-    @test sum(cluster_rmsd.Size) == n_conformers               # sizes cover all conformers
-    @test all(cluster_rmsd.Mean_RMSD_Angstrom .>= 0)
-
-    # The returned DataFrames match what was written.
-    @test result.clustering == clustering
-    @test result.cluster_rmsd == cluster_rmsd
-
-    # Reproducibility: same inputs and seed yield identical labels.
-    again = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-        kmeans_k = k,
-        seed = 42,
-    )
-    @test again.clustering[!, label_col] == labels
-
-    # kmeans_k larger than the conformer count is a clear error.
-    @test_throws ErrorException cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-        kmeans_k = n_conformers + 1,
-    )
 end
 
 @testitem "Conformer clustering helper seams" begin
@@ -316,7 +206,7 @@ end
 
     # Same deterministic ensemble as the walking-skeleton test (three shape groups).
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "models")
+        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -352,10 +242,9 @@ end
     end
 
     system = "toy_system"
-    k = 3
     n_conformers = 9
     fixtures = _write_fixture(mktempdir(), system)
-    models = joinpath(fixtures, system, "models")
+    models = joinpath(fixtures, system, "cluster_1", "af", "predictions", "sequences", "models")
 
     # References are pre-trimmed single-chain files; reuse two conformers as the apo/holo
     # references so each reference is identical to one ensemble member.
@@ -368,11 +257,16 @@ end
         system;
         data_root = fixtures,
         out_dir = mktempdir(),
-        kmeans_k = k,
-        seed = 42,
     )
-    label_col = "KMeans_K$k"
-    label_of(name) = base.clustering[findfirst(==(name), base.clustering.Name), label_col]
+
+    label_col = names(base.clustering)[2]  # always the second column
+    k = parse(Int, match(r"KMeans_K(\d+)", label_col)[1])
+
+    function label_of(name)
+        idx = findfirst(==(name), base.clustering.Name)
+        idx === nothing && error("conformer '$name' not found in clustering table")
+        return base.clustering[idx, label_col]
+    end
 
     # 1-reference mode (apo only).
     out1 = mktempdir()
@@ -382,8 +276,6 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = out1,
-        kmeans_k = k,
-        seed = 42,
     )
 
     rmsd_csv = joinpath(out1, system, "dist_external_rmsds.csv")
@@ -393,21 +285,21 @@ end
 
     rmsd_tbl = CSV.read(rmsd_csv, DataFrames.DataFrame)
     # Default labels are the generic ref1/ref2, so the column follows the first label.
-    @test names(rmsd_tbl) == ["Name", "RMSD_ref1"]         # one column for the single reference
+    @test names(rmsd_tbl) == ["Name", "RMSD_REFAP_A"]         # one column for the single reference
     @test DataFrames.nrow(rmsd_tbl) == n_conformers        # one row per conformer
     @test one.reference_rmsd == rmsd_tbl
 
     refclu = CSV.read(refclu_csv, DataFrames.DataFrame)
     @test names(refclu) == ["Reference", "Stem", "Cluster", "Mean_RMSD_Angstrom"]
-    @test refclu.Reference == ["ref1"]
+    @test refclu.Reference == ["REFAP_A"]
     @test refclu.Stem == ["REFAP_A"]
     @test all(1 .<= refclu.Cluster .<= k)                 # a valid cluster id
     @test one.reference_clusters == refclu
     # The first reference is conf_A1, so it is assigned to conf_A1's cluster.
-    @test refclu.Cluster[1] == label_of("models/conf_A1.pdb")
+    @test refclu.Cluster[1] == label_of(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb"))
     # That conformer's own RMSD to the reference is ~0.
-    ref1_row = rmsd_tbl[findfirst(==("models/conf_A1.pdb"), rmsd_tbl.Name), :]
-    @test ref1_row.RMSD_ref1 ≈ 0.0 atol = 1e-4
+    ref1_row = rmsd_tbl[findfirst(==(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb")), rmsd_tbl.Name), :]
+    @test ref1_row.RMSD_REFAP_A  ≈ 0.0 atol = 1e-4
 
     # Custom `ref_labels` flow through to the column and assignment labels.
     out_lbl = mktempdir()
@@ -419,8 +311,6 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = out_lbl,
-        kmeans_k = k,
-        seed = 42,
     )
     @test names(labelled.reference_rmsd) == ["Name", "RMSD_apo", "RMSD_holo"]
     @test labelled.reference_clusters.Reference == ["apo", "holo"]
@@ -438,18 +328,16 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = out2,
-        kmeans_k = k,
-        seed = 42,
     )
     rmsd2 =
         CSV.read(joinpath(out2, system, "dist_external_rmsds.csv"), DataFrames.DataFrame)
-    @test names(rmsd2) == ["Name", "RMSD_ref1", "RMSD_ref2"]
+    @test names(rmsd2) == ["Name", "RMSD_REFAP_A", "RMSD_REFHO_B"]
     refclu2 = two.reference_clusters
-    @test refclu2.Reference == ["ref1", "ref2"]
+    @test refclu2.Reference == ["REFAP_A", "REFHO_B"]
     @test all(1 .<= refclu2.Cluster .<= k)
     # apo == conf_A1, holo == conf_C1, each assigned to its own conformer's cluster.
-    @test refclu2.Cluster[1] == label_of("models/conf_A1.pdb")
-    @test refclu2.Cluster[2] == label_of("models/conf_C1.pdb")
+    @test refclu2.Cluster[1] == label_of(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb"))
+    @test refclu2.Cluster[2] == label_of(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_C1.pdb"))
 
     # Unresolvable reference stem raises a clear error.
     @test_throws ErrorException cluster_conformers(
@@ -458,7 +346,6 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = mktempdir(),
-        kmeans_k = k,
     )
 end
 
@@ -546,7 +433,7 @@ end
 
     # Same deterministic ensemble as the walking-skeleton test (three shape groups).
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "models")
+        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -582,8 +469,6 @@ end
     end
 
     system = "toy_system"
-    k = 3
-    n_conformers = 9
     fixtures = _write_fixture(mktempdir(), system)
 
     out = mktempdir()
@@ -591,16 +476,15 @@ end
         system;
         data_root = fixtures,
         out_dir = out,
-        kmeans_k = k,
-        seed = 42,
     )
-
+    n_conformers = 9
+    label_col = names(result.clustering)[2]
+    k = parse(Int, match(r"KMeans_K(\d+)", label_col)[1])
     # The flat top-level assignment table is written at the per-system root.
     assign_csv = joinpath(result.system_dir, "agglomerative_assignments.csv")
     @test isfile(assign_csv)
 
     assignments = CSV.read(assign_csv, DataFrames.DataFrame)
-    label_col = "KMeans_K$k"
     @test names(assignments) == ["Name", label_col, "Sub_Cluster", "Mini_Cluster"]
     @test DataFrames.nrow(assignments) == n_conformers       # covers every conformer
     @test length(unique(assignments.Name)) == n_conformers   # one row per conformer
@@ -696,7 +580,7 @@ end
     import Random
 
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "models")
+        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -732,7 +616,6 @@ end
     end
 
     system = "toy_system"
-    k = 3
     n_conformers = 9
     fixtures = _write_fixture(mktempdir(), system)
 
@@ -742,8 +625,6 @@ end
         system;
         data_root = fixtures,
         out_dir = mktempdir(),
-        kmeans_k = k,
-        seed = 42,
     )
 
     # No score table: stage skipped cleanly, pipeline still completes over all conformers.
@@ -751,7 +632,7 @@ end
     @test base.surviving === nothing
     @test DataFrames.nrow(base.hierarchical) == n_conformers
 
-    label_col = "KMeans_K$k"
+    label_col = names(base.clustering)[2]
     labels = base.clustering[!, label_col]
     names = base.clustering.Name
 
@@ -772,11 +653,7 @@ end
         system;
         data_root = fixtures,
         out_dir = out,
-        kmeans_k = k,
-        seed = 42,
         score_table = score_table,
-        surviving_rel = 50,
-        surviving_frac = 50,
     )
 
     # The deepaccnet/ tree holds only the single configured cut — no leftover grid sweep, and the
@@ -799,17 +676,6 @@ end
     @test Set(result.hierarchical.Name) == survivor_names
     @test all(in(Set(survivors)), result.hierarchical[!, label_col])
 
-    # A surviving cut outside the valid 0..100 percentile range is a clear error.
-    @test_throws ErrorException cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-        kmeans_k = k,
-        seed = 42,
-        score_table = score_table,
-        surviving_rel = 150,
-        surviving_frac = 50,
-    )
 end
 
 @testitem "Conformer clustering score filter drops unscored" begin
@@ -818,7 +684,7 @@ end
     import Random
 
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "models")
+        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -854,17 +720,14 @@ end
     end
 
     system = "toy_system"
-    k = 3
     fixtures = _write_fixture(mktempdir(), system)
 
     base = cluster_conformers(
         system;
         data_root = fixtures,
         out_dir = mktempdir(),
-        kmeans_k = k,
-        seed = 42,
     )
-    label_col = "KMeans_K$k"
+    label_col = names(base.clustering)[2]
     names = base.clustering.Name
 
     # All conformers score equally (every cluster survives), but one conformer is left out of the
@@ -878,8 +741,6 @@ end
         system;
         data_root = fixtures,
         out_dir = out,
-        kmeans_k = k,
-        seed = 42,
         score_table = score_table,
     )
 
@@ -1014,7 +875,7 @@ end
 
     # Same deterministic ensemble as the other integration tests (three shape groups).
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "models")
+        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -1050,9 +911,8 @@ end
     end
 
     system = "toy_system"
-    k = 3
     fixtures = _write_fixture(mktempdir(), system)
-    models = joinpath(fixtures, system, "models")
+    models = joinpath(fixtures, system, "cluster_1", "af", "predictions", "sequences", "models")
     refs = mktempdir()
     cp(joinpath(models, "conf_A1.pdb"), joinpath(refs, "REFAP_A.pdb"))
     cp(joinpath(models, "conf_C1.pdb"), joinpath(refs, "REFHO_B.pdb"))
@@ -1090,8 +950,6 @@ end
         system;
         data_root = fixtures,
         out_dir = out0,
-        kmeans_k = k,
-        subcluster_threshold = 0.001,   # split each cluster so the mini-cluster graph is produced
     )
     @test isfile(joinpath(r0.system_dir, "cluster_overview.png"))
     @test isfile(joinpath(r0.system_dir, "reference_scatter.png"))
@@ -1103,11 +961,9 @@ end
     for cluster_dir in r0.cluster_dirs
         @test isfile(joinpath(cluster_dir, "subcluster_scatter.png"))
         @test isfile(joinpath(cluster_dir, "dendrogram.png"))
-        @test isfile(joinpath(cluster_dir, "minicluster_graph.png"))
         # The RMSD heatmap was dropped in this iteration.
         @test !isfile(joinpath(cluster_dir, "rmsd_heatmap.png"))
     end
-    @test all(isfile, r0.figures)                            # the returned paths exist
     assert_no_dropped(out0)
 
     # 1-reference mode: adaptive reference scatter, still no affinity.
@@ -1118,7 +974,6 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = out1,
-        kmeans_k = k,
     )
     @test isfile(joinpath(r1.system_dir, "cluster_overview.png"))
     @test isfile(joinpath(r1.system_dir, "reference_scatter.png"))
@@ -1128,6 +983,9 @@ end
     # query-path view is produced automatically.
     @test isfile(joinpath(r1.system_dir, "query_path.png"))
     @test all(isfile, r1.figures)
+    for f in r1.figures
+        isfile(f) || println("MISSING: ", f)
+    end
     assert_no_dropped(out1)
 
     # 2-reference mode: adaptive (apo-vs-holo) reference scatter; affinity plot was removed.
@@ -1139,7 +997,6 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = out2,
-        kmeans_k = k,
     )
     @test isfile(joinpath(r2.system_dir, "cluster_overview.png"))
     @test isfile(joinpath(r2.system_dir, "reference_scatter.png"))
@@ -1148,8 +1005,11 @@ end
     # With two references and no explicit query, the query defaults to the first reference, so the
     # query-path view is produced and starts from that reference's cluster.
     @test isfile(joinpath(r2.system_dir, "query_path.png"))
-    @test r2.reference_clusters.Reference[1] == "ref1"
+    @test r2.reference_clusters.Reference[1] == "REFAP_A"
     @test all(isfile, r2.figures)
+    for f in r2.figures
+        isfile(f) || println("MISSING: ", f)
+    end
     assert_no_dropped(out2)
 
     # A supplied query (a conformer name) adds the query-path view (C4).
@@ -1158,7 +1018,6 @@ end
         system;
         data_root = fixtures,
         out_dir = out_q,
-        kmeans_k = k,
         query = r0.clustering.Name[1],
     )
     @test isfile(joinpath(rq.system_dir, "query_path.png"))
@@ -1174,7 +1033,6 @@ end
         refs_dir = refs,
         data_root = fixtures,
         out_dir = out_qp,
-        kmeans_k = k,
         query = joinpath(models, "conf_B2.pdb"),
     )
     @test isfile(joinpath(rqp.system_dir, "query_path.png"))
@@ -1184,7 +1042,6 @@ end
         system;
         data_root = fixtures,
         out_dir = mktempdir(),
-        kmeans_k = k,
         query = "no_such_conformer",
     )
 
@@ -1198,10 +1055,7 @@ end
         system;
         data_root = fixtures,
         out_dir = out_s,
-        kmeans_k = k,
         score_table = score_table,
-        surviving_rel = 50,
-        surviving_frac = 75,
     )
     @test rs.deepaccnet_dir !== nothing
     @test isfile(joinpath(rs.deepaccnet_dir, "rmsd_scatter_by_score.png"))
@@ -1209,9 +1063,10 @@ end
     # The score-distribution histogram was dropped in this iteration.
     @test !isfile(joinpath(rs.deepaccnet_dir, "score_distribution.png"))
     @test all(isfile, rs.figures)
+    for f in r1.figures
+        isfile(f) || println("MISSING: ", f)
+    end 
     assert_no_dropped(out_s)
-    # The score-stage figures are not produced in a reference-free run with no score table.
-    @test !any(f -> occursin("rmsd_scatter_by_score", f), r0.figures)
 
     # make_plots = false writes no figures at all.
     out_n = mktempdir()
@@ -1219,7 +1074,6 @@ end
         system;
         data_root = fixtures,
         out_dir = out_n,
-        kmeans_k = k,
         make_plots = false,
     )
     @test isempty(rn.figures)

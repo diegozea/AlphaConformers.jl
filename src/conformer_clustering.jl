@@ -1,5 +1,14 @@
 # Conformer clustering pipeline -------------------------------------------------------
 
+# Consts
+const _KMEANS_K = 30
+const _SUBCLUSTER_THRESHOLD = 1.0
+const _LINKAGE = :average
+const _SCORE_COL = "cb-lddt"
+const _SURVIVING_REL = 25
+const _SURVIVING_FRAC = 75
+const _SEED = 42
+
 # Reference handling
 # -----
 
@@ -18,57 +27,42 @@ end
 # Conformer discovery
 # -----
 
-# Directory name that holds the AlphaConformer prediction structures in the package's output
-# tree (`.../predictions/sequences/models/`). Only files under such a directory are treated as
-# predictions; this keeps input templates (`templates_complete/`, `templates_adaptative/`) and
-# search results (`fullpdb_results/`, `target_db_results/`) out of the ensemble.
-const _MODELS_DIR = "models"
-
 # Discover the AlphaConformer prediction structures of one system below `data_root/<system>`.
 #
-# By default it recurses the system directory and keeps only structure files whose immediate
-# parent directory is a `models/` folder (the AlphaConformers prediction location); files under
-# template or search-result folders are skipped, so templates are never mistaken for predictions.
-# When `subdir` is given it instead globs structure files directly under that relative subfolder
-# (which may contain glob wildcards, e.g. `cluster_*/af/predictions/sequences/models`), avoiding a
-# full directory walk when the caller already knows the method subfolder. Returns a vector of
-# `(name, path)` tuples sorted by `name`, where `name` is the file path relative to the system
-# directory (stable across machines) and `path` is the absolute path. Raises a clear error if the
-# system directory is missing or holds no prediction structures.
+# By default globs for `cluster_*/<method>/predictions/sequences/models/` under the system
+# directory, where `method` defaults to `"af"`. Only `.pdb` and `.cif` files directly under
+# that folder are collected, so input templates and search results in sibling directories are
+# automatically excluded. When `subdir` is given it globs that pattern instead (which may
+# contain glob wildcards, e.g. `cluster_*/esmfold/predictions/sequences/models`), skipping
+# the default layout assumption. Returns a vector of `(name, path)` tuples sorted by `name`,
+# where `name` is the file path relative to the system directory (stable across machines) and
+# `path` is the absolute path. Raises a clear error if the system directory is missing or
+# holds no prediction structures.
 function _discover_conformers(
     data_root::AbstractString,
     system::AbstractString;
     subdir::Union{Nothing,AbstractString} = nothing,
+    method::AbstractString = "af",
 )
     system_dir = joinpath(data_root, system)
     isdir(system_dir) ||
         error("no conformer directory found for system '$system' at '$system_dir'")
 
     found = Tuple{String,String}[]
-    if subdir === nothing
-        for (root, _dirs, files) in walkdir(system_dir)
-            basename(root) == _MODELS_DIR || continue
-            for f in files
-                ext = lowercase(splitext(f)[2])
-                if ext == ".pdb" || ext == ".cif"
-                    path = joinpath(root, f)
-                    push!(found, (relpath(path, system_dir), abspath(path)))
-                end
-            end
-        end
-    else
-        for pattern in ("*.pdb", "*.cif")
-            for path in glob(joinpath(subdir, pattern), system_dir)
-                isfile(path) || continue
-                push!(found, (relpath(path, system_dir), abspath(path)))
-            end
+
+    search_pattern = subdir !== nothing ? subdir : 
+        joinpath("cluster_*", method, "predictions", "sequences", "models")
+
+    for ext in ("*.pdb", "*.cif")
+        for path in glob(joinpath(search_pattern, ext), system_dir)
+            isfile(path) || continue
+            push!(found, (relpath(path, system_dir), abspath(path)))
         end
     end
 
     isempty(found) && error(
         subdir === nothing ?
         "no .pdb/.cif prediction structures found for system '$system' under '$system_dir'; " *
-        "predictions are read only from `$_MODELS_DIR/` folders (the AlphaConformers " *
         "prediction location), so input templates are not treated as conformers." :
         "no .pdb/.cif structures found for system '$system' under '$system_dir/$subdir'",
     )
@@ -82,8 +76,7 @@ end
 # Build one consistent common-Cα set across the whole ensemble by sequence alignment.
 #
 # `residues_list` is a vector of CA-only `PDBResidue` vectors, one per conformer. Every conformer
-# is aligned to the first via `structural_alignment` (the single source of truth for structural
-# distance, which matches residues by sequence rather than by residue number), and only the
+# is aligned to the first via `structural_alignment`, and only the
 # reference residue positions matched in *every* conformer are kept, in ascending reference order.
 # Returns a vector with each conformer's residues restricted to that consistent set (equal length
 # across all conformers). This guards against unreliable residue numbers and against the per-pair
@@ -146,8 +139,7 @@ end
 # Reference RMSD
 # -----
 
-# Structure file extensions tried when resolving a reference stem, including the gzip-compressed
-# variants (MIToS `read_file` decompresses `.gz` transparently).
+# Structure file extensions tried when resolving a reference stem.
 const _STRUCTURE_EXTENSIONS = (".pdb", ".cif", ".pdb.gz", ".cif.gz")
 
 # Pick the MIToS structure file format from a path, looking past a trailing `.gz`.
@@ -180,10 +172,8 @@ end
 # Read one structure file into its CA-only `PDBResidue`s.
 #
 # Reads only the alpha carbons up front (`atomname="CA"`; `.cif` → MMCIF, otherwise PDB, looking
-# past a trailing `.gz`), then keeps residues that carry a CA atom. Modified residues are left as
-# read - `structural_alignment`/`MIToS.PDB.modelled_sequences` map them to their parent when
-# building the sequence. No chain argument: the single-chain-per-file convention means the whole
-# file is one chain.
+# past a trailing `.gz`), then keeps residues that carry a CA atom.
+# No chain argument: the single-chain-per-file convention means the whole file is one chain.
 function _read_ca_residues(path::AbstractString)
     residues = MIToS.PDB.read_file(path, _structure_format(path); atomname = "CA")
     filter!(r -> !isempty(MIToS.PDB.findatoms(r, "CA")), residues)
@@ -438,7 +428,7 @@ end
 #
 # `residues_list` is a vector of equal-length CA-only `PDBResidue` vectors (the members of one
 # KMeans cluster, restricted to the ensemble-common set). Each pair is optimally superimposed with
-# the package's MIToS superposition (the single source of truth for structural distance). The pair
+# the package's MIToS superposition. The pair
 # is re-superimposed rather than reusing the common-frame coordinates because the conformers are
 # only aligned to the first conformer, so a common-frame RMSD would be an upper bound on the
 # optimal pairwise RMSD. Returns a symmetric matrix with a zero diagonal.
@@ -608,10 +598,8 @@ end
 """
     cluster_conformers(system, ref1="", ref2="";
         ref_labels=("ref1", "ref2"), refs_dir="refs",
-        data_root="/data/alphaconformers/pdb", out_dir="results",
-        kmeans_k=30, subcluster_threshold=1.0, linkage=:average,
-        score_table=nothing, score_col="cb-lddt", surviving_rel=25, surviving_frac=75,
-        seed=42, make_plots=true, query=nothing, subdir=nothing)
+        data_root="/data/alphaconformers/pdb", method="af", out_dir="results",
+        score_table=nothing, make_plots=true, query=nothing, subdir=nothing)
 
 Cluster an AlphaConformer prediction ensemble by shape, write the base KMeans tables, and
 (when references are supplied) report each reference against the cluster it falls into.
@@ -647,33 +635,20 @@ supplied.
 
 # Keywords
 
-- `ref_labels`: Two-element collection naming the references (used in the output columns and figure
-  axes). Defaults to `("ref1", "ref2")`; set arbitrary strings to label the references, e.g.
-  `("apo", "holo")`, `("monomer", "hexamer")` or `("-NaCl", "+NaCl")`.
+- `ref_labels`: Two-element collection naming the references. When left at the default,
+  the reference stems themselves are used as labels (e.g. `"1akz_A"`, `"1aky_A"`).
 - `refs_dir::String`: Directory holding the reference files. Each stem is resolved against this
   directory (`.pdb`/`.cif` and their `.gz` variants). Defaults to `"refs"`.
 - `data_root::String`: Root directory holding one AlphaConformers output tree per `<system>`
   subfolder; predictions are read from the `models/` folders inside it. Defaults to
   `"/data/alphaconformers/pdb"`, matching where the package writes prediction outputs.
+- `method::String`: Prediction method subfolder name used when discovering conformers under
+  the default layout (`cluster_*/<method>/predictions/sequences/models/`). Defaults to `"af"`.
 - `out_dir::String`: Root directory for output. Defaults to `"results"`.
-- `kmeans_k::Int`: Number of clusters. Must be positive and at most the conformer count.
-  Defaults to `30`.
-- `subcluster_threshold::Float64`: Distance threshold (Å) at which the agglomerative tree is cut
-  into sub-clusters. Must be positive. Defaults to `1.0`.
-- `linkage::Symbol`: Linkage method for the agglomerative sub-clustering (e.g. `:average`,
-  `:single`, `:complete`). Defaults to `:average`.
 - `score_table`: Optional DeepAccNet score table, either a `DataFrame` or a path to a CSV. When
   supplied, the score filter runs; when `nothing` (the default) the filter is skipped. Must hold
   a `Name` column matching the conformers and the `score_col` score column. Conformers absent
   from the table are dropped from the filter.
-- `score_col::String`: Name of the score column read from `score_table`. Defaults to `"cb-lddt"`.
-- `surviving_rel::Int`: Relative percentile cut (`0..100`) defining the score cutoff for the
-  surviving-cluster set that feeds the agglomerative stage. Only this configured cut is computed.
-  Defaults to `25`.
-- `surviving_frac::Int`: Fraction-removed cut in percent (`0..100`); a cluster survives when at
-  most this fraction of its members fall below the relative cutoff. Defaults to `75`.
-- `seed::Int`: Random seed for the KMeans RNG, ensuring reproducible clustering. Defaults to
-  `42`.
 - `make_plots::Bool`: Whether to write the figures alongside the tables. Defaults to `true`.
 - `query`: Optional query input for the query-path view - either a conformer name (as it appears
   in the clustering table) or a path to a structure file. When `nothing` (the default) the query
@@ -711,11 +686,9 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 
 # Throws
 
-- `ErrorException`: if `system` is blank, if `kmeans_k <= 0` or `subcluster_threshold <= 0`, if a
-  reference stem cannot be resolved under `refs_dir`, if no conformers are found, if the conformers
-  share no common CA position, if `kmeans_k` exceeds the conformer count, or, when a score table is
-  supplied, if it is missing the `Name`/`score_col` column, if it matches no conformer, if
-  `surviving_rel` or `surviving_frac` is outside `0..100`, or if a `query` is given that is neither
+- `ErrorException`: if `system` is blank, if a reference stem cannot be resolved under `refs_dir`, if no conformers are found, if the conformers
+  share no common CA position, when a score table is
+  supplied, if it is missing the `Name`/`score_col` column, if it matches no conformer, or if a `query` is given that is neither
   a known conformer name nor an existing structure file.
 
 # Behavior
@@ -726,7 +699,8 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
    `models/` folders (the AlphaConformers prediction location), so input templates are skipped, or
    the explicit `subdir` when given - read their CA traces, and keep the CA positions shared by all
    conformers via sequence alignment.
-3. Superimpose every conformer onto the first and run seeded KMeans at `kmeans_k`.
+3. Superimpose every conformer onto the first and run seeded KMeans (up to 30 clusters,
+   clamped to the conformer count for small ensembles).
 4. Compute the mean intra-cluster RMSD to each cluster centroid and write
    `aligned_clustering_results.csv` and `aligned_cluster_rmsd.csv` at `out_dir/<system>/`.
 5. With one or two references, resolve each stem against `refs_dir`, compute the sequence-aware
@@ -756,43 +730,39 @@ function cluster_conformers(
     ref_labels = ("ref1", "ref2"),
     refs_dir::String = "refs",
     data_root::String = "/data/alphaconformers/pdb",
+    method::String = "af",
     out_dir::String = "results",
-    kmeans_k::Int = 30,
-    subcluster_threshold::Float64 = 1.0,
-    linkage::Symbol = :average,
     score_table = nothing,
-    score_col::String = "cb-lddt",
-    surviving_rel::Int = 25,
-    surviving_frac::Int = 75,
-    seed::Int = 42,
     make_plots::Bool = true,
     query::Union{Nothing,AbstractString} = nothing,
     subdir::Union{Nothing,AbstractString} = nothing,
 )
+
     # Validate and normalize inputs.
     stripped_system = strip(system)
     isempty(stripped_system) && error("system must not be blank")
 
-    kmeans_k > 0 || error("kmeans_k must be positive")
-    subcluster_threshold > 0 || error("subcluster_threshold must be positive")
-
     ref1_normalized = _normalize_reference(ref1)
     ref2_normalized = _normalize_reference(ref2)
+
+    # Default ref_labels to the stems when the caller uses the generic ("ref1", "ref2") default.
+    if ref_labels[1] == "ref1" && ref_labels[2] == "ref2"
+        ref_labels = (
+            something(ref1_normalized, "ref1"),
+            something(ref2_normalized, "ref2"),
+        )
+    end
 
     # Number of references supplied (0, 1 or 2); either positional may be given on its own.
     ref_mode = _reference_mode(ref1_normalized, ref2_normalized)
 
     # Discover the ensemble's conformers and read their CA-only residues.
-    conformers = _discover_conformers(data_root, String(stripped_system); subdir = subdir)
+    conformers = _discover_conformers(data_root, String(stripped_system); subdir = subdir, method = method)
     names = first.(conformers)
     conformer_residues = [_read_ca_residues(path) for (_name, path) in conformers]
-
-    if kmeans_k > length(conformers)
-        error(
-            "kmeans_k ($kmeans_k) exceeds the number of conformers " *
-            "($(length(conformers))); choose a smaller kmeans_k.",
-        )
-    end
+    
+    # clamp to conformer count so small ensembles work without user intervention
+    kmeans_k = min(_KMEANS_K, length(conformers))
 
     # Build the ensemble-wide common-Cα set by sequence alignment, then superimpose.
     common_residues = _ensemble_common_residues(conformer_residues)
@@ -801,7 +771,7 @@ function cluster_conformers(
     n_atoms = length(first(common_residues))
 
     # Seeded KMeans and intra-cluster RMSD.
-    labels = _kmeans_cluster(features, kmeans_k; seed = seed)
+    labels = _kmeans_cluster(features, kmeans_k; seed = _SEED)
     rmsd = _intra_cluster_rmsd(features, labels, n_atoms)
 
     # Per-system output root: the top-level flat tables and the system-level figures live here,
@@ -847,20 +817,16 @@ function cluster_conformers(
     scored_idx = Int[]
     scores = Float64[]
     if score_table !== nothing
-        0 <= surviving_rel <= 100 ||
-            error("surviving_rel must be a percentile in 0..100, got $surviving_rel")
-        0 <= surviving_frac <= 100 ||
-            error("surviving_frac must be a percentage in 0..100, got $surviving_frac")
         deepaccnet_dir = joinpath(system_dir, "deepaccnet")
-        scored_idx, scores = _align_scores(score_table, names; score_col = score_col)
+        scored_idx, scores = _align_scores(score_table, names; score_col = _SCORE_COL)
         surviving = _write_surviving_table(
             deepaccnet_dir,
             names[scored_idx],
             labels[scored_idx],
             scores,
             kmeans_k,
-            surviving_rel,
-            surviving_frac,
+            _SURVIVING_REL,
+            _SURVIVING_FRAC,
         )
     end
 
@@ -887,7 +853,7 @@ function cluster_conformers(
     for lbl in sort(unique(work_labels))
         idx = findall(==(lbl), work_labels)
         dist = _pairwise_rmsd_matrix(work_residues[idx])
-        subs = _agglomerative_subcluster(dist, subcluster_threshold, linkage)
+        subs = _agglomerative_subcluster(dist, _SUBCLUSTER_THRESHOLD, _LINKAGE)
         sub_labels[idx] .= subs
 
         cluster_dir = joinpath(system_dir, "kmeans$(lbl)")
@@ -944,8 +910,8 @@ function cluster_conformers(
             scores,
             surviving,
             cluster_results,
-            linkage,
-            threshold = subcluster_threshold,
+            linkage = _LINKAGE,
+            threshold = _SUBCLUSTER_THRESHOLD,
             query_cluster,
             inter_rmsd,
             cluster_ids,
