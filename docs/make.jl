@@ -29,7 +29,11 @@ makedocs(;
         edit_link = "main",
         assets = String[],
     ),
-    pages = ["Home" => "index.md", "API Reference" => "api.md"],
+    pages = [
+        "Home" => "index.md",
+        "Database Setup" => "databases.md",
+        "API Reference" => "api.md",
+    ],
 )
 
 deploydocs(; repo = "github.com/diegozea/AlphaConformers.jl.git", devbranch = "main")

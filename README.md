@@ -79,25 +79,31 @@ using AlphaConformers
 
 ## Quick Start
 
-Prepare AlphaConformers input folders from a query structure:
+Run the default pipeline with input preparation, ColabFold prediction, and output
+triage:
 
 ```julia
 using AlphaConformers
 
-input_pdb = "/data/queries/1ABC_A.pdb"
-pdb_folder = "/data/pdb_mmcif"
-out_folder = "/data/alphaconformers/1ABC_A"
+query_struct = "1ABC_A.pdb"
+pdb_folder = "datasets/pdb/mmcif_files"
+output_dir = "outputs/1ABC_A"
 
 foldseek_dbs = [
-    "/data/foldseek/fullpdb",
-    "/data/foldseek/afdb",
+    "datasets/foldseek/fullpdb",
+    "datasets/foldseek/afdb",
 ]
 
+sif_path = "containers/ColabFold_AF2_1-5-5.sif"
+cache_dir = "cache/colabfold"
+
 alphaconformers(
-    input_pdb,
+    sif_path,
+    cache_dir;
+    query_struct,
     pdb_folder,
-    out_folder;
-    db = foldseek_dbs,
+    output_dir,
+    databases = foldseek_dbs,
     n_threads = 16,
     evalue_cutoff = 1e-5,
     cutoff = 1.0,
@@ -107,28 +113,143 @@ alphaconformers(
 The query file name should include the PDB code and chain, for example
 `1ABC_A.pdb`.
 
-After this step, `out_folder` contains the cluster folders that can be used as
-inputs for prediction.
+The Foldseek database paths in `databases` must be set for your machine. AlphaConformers
+does not assume a default local database path. When several databases are used,
+exactly one database name should contain `pdb`, such as `fullpdb`; that lets
+AlphaConformers pass the PDB Foldseek result folder to triage instead of using
+database order.
 
-## Running Predictions
+## Pipeline Steps
 
-To run ColabFold on all generated cluster folders:
+Each step can also be run separately with `alphaconformers`. The examples below
+reuse `query_struct`, `pdb_folder`, `output_dir`, and `foldseek_dbs` from the
+quick start.
 
 ```julia
-using AlphaConformers
-
-clusters_folder = "/data/alphaconformers/1ABC_A"
-sif_path = "/containers/ColabFold_AF2_1-5-5.sif"
-cache_dir = "/data/cache/colabfold"
-
-run_alphafold_one_run(clusters_folder, sif_path, cache_dir)
+# Prepare only. Requires query_struct, pdb_folder, output_dir, and databases.
+alphaconformers(;
+    query_struct,
+    pdb_folder,
+    output_dir,
+    databases = foldseek_dbs,
+    predict = false,
+    triage = false,
+)
 ```
+
+Prediction uses the default `structure_predictor = run_alphafold`. That predictor
+expects two positional arguments before the semicolon: `sif_path` and `cache_dir`.
+`sif_path` is the ColabFold Apptainer `.sif` image:
+
+```julia
+sif_path = "containers/ColabFold_AF2_1-5-5.sif"
+```
+
+The `cache_dir` folder is important for ColabFold runs. It is mounted inside the
+Apptainer container as `/cache/colabfold`, where ColabFold looks for its model
+weights and cache files. Choose a permanent location and reuse the same folder
+across runs so the weights do not need to be downloaded again. This saves time
+and avoids repeated large downloads. The cache can require around 4 GB of disk
+space or more. Prediction outputs are not written to this folder; they are
+written inside each cluster's `af/` directory.
+
+```julia
+cache_dir = "cache/colabfold"
+```
+
+Now prediction can be run by itself:
+
+```julia
+# Predict only. Requires output_dir plus the predictor-specific arguments.
+alphaconformers(
+    sif_path,
+    cache_dir;
+    output_dir,
+    prepare = false,
+    triage = false,
+)
+```
+
+After prediction, triage can also be run separately. It requires `output_dir`,
+`query_struct`, and a SIFTS mapping:
+
+```julia
+sifts_uniprot_mapping = get_uniprot_mapping()
+
+# Triage only. Requires output_dir, query_struct, and a SIFTS mapping.
+alphaconformers(;
+    output_dir,
+    query_struct,
+    prepare = false,
+    predict = false,
+    triage = true,
+    sifts_uniprot_mapping,
+)
+```
+
+When preparation and triage run in the same `alphaconformers` call, the
+Foldseek result folder is passed between steps automatically. If preparation uses
+several databases, AlphaConformers chooses the unique database whose name contains
+`pdb`, ignoring case. If it cannot choose one, it stops before running Foldseek
+and asks for `foldseek_results_folder`. For resumed runs, triage searches
+`output_dir` for a single `*_results` folder containing `.m8` files. If several
+such folders exist, pass the folder explicitly:
+
+```julia
+alphaconformers(;
+    output_dir,
+    query_struct,
+    prepare = false,
+    predict = false,
+    triage = true,
+    sifts_uniprot_mapping,
+    foldseek_results_folder = joinpath(output_dir, "fullpdb_results"),
+)
+```
+
+Any extra positional arguments and any unknown keyword arguments are passed only
+to `structure_predictor`. If `predict=false`, predictor-specific arguments are
+rejected so they are not silently ignored.
+
+For a custom predictor:
+
+```julia
+alphaconformers(
+    predictor_arg;
+    output_dir,
+    prepare = false,
+    triage = false,
+    structure_predictor = my_predictor,
+    predictor_keyword = value,
+)
+```
+
+The lower-level step functions remain available:
+
+```julia
+prepared = prepare_inputs(query_struct, pdb_folder, output_dir; databases = foldseek_dbs)
+run_alphafold(output_dir, sif_path, cache_dir)
+triage_outputs(
+    output_dir,
+    query_struct,
+    sifts_uniprot_mapping;
+    foldseek_results_folder = prepared.foldseek_results_folder,
+)
+```
+
+`prepare_inputs` returns a small `PreparedInputs` object with the query path, the
+output folder, and the Foldseek result folder. You can ignore this return value
+when you only need the files written to `output_dir`.
+
+`triage_outputs` is the final pipeline step. It currently filters predictions
+through `found_best_prediction`; future versions may add more output triage on
+top of that step.
 
 AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
 
 ```julia
-run_alphafold3(clusters_folder, sif_image_dir, model_parameters_dir, db_dir)
-run_boltz2(clusters_folder, boltz_sif_path, boltz_cache_dir)
+run_alphafold3(output_dir, sif_image_dir, model_parameters_dir, db_dir)
+run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
 ```
 
 These helpers expect local container images and local model or database paths.
@@ -161,7 +282,7 @@ a successful run unless `keep_intermediates = true`.
 The preparation step writes a folder for each template cluster:
 
 ```text
-out_folder/
+output_dir/
 |-- all_sequence.a3m
 |-- calpha_template.csv
 |-- fullpdb_results/
@@ -209,8 +330,10 @@ Some lower-level helpers are useful when building custom workflows:
 - `get_uniprot_mapping`: read or download SIFTS UniProt mappings.
 - `create_template_clusters_hobohm`: cluster templates by structural
   similarity.
-- `found_best_prediction`: filter predictions using known related structures
-  and RMSD to the query.
+- `triage_outputs`: official final pipeline step for filtering and triaging
+  prediction outputs.
+- `found_best_prediction`: current lower-level prediction filter used by
+  `triage_outputs`.
 
 Most users should start with `alphaconformers`.
 

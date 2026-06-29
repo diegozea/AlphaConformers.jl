@@ -5,6 +5,34 @@ mutable struct Progress
     total::Int
 end
 
+"""
+    PreparedInputs(query_struct, output_dir, foldseek_results_folder)
+
+Store the small set of paths created by `prepare_inputs` that later pipeline steps need.
+
+# Fields
+- `query_struct`: Absolute path to the query structure used for preparation.
+- `output_dir`: Absolute path to the AlphaConformers run folder.
+- `foldseek_results_folder`: Foldseek result folder used for the main PDB search.
+"""
+struct PreparedInputs
+    query_struct::String
+    output_dir::String
+    foldseek_results_folder::String
+end
+
+"""
+    progress_bar(progress, step_name)
+
+Print and advance the text progress bar used by the main pipeline.
+
+# Arguments
+- `progress`: Mutable progress state.
+- `step_name`: Name of the pipeline step that just completed.
+
+# Returns
+`nothing`.
+"""
 function progress_bar(p::Progress, step_name::String)
     p.current += 1
     pct = round(Int, 100 * p.current / p.total)
@@ -54,6 +82,17 @@ end
 
 # Sequence alignment --------------------------------------- #
 
+"""
+    get_res_beg_end(pdb_file) -> (first_residue, last_residue)
+
+Return the minimum and maximum numeric residue ids found in ATOM records.
+
+# Arguments
+- `pdb_file`: Path to a PDB file.
+
+# Returns
+A tuple with the first and last residue numbers found in the file.
+"""
 function get_res_beg_end(pdb_file::String)
     res_ids = Int[]
 
@@ -75,6 +114,17 @@ function get_res_beg_end(pdb_file::String)
     return minimum(res_ids), maximum(res_ids)
 end
 
+"""
+    vector_to_msa(seqs) -> MSA
+
+Create a temporary FASTA file from sequences and read it as an MSA.
+
+# Arguments
+- `seqs`: Vector of ungapped or aligned sequence strings.
+
+# Returns
+An MSA object with generated sequence names `seq_1`, `seq_2`, and so on.
+"""
 function vector_to_msa(seqs::Vector{String})
     names = ["seq_$(i)" for i = 1:length(seqs)]
 
@@ -87,11 +137,24 @@ function vector_to_msa(seqs::Vector{String})
         end
     end
 
-    msa = read(tmpfile, FASTA)
+    msa = read(tmpfile, MIToS.MSA.FASTA)
 
     return msa
 end
 
+"""
+    align_full_seq(full_seq, msa) -> Vector{String}
+
+Project an existing MSA onto a supplied full reference sequence.
+
+# Arguments
+- `full_seq`: Full query sequence to use as the new reference row.
+- `msa`: Sequence vector where the first entry is the current query/reference.
+
+# Returns
+A vector of aligned sequence strings. Positions absent from the original reference are
+filled with gaps in the non-query sequences.
+"""
 function align_full_seq(full_seq, msa)
 
     ref_seq = msa[1]  # The first MSA sequence is the reference.
@@ -133,37 +196,279 @@ function align_full_seq(full_seq, msa)
     return new_msa
 end
 
+function _parse_query_pdb_filename(input_pdb::AbstractString)
+    parts = split(basename(input_pdb), "_")
+    if length(parts) < 2
+        error(
+            "The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'",
+        )
+    end
+    query_pdb_code = String(parts[1])
+    query_chain_code = String(first(splitext(parts[2])))
+    if isempty(query_pdb_code) || isempty(query_chain_code)
+        error(
+            "The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'",
+        )
+    end
+    return query_pdb_code, query_chain_code
+end
+
+function _is_unset(value)
+    return value === missing ||
+           value === nothing ||
+           (value isa AbstractString && isempty(value))
+end
+
+function _require_pipeline_keyword(name::Symbol, value, condition::AbstractString)
+    if _is_unset(value)
+        throw(ArgumentError("`$name` is required $condition."))
+    end
+    return value
+end
+
+function _normalize_foldseek_databases(databases; condition = "when preparing inputs")
+    if _is_unset(databases)
+        throw(
+            ArgumentError(
+                "`databases` is required $condition; pass one or more Foldseek database paths.",
+            ),
+        )
+    end
+
+    if databases isa AbstractString
+        return String(databases)
+    elseif databases isa AbstractVector{<:AbstractString}
+        if isempty(databases)
+            throw(
+                ArgumentError(
+                    "`databases` must contain at least one Foldseek database path.",
+                ),
+            )
+        end
+        if any(isempty, databases)
+            throw(
+                ArgumentError(
+                    "`databases` must not contain empty Foldseek database paths.",
+                ),
+            )
+        end
+        return String.(databases)
+    else
+        throw(
+            ArgumentError(
+                "`databases` must be a Foldseek database path string or a vector of path strings.",
+            ),
+        )
+    end
+end
+
+function _foldseek_database_paths(databases)
+    if databases isa AbstractString
+        parts = occursin(',', databases) ? strip.(split(databases, ',')) : [databases]
+        return String.(parts)
+    end
+    return String.(databases)
+end
+
+function _foldseek_results_folder_for_database(output_dir, database)
+    return abspath(joinpath(output_dir, "$(basename(String(database)))_results"))
+end
+
+function _is_pdb_foldseek_database_name(database)
+    # Only inspect the database name. A parent folder such as "pdb_tests/afdb"
+    # should not make a non-PDB database look like the PDB search source.
+    return occursin("pdb", lowercase(basename(String(database))))
+end
+
+function _normalize_prepared_foldseek_results_folder(output_dir, foldseek_results_folder)
+    folder = String(foldseek_results_folder)
+    if isabspath(folder)
+        return abspath(folder)
+    elseif isempty(dirname(folder))
+        return abspath(joinpath(output_dir, folder))
+    else
+        return abspath(folder)
+    end
+end
+
+function _pdb_foldseek_database_selection_error(database_paths)
+    database_list = join(String.(database_paths), ", ")
+    return ArgumentError(
+        "Triage needs the Foldseek result folder from the PDB database, but " *
+        "AlphaConformers could not choose exactly one PDB database from " *
+        "`databases`: $database_list. Database order is not used because it can " *
+        "select AFDB or another non-PDB result folder by mistake. Use exactly " *
+        "one database whose name contains `pdb`, or pass " *
+        "`foldseek_results_folder` explicitly.",
+    )
+end
+
+function _select_pdb_foldseek_results_folder(
+    output_dir,
+    databases;
+    foldseek_results_folder = missing,
+)
+    if !_is_unset(foldseek_results_folder)
+        return _normalize_prepared_foldseek_results_folder(
+            output_dir,
+            foldseek_results_folder,
+        )
+    end
+
+    database_paths = _foldseek_database_paths(databases)
+    if length(database_paths) == 1
+        return _foldseek_results_folder_for_database(output_dir, only(database_paths))
+    end
+
+    # Foldseek keeps the same order as `databases`, but triage needs the PDB
+    # search results. Choosing the first result can silently select AFDB instead.
+    pdb_database_paths = filter(_is_pdb_foldseek_database_name, database_paths)
+    length(pdb_database_paths) == 1 &&
+        return _foldseek_results_folder_for_database(output_dir, only(pdb_database_paths))
+
+    throw(_pdb_foldseek_database_selection_error(database_paths))
+end
+
+function _prepared_foldseek_results_folder(prepared_inputs)
+    prepared_inputs === nothing && return missing
+    prepared_inputs === missing && return missing
+    hasproperty(prepared_inputs, :foldseek_results_folder) || return missing
+    return getproperty(prepared_inputs, :foldseek_results_folder)
+end
+
+function _validate_alphaconformers_configuration(
+    predictor_args,
+    predictor_kwargs;
+    query_struct,
+    pdb_folder,
+    output_dir,
+    prepare::Bool,
+    predict::Bool,
+    triage::Bool,
+    databases,
+    sifts_uniprot_mapping,
+)
+    if !(prepare || predict || triage)
+        throw(
+            ArgumentError(
+                "At least one pipeline step must be enabled; set `prepare`, `predict`, or `triage` to `true`.",
+            ),
+        )
+    end
+    _require_pipeline_keyword(:output_dir, output_dir, "for every `alphaconformers` call")
+
+    if !predict && (!isempty(predictor_args) || !isempty(predictor_kwargs))
+        throw(
+            ArgumentError(
+                "Predictor arguments were provided but `predict=false`; enable prediction or remove predictor-specific arguments.",
+            ),
+        )
+    end
+
+    if prepare && triage && !predict
+        throw(
+            ArgumentError(
+                "`triage=true` requires prediction outputs. Use `predict=true` or run triage in a later call with `prepare=false`.",
+            ),
+        )
+    end
+
+    if prepare
+        _require_pipeline_keyword(:query_struct, query_struct, "when `prepare=true`")
+        _require_pipeline_keyword(:pdb_folder, pdb_folder, "when `prepare=true`")
+        _normalize_foldseek_databases(databases; condition = "when `prepare=true`")
+    end
+
+    if triage
+        _require_pipeline_keyword(:query_struct, query_struct, "when `triage=true`")
+        if !prepare && _is_unset(sifts_uniprot_mapping)
+            throw(
+                ArgumentError(
+                    "`sifts_uniprot_mapping` is required when `triage=true` and `prepare=false`; pass `get_uniprot_mapping()` or run preparation in the same call.",
+                ),
+            )
+        end
+    end
+
+    return nothing
+end
+
+function _enabled_pipeline_steps(prepare::Bool, predict::Bool, triage::Bool)
+    steps = String[]
+    prepare && push!(steps, "Prepare inputs")
+    predict && push!(steps, "Predict structures")
+    triage && push!(steps, "Triage outputs")
+    return steps
+end
+
 """
-This function run the whole pipeline of AlphaConformers, from running foldseek to creating the folders for AlphaFold2 input.
-Input : 
-- input_pdb: the path to the query pdb file, the name of the file must be in the format "PDBCODE_CHAIN.pdb", for example "1EX6_B.pdb"
-- pdb_folder: the path to the folder containing all the pdb files, this is used to create the foldseek database for the targets
-- out_folder: the path to the output folder where all the results will be stored, the output folder will be created if it does not exist
-- n_threads: the number of threads to use for foldseek, default is the number of available threads
-- db: the path to the foldseek database to use for the search, default is "/alpha/database/pdb/fullpdb"
-- evalue_cutoff: the e-value cutoff to filter the foldseek results, default is 1e-5, set to NaN to not filter
-- cutoff: the RMSD cutoff to use for the structural clustering, default is 1.0
-- test_analyse: if true, the function will remove the known structures of the query uniprot from the targets, this is used to test the effect of keeping or not the known structures of the query in the targets, default is false
-- keep_query: if true, the function will keep the query structure in the targets after removing the known structures of the query uniprot, default is true
-- full_seq: the full sequence of the query, this is used to align the MSA on the full sequence to not have missing residues, default is missing, if provided, the function will align the MSA on the full sequence and write the aligned MSA to the output folder
-Output: 
-- the function will create a folder for each cluster of templates, each folder will contain the aligned MSA and the pdb files of the templates in the cluster, the names of the templates in the MSA and the pdb files will be cleaned to be compatible with AlphaFold2 input
+    prepare_inputs(query_struct, pdb_folder, output_dir; kwargs...)
+
+Prepare AlphaConformers input folders for one query structure.
+
+The function searches for related structures, builds a merged MSA, groups template
+structures, and writes one output folder per template cluster.
+
+# Arguments
+- `query_struct`: Query PDB file. The file name must use `PDBCODE_CHAIN.pdb`, for
+  example `1EX6_B.pdb`.
+- `pdb_folder`: Folder containing local PDB files used when adding known structures.
+- `output_dir`: Output folder. It is created by the pipeline if needed.
+
+# Keywords
+- `n_threads`: Number of Foldseek threads. Defaults to `Threads.nthreads()`.
+- `databases`: Foldseek database path or paths used for the search. This keyword is
+  required.
+- `evalue_cutoff`: Maximum Foldseek e-value. Set to `NaN` to keep all hits.
+- `cutoff`: RMSD cutoff used to group template structures.
+- `test_analyse`: Remove other known structures from the query UniProt entry before
+  clustering.
+- `keep_query`: Keep the query structure when `test_analyse=true`.
+- `full_seq`: Optional full query sequence used to write an MSA aligned to the full
+  sequence.
+- `sifts_uniprot_mapping`: Optional SIFTS UniProt mapping table. If omitted, it is
+  loaded with `get_uniprot_mapping()`.
+- `foldseek_results_folder`: Optional PDB Foldseek result folder to store for later
+  triage. If omitted, it is inferred from `databases` before Foldseek runs.
+
+# Returns
+A `PreparedInputs` object with the paths needed by later pipeline steps. Results are
+also written under `output_dir`.
+
+# Throws
+Throws an error if the query file name does not include a PDB code and chain, or if
+no targets remain after optional query-conformation removal. Throws `ArgumentError`
+if `databases` is not provided or if the PDB Foldseek result folder is unclear.
 """
-#Main function to run the whole pipeline of AlphaConformers
-function alphaconformers(
-    input_pdb::String,
-    pdb_folder::String,
-    out_folder::String;
+function prepare_inputs(
+    query_struct::AbstractString,
+    pdb_folder::AbstractString,
+    output_dir::AbstractString;
     n_threads::Int = Threads.nthreads(),
-    db::Vector{String} = ["/alpha/database/pdb/fullpdb"],
+    databases = missing,
     evalue_cutoff::Float64 = 1e-5,
     cutoff::Float64 = 1.0,
     test_analyse::Bool = false,
     keep_query::Bool = true,
     full_seq::Union{Missing,String} = missing,
+    sifts_uniprot_mapping = missing,
+    foldseek_results_folder = missing,
 )
+    query_struct = abspath(query_struct)
+    pdb_folder = abspath(pdb_folder)
+    output_dir = abspath(output_dir)
+    foldseek_db = _normalize_foldseek_databases(
+        databases;
+        condition = "when running `prepare_inputs`",
+    )
+    foldseek_results_folder = _select_pdb_foldseek_results_folder(
+        output_dir,
+        foldseek_db;
+        foldseek_results_folder,
+    )
+
     println("----------------------------------------")
-    println("AlphaConformers start running...")
+    println("AlphaConformers input preparation started.")
     println("----------------------------------------")
 
     steps = [
@@ -176,25 +481,18 @@ function alphaconformers(
         "Clustering Hobohm",
         "Creating folders + cleanup",
     ]
-    n_steps = test_analyse ? 8 : 7   # Conditional alignment.
+    n_steps = length(steps)
     prog = Progress(steps, 0, n_steps)
 
 
     println("Available threads", Threads.nthreads())
 
     #Get the query pdb code and chain from the input file name
-    parts=split(basename(input_pdb), "_")
-    if length(parts) < 2
-        error(
-            "The PDB filename must use the format 'PDBCODE_CHAIN.pdb', for example '1EX6_B.pdb'",
-        )
-    end
-    query_pdb_code = parts[1]
-    query_chain_code=String(first(splitext(parts[2])))
+    query_pdb_code, query_chain_code = _parse_query_pdb_filename(query_struct)
     println("Query PDB code: $query_pdb_code, Query chain code: $query_chain_code")
 
     println("Running Foldseek")
-    output = run_foldseek(input_pdb, n_threads, db, out_folder = out_folder)
+    output = run_foldseek(query_struct, n_threads, foldseek_db, out_folder = output_dir)
     progress_bar(prog, "Foldseek search")
     # Init empty vector to store the table files
     output_vector = Vector{String}()
@@ -213,18 +511,20 @@ function alphaconformers(
 
     if size(merged_table, 1) == 0
         @error "No results found after filtering with e-value cutoff: $evalue_cutoff"
-        return
+        return PreparedInputs(query_struct, output_dir, foldseek_results_folder)
     end
     progress_bar(prog, "Merging tables")
     println("Adding known conformations")
 
-    sifts_uniprot_mapping = get_uniprot_mapping()
+    if _is_unset(sifts_uniprot_mapping)
+        sifts_uniprot_mapping = get_uniprot_mapping()
+    end
     clean_table = add_known_conformations!(
         deepcopy(merged_table),
         sifts_uniprot_mapping,
         pdb_folder,
-        out_folder,
-        input_pdb,
+        output_dir,
+        query_struct,
         n_threads,
     )
     println("Size of all target found : $(size(clean_table))")
@@ -257,7 +557,7 @@ function alphaconformers(
         end
         isempty(expanded_table) &&
             error("No targets remaining after removing query from targets.")
-        CSV.write(joinpath(out_folder, "expanded_table_delete.csv"), expanded_table)
+        CSV.write(joinpath(output_dir, "expanded_table_delete.csv"), expanded_table)
     else
         expanded_table=deepcopy(clean_table)
     end
@@ -265,19 +565,19 @@ function alphaconformers(
     println("Create merged MSAS")
     merged_msa = merge_msas(expanded_table)
     MIToS.MSA.write_file(
-        joinpath(out_folder, "all_sequence.a3m"),
+        joinpath(output_dir, "all_sequence.a3m"),
         merged_msa,
         MIToS.MSA.A3M,
     )
     println("Size of merged MSA: $(size(merged_msa))")
     progress_bar(prog, "Merging MSAs")
 
-    ### Align sequence on AFDB sequences - to not have missing residues 
+    ### Align sequence on AFDB sequences - to not have missing residues
     if full_seq !== missing
         println("Aligning MSA on full sequence provided")
-        ids, seqs=read_a3m(joinpath(out_folder, "all_sequence.a3m"))
+        ids, seqs=read_a3m(joinpath(output_dir, "all_sequence.a3m"))
 
-        row_query=filter!(
+        row_query=filter(
             row -> row.PDB == query_pdb_code && row.CHAIN == query_chain_code,
             sifts_uniprot_mapping,
         )
@@ -290,7 +590,7 @@ function alphaconformers(
         end
 
         align_seqs=align_full_seq(same_sull_seq, seqs)
-        align_msa_path=joinpath(out_folder, "all_sequence_align_uniprot_seq.a3m")
+        align_msa_path=joinpath(output_dir, "all_sequence_align_uniprot_seq.a3m")
         println("Writing aligned MSA to $align_msa_path")
         open(align_msa_path, "w") do io
             for (id, align_seq) in zip(ids, align_seqs)
@@ -300,7 +600,7 @@ function alphaconformers(
         end
 
     else
-        align_msa_path=joinpath(out_folder, "all_sequence.a3m")
+        align_msa_path=joinpath(output_dir, "all_sequence.a3m")
     end
     align_merged_msa = MIToS.MSA.read_file(align_msa_path, MIToS.MSA.A3M)
     progress_bar(prog, "Final MSA")
@@ -317,12 +617,187 @@ function alphaconformers(
     )
     progress_bar(prog, "Clustering Hobohm")
     println("Create folder")
-    create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder = out_folder)
+    create_folder_structure_hobohm(clusters, cl2msa, cl2pdb, out_folder = output_dir)
     println("Cleaning MSA and template names for AlphaFold2 input")
 
-    clean_msa_template_names(clusters, out_folder)
+    clean_msa_template_names(clusters, output_dir)
     progress_bar(prog, "Creating folders + cleanup")
     println("----------------------------------------")
-    println("AlphaConformers finished running.")
+    println("AlphaConformers input preparation finished.")
     println("----------------------------------------")
+    return PreparedInputs(query_struct, output_dir, foldseek_results_folder)
+end
+
+"""
+    alphaconformers(args...; kwargs...)
+
+Run selected steps of the AlphaConformers pipeline.
+
+`alphaconformers` is the high-level entry point for input preparation, structure
+prediction, and output triage. It runs `prepare_inputs`, then
+`structure_predictor`, then `triage_outputs` when those steps are enabled. The
+selected steps are controlled by `prepare`, `predict`, and `triage`.
+
+# Step Selection
+Each step flag can be turned on or off. By default all three are `true`, so the
+full pipeline is run. At least one step must be selected. The only selected-step
+combination that is not valid is `prepare=true`, `predict=false`, and
+`triage=true`, because triage needs prediction outputs.
+
+If `predict=false`, extra positional arguments and unknown keyword arguments are
+rejected so predictor-specific inputs are not silently ignored.
+
+# Arguments
+- `args...`: Positional arguments passed only to `structure_predictor`. For the
+  default `run_alphafold`, pass `sif_path` and `cache_dir` before the semicolon.
+
+# Keywords
+- `query_struct`: Query or reference structure. Required when `prepare=true` or
+  `triage=true`.
+- `pdb_folder`: Folder containing local PDB or mmCIF files. Required when
+  `prepare=true`.
+- `output_dir`: Shared AlphaConformers run directory. Required for every call.
+- `prepare`: Run the input preparation step. Defaults to `true`.
+- `predict`: Run the structure prediction step. Defaults to `true`.
+- `triage`: Run the output triage step. Defaults to `true`.
+- `structure_predictor`: Prediction function. Defaults to `run_alphafold`.
+- `n_threads`: Number of Foldseek threads for preparation.
+- `databases`: Foldseek database path or paths. Required when `prepare=true`.
+- `evalue_cutoff`: Maximum Foldseek e-value used during preparation.
+- `cutoff`: RMSD cutoff used during preparation clustering.
+- `test_analyse`: Remove other known structures from the query UniProt entry before
+  clustering.
+- `keep_query`: Keep the query structure when `test_analyse=true`.
+- `full_seq`: Optional full query sequence for preparation.
+- `sifts_uniprot_mapping`: Optional SIFTS UniProt mapping table. Required for
+  triage unless preparation is run in the same call.
+- `folder_af2_result`: Prediction result folder name used by triage.
+- `foldseek_results_folder`: Optional Foldseek result folder used by triage. If
+  omitted, the folder returned by preparation or the folder found in `output_dir` is
+  used. During preparation with several databases, AlphaConformers requires exactly
+  one database whose name contains `pdb` unless this folder is passed explicitly.
+- `kwargs...`: Keyword arguments passed only to `structure_predictor`.
+
+# Required Inputs by Step
+- Preparation needs `query_struct`, `pdb_folder`, `output_dir`, and `databases`.
+- Prediction needs `output_dir` plus the arguments required by
+  `structure_predictor`.
+- Triage needs `query_struct`, `output_dir`, prediction outputs, and
+  `sifts_uniprot_mapping` unless preparation runs in the same call.
+
+# Returns
+A named tuple with the absolute `output_dir`, boolean step flags, and
+`triage_result`.
+
+# Throws
+Throws `ArgumentError` when enabled steps and required keywords are inconsistent.
+"""
+function alphaconformers(args...; kwargs...)
+    return _alphaconformers(prepare_inputs, triage_outputs, args...; kwargs...)
+end
+
+function _alphaconformers(
+    _prepare_inputs_function::Function,
+    _triage_outputs_function::Function,
+    args...;
+    query_struct = missing,
+    pdb_folder = missing,
+    output_dir = missing,
+    prepare::Bool = true,
+    predict::Bool = true,
+    triage::Bool = true,
+    structure_predictor::Function = run_alphafold,
+    n_threads::Int = Threads.nthreads(),
+    databases = missing,
+    evalue_cutoff::Float64 = 1e-5,
+    cutoff::Float64 = 1.0,
+    test_analyse::Bool = false,
+    keep_query::Bool = true,
+    full_seq::Union{Missing,String} = missing,
+    sifts_uniprot_mapping = missing,
+    folder_af2_result::AbstractString = "af",
+    foldseek_results_folder = missing,
+    kwargs...,
+)
+    _validate_alphaconformers_configuration(
+        args,
+        kwargs;
+        query_struct,
+        pdb_folder,
+        output_dir,
+        prepare,
+        predict,
+        triage,
+        databases,
+        sifts_uniprot_mapping,
+    )
+
+    output_dir = abspath(output_dir)
+    query_struct = _is_unset(query_struct) ? query_struct : abspath(query_struct)
+    pdb_folder = _is_unset(pdb_folder) ? pdb_folder : abspath(pdb_folder)
+    foldseek_db =
+        prepare ?
+        _normalize_foldseek_databases(databases; condition = "when `prepare=true`") :
+        databases
+    prepared_foldseek_results_folder =
+        prepare ?
+        _select_pdb_foldseek_results_folder(
+            output_dir,
+            foldseek_db;
+            foldseek_results_folder,
+        ) : missing
+
+    if prepare && _is_unset(sifts_uniprot_mapping)
+        sifts_uniprot_mapping = get_uniprot_mapping()
+    end
+
+    steps = _enabled_pipeline_steps(prepare, predict, triage)
+    progress = Progress(steps, 0, length(steps))
+    triage_result = nothing
+    prepared_inputs = nothing
+
+    if prepare
+        prepared_inputs = _prepare_inputs_function(
+            query_struct,
+            pdb_folder,
+            output_dir;
+            n_threads,
+            databases = foldseek_db,
+            evalue_cutoff,
+            cutoff,
+            test_analyse,
+            keep_query,
+            full_seq,
+            sifts_uniprot_mapping,
+            foldseek_results_folder = prepared_foldseek_results_folder,
+        )
+        progress_bar(progress, "Prepare inputs")
+    end
+
+    if predict
+        structure_predictor(output_dir, args...; kwargs...)
+        progress_bar(progress, "Predict structures")
+    end
+
+    if triage
+        triage_foldseek_results_folder =
+            _is_unset(foldseek_results_folder) ?
+            _prepared_foldseek_results_folder(prepared_inputs) : foldseek_results_folder
+        triage_result = _triage_outputs_function(
+            output_dir,
+            query_struct,
+            sifts_uniprot_mapping;
+            folder_af2_result,
+            foldseek_results_folder = triage_foldseek_results_folder,
+        )
+        progress_bar(progress, "Triage outputs")
+    end
+
+    return (
+        output_dir = output_dir,
+        prepared = prepare,
+        prepared_inputs = prepared_inputs,
+        predicted = predict,
+        triage_result = triage_result,
+    )
 end

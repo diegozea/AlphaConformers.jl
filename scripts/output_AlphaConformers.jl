@@ -9,9 +9,7 @@
 =#
 
 import Pkg
-Pkg.activate(
-    "/stockage/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_321",
-)
+Pkg.activate(joinpath(@__DIR__, "update_MIToS_321"))
 
 
 # Analyse output of AlphaConformer

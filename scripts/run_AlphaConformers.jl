@@ -10,9 +10,7 @@
 =#
 
 import Pkg
-Pkg.activate(
-    "/store/EQUIPES/AMIG/MEMBERS/julie.daniel/Clean_AlphaConformers/scripts/update_MIToS_321",
-)
+Pkg.activate(joinpath(@__DIR__, "update_MIToS_321"))
 
 using AlphaConformers
 using MIToS
@@ -51,25 +49,23 @@ function parse_commandline()
         "--pdb_folder"
         help = "Path to the PDB mmCIF files"
         arg_type = String
-        default = "/alpha/database/pdb/mmcif_files"
+        required = true
         "--foldseek_db"
         help = "Path to the Foldseek database"
         arg_type = String
-        default = "/alpha/database/pdb/fullpdb_mmcif_files"
+        required = true
         "--alphafold_db"
         help = "Path to the AlphaFold database"
         arg_type = String
-        default = "/alpha/database/afdb_v6/fullafdb_v6"
+        required = true
         "--sif_path"
         help = "Path to the ColabFold Singularity image"
         arg_type = String
-        default = expanduser(
-            "/store/EQUIPES/AMIG/SCRIPTS/sif_images/ColabFold_AF2_1-5-5/colabfold-1.5.5-cuda12.2.2.sif",
-        )
+        required = true
         "--cache_dir"
         help = "Path to the ColabFold cache directory"
         arg_type = String
-        default = "/store/EQUIPES/AMIG/SCRIPTS/sif_images/ColabFold_AF2_1-5-5/cache"
+        required = true
         "--evalue_cutoff"
         help = "E-value cutoff for Foldseek (default: NaN = no cutoff)"
         arg_type = Float64
@@ -90,7 +86,7 @@ function parse_commandline()
         "--full_seq"
         help = "Specify a full sequence to use instead of the query .pdb sequence. The sequence should be provided as a string of amino acid one-letter codes (e.g. 'MKTAYIAKQRQISFVKSHFSRQDILDLWIYHTQGYFP'). If missing, the script will use the sequence from the query .pdb file. This option is useful if the query .pdb file is incomplete or if you want to test the analysis with a different sequence."
         arg_type = String
-        default = missing
+        default = ""
 
     end
 
@@ -98,7 +94,7 @@ function parse_commandline()
 end
 
 """
-    run_alphaconformers(apo_pdb, apo_chain, path, pdb_folder, foldseek_db,
+    run_alphaconformers(apo_pdb, apo_chain, path, n_threads, pdb_folder, foldseek_db,
                         alphafold_db, sif_path, cache_dir; evalue_cutoff, cutoff)
 
 Execute the AlphaConformers pipeline on a given apo PDB structure.
@@ -110,6 +106,7 @@ AlphaFold predictions for each cluster via ColabFold.
 - `apo_pdb::String`       : PDB ID of the apo form (e.g. `"6r17"`).
 - `apo_chain::String`     : Chain ID of the apo form (e.g. `"C"`).
 - `path::String`          : Main directory for input files and results output.
+- `n_threads::Int`        : Number of threads to use.
 - `pdb_folder::String`    : Path to the PDB mmCIF files.
 - `foldseek_db::String`   : Path to the Foldseek database.
 - `alphafold_db::String`  : Path to the AlphaFold database.
@@ -131,7 +128,7 @@ function run_alphaconformers(
     apo_pdb::String,
     apo_chain::String,
     path::String,
-    n_threads::Int = Threads.nthreads(),
+    n_threads::Int,
     pdb_folder::String,
     foldseek_db::String,
     alphafold_db::String,
@@ -146,7 +143,7 @@ function run_alphaconformers(
 )
     cd(path)
 
-    db = [foldseek_db, alphafold_db]
+    databases = [foldseek_db, alphafold_db]
 
     filename = string(apo_pdb, "_", apo_chain, ".pdb")
     ref_pdb = joinpath(path, filename)
@@ -168,19 +165,19 @@ function run_alphaconformers(
     mkdir(output_dir)
     println(output_dir)
 
-    AlphaConformers.alphaconformers(
+    AlphaConformers.prepare_inputs(
         ref_pdb,
         pdb_folder,
         output_dir;
         n_threads = n_threads,
-        db = db,
+        databases = databases,
         evalue_cutoff = evalue_cutoff,
         cutoff = cutoff,
         test_analyse = false,
         keep_query = true,
         full_seq = missing,
     )
-    AlphaConformers.run_alphafold_one_run(output_dir, sif_path, cache_dir)
+    AlphaConformers.run_alphafold(output_dir, sif_path, cache_dir)
 
     @info "Done"
 end
