@@ -60,7 +60,7 @@ export foldseek_search, # foldseek.jl
     create_template_clusters_hobohm,
     create_folder_structure_hobohm,
     run_cmd,
-    run_alphafold_one_run,
+    run_alphafold,
     run_deepaccnet
 
 include("utils.jl")
