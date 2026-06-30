@@ -20,6 +20,7 @@ import Statistics
 import MultivariateStats
 import Distances
 import Plots as plt
+import StatsPlots
 import HTTP
 import JSON3
 import YAML

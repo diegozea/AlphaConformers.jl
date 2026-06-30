@@ -266,9 +266,9 @@ end
 
 # Dendrogram of one cluster's agglomerative tree with a dashed line at the `threshold` cut.
 #
-# `tree` is a `Clustering.Hclust`; its `merges` encode children (a negative entry is a leaf, a
-# positive entry a previous merge row) and `heights` the merge heights. A `nothing` tree (a
-# cluster too small to merge) draws a single leaf marker so the figure still appears.
+# `tree` is a `Clustering.Hclust`, drawn with the official StatsPlots `Hclust` plot recipe. A
+# `nothing` tree (a cluster too small to merge) draws a single leaf marker so the figure still
+# appears.
 function _plot_dendrogram(tree, threshold::Real, title::AbstractString, path)
     if tree === nothing
         p = plt.scatter(
@@ -289,31 +289,8 @@ function _plot_dendrogram(tree, threshold::Real, title::AbstractString, path)
         return path
     end
 
-    merges = tree.merges
-    heights = tree.heights
-    order = tree.order
-    n = length(order)
-    xpos = zeros(Float64, n)
-    for (i, leaf) in enumerate(order)
-        xpos[leaf] = i
-    end
-    merge_x = zeros(Float64, n - 1)
-    node_xy(child) = child < 0 ? (xpos[-child], 0.0) : (merge_x[child], heights[child])
-
-    xs = Float64[]
-    ys = Float64[]
-    for m = 1:(n-1)
-        x1, y1 = node_xy(merges[m, 1])
-        x2, y2 = node_xy(merges[m, 2])
-        h = heights[m]
-        merge_x[m] = (x1 + x2) / 2
-        append!(xs, [x1, x1, x2, x2, NaN])
-        append!(ys, [y1, h, h, y2, NaN])
-    end
-
     p = plt.plot(
-        xs,
-        ys;
+        tree;   
         color = :steelblue,
         legend = false,
         xlabel = "conformer (leaf order)",
