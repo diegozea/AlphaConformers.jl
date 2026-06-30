@@ -84,36 +84,14 @@ end
     @test coords[2, 1] ≈ 3.8
 end
 
-@testitem "Conformer clustering reference resolution" begin
+@testitem "Conformer clustering structure format" begin
     import MIToS
 
-    refs = mktempdir()
-    touch(joinpath(refs, "1ABC_A.pdb"))    # exact .pdb match
-    touch(joinpath(refs, "9XYZ_B.cif"))    # only .cif present
-    touch(joinpath(refs, "2def_C.pdb"))    # lowercase-id file for stem 2DEF_C
-    touch(joinpath(refs, "3GZP_A.cif.gz")) # only a gzip-compressed reference present
-
-    # Exact stem, .pdb preferred.
-    @test AlphaConformers._resolve_reference(refs, "1ABC_A") == joinpath(refs, "1ABC_A.pdb")
-    # `.cif` fallback when no `.pdb` exists.
-    @test AlphaConformers._resolve_reference(refs, "9XYZ_B") == joinpath(refs, "9XYZ_B.cif")
-    # A compressed `.cif.gz` reference resolves (MIToS decompresses `.gz` on read).
-    @test AlphaConformers._resolve_reference(refs, "3GZP_A") ==
-          joinpath(refs, "3GZP_A.cif.gz")
     # `_structure_format` looks past a trailing `.gz` to pick the MIToS format.
     @test AlphaConformers._structure_format("x.pdb") == MIToS.PDB.PDBFile
     @test AlphaConformers._structure_format("x.cif") == MIToS.PDB.MMCIFFile
     @test AlphaConformers._structure_format("x.pdb.gz") == MIToS.PDB.PDBFile
     @test AlphaConformers._structure_format("x.cif.gz") == MIToS.PDB.MMCIFFile
-    # Case-insensitive lowercase-id fallback that keeps the chain letter. Compared by file
-    # identity rather than path string, so a case-insensitive filesystem (which resolves the
-    # exact-case stem to the same on-disk file) passes too.
-    @test Base.Filesystem.samefile(
-        AlphaConformers._resolve_reference(refs, "2DEF_C"),
-        joinpath(refs, "2def_C.pdb"),
-    )
-    # Unresolvable stem raises a clear error.
-    @test_throws ErrorException AlphaConformers._resolve_reference(refs, "0NON_E")
 end
 
 @testitem "Conformer clustering reference RMSD seams" begin
@@ -206,7 +184,15 @@ end
 
     # Same deterministic ensemble as the walking-skeleton test (three shape groups).
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
+        models = joinpath(
+            data_root,
+            system,
+            "cluster_1",
+            "af",
+            "predictions",
+            "sequences",
+            "models",
+        )
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -253,11 +239,7 @@ end
     cp(joinpath(models, "conf_C1.pdb"), joinpath(refs, "REFHO_B.pdb"))
 
     # Baseline (reference-free) labels, to know which cluster conf_A1 / conf_C1 land in.
-    base = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-    )
+    base = cluster_conformers(system; data_root = fixtures, out_dir = mktempdir())
 
     label_col = names(base.clustering)[2]  # always the second column
     k = parse(Int, match(r"KMeans_K(\d+)", label_col)[1])
@@ -268,15 +250,12 @@ end
         return base.clustering[idx, label_col]
     end
 
+    refap = joinpath(refs, "REFAP_A.pdb")
+    refho = joinpath(refs, "REFHO_B.pdb")
+
     # 1-reference mode (apo only).
     out1 = mktempdir()
-    one = cluster_conformers(
-        system,
-        "REFAP_A";
-        refs_dir = refs,
-        data_root = fixtures,
-        out_dir = out1,
-    )
+    one = cluster_conformers(system, refap; data_root = fixtures, out_dir = out1)
 
     rmsd_csv = joinpath(out1, system, "dist_external_rmsds.csv")
     refclu_csv = joinpath(one.system_dir, "reference_clusters.csv")
@@ -290,25 +269,41 @@ end
     @test one.reference_rmsd == rmsd_tbl
 
     refclu = CSV.read(refclu_csv, DataFrames.DataFrame)
-    @test names(refclu) == ["Reference", "Stem", "Cluster", "Mean_RMSD_Angstrom"]
+    @test names(refclu) == ["Reference", "Path", "Cluster", "Mean_RMSD_Angstrom"]
     @test refclu.Reference == ["REFAP_A"]
-    @test refclu.Stem == ["REFAP_A"]
+    @test refclu.Path == [refap]
     @test all(1 .<= refclu.Cluster .<= k)                 # a valid cluster id
     @test one.reference_clusters == refclu
     # The first reference is conf_A1, so it is assigned to conf_A1's cluster.
-    @test refclu.Cluster[1] == label_of(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb"))
+    @test refclu.Cluster[1] == label_of(
+        joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb"),
+    )
     # That conformer's own RMSD to the reference is ~0.
-    ref1_row = rmsd_tbl[findfirst(==(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb")), rmsd_tbl.Name), :]
-    @test ref1_row.RMSD_REFAP_A  ≈ 0.0 atol = 1e-4
+    ref1_row = rmsd_tbl[
+        findfirst(
+            ==(
+                joinpath(
+                    "cluster_1",
+                    "af",
+                    "predictions",
+                    "sequences",
+                    "models",
+                    "conf_A1.pdb",
+                ),
+            ),
+            rmsd_tbl.Name,
+        ),
+        :,
+    ]
+    @test ref1_row.RMSD_REFAP_A ≈ 0.0 atol = 1e-4
 
     # Custom `ref_labels` flow through to the column and assignment labels.
     out_lbl = mktempdir()
     labelled = cluster_conformers(
         system,
-        "REFAP_A",
-        "REFHO_B";
+        refap,
+        refho;
         ref_labels = ("apo", "holo"),
-        refs_dir = refs,
         data_root = fixtures,
         out_dir = out_lbl,
     )
@@ -321,14 +316,7 @@ end
 
     # 2-reference mode (default ref1/ref2 labels).
     out2 = mktempdir()
-    two = cluster_conformers(
-        system,
-        "REFAP_A",
-        "REFHO_B";
-        refs_dir = refs,
-        data_root = fixtures,
-        out_dir = out2,
-    )
+    two = cluster_conformers(system, refap, refho; data_root = fixtures, out_dir = out2)
     rmsd2 =
         CSV.read(joinpath(out2, system, "dist_external_rmsds.csv"), DataFrames.DataFrame)
     @test names(rmsd2) == ["Name", "RMSD_REFAP_A", "RMSD_REFHO_B"]
@@ -336,14 +324,17 @@ end
     @test refclu2.Reference == ["REFAP_A", "REFHO_B"]
     @test all(1 .<= refclu2.Cluster .<= k)
     # apo == conf_A1, holo == conf_C1, each assigned to its own conformer's cluster.
-    @test refclu2.Cluster[1] == label_of(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb"))
-    @test refclu2.Cluster[2] == label_of(joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_C1.pdb"))
+    @test refclu2.Cluster[1] == label_of(
+        joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_A1.pdb"),
+    )
+    @test refclu2.Cluster[2] == label_of(
+        joinpath("cluster_1", "af", "predictions", "sequences", "models", "conf_C1.pdb"),
+    )
 
-    # Unresolvable reference stem raises a clear error.
+    # A reference path that does not exist raises a clear error.
     @test_throws ErrorException cluster_conformers(
         system,
-        "NOPE_A";
-        refs_dir = refs,
+        joinpath(refs, "NOPE_A.pdb");
         data_root = fixtures,
         out_dir = mktempdir(),
     )
@@ -433,7 +424,15 @@ end
 
     # Same deterministic ensemble as the walking-skeleton test (three shape groups).
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
+        models = joinpath(
+            data_root,
+            system,
+            "cluster_1",
+            "af",
+            "predictions",
+            "sequences",
+            "models",
+        )
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -472,11 +471,7 @@ end
     fixtures = _write_fixture(mktempdir(), system)
 
     out = mktempdir()
-    result = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out,
-    )
+    result = cluster_conformers(system; data_root = fixtures, out_dir = out)
     n_conformers = 9
     label_col = names(result.clustering)[2]
     k = parse(Int, match(r"KMeans_K(\d+)", label_col)[1])
@@ -489,12 +484,12 @@ end
     @test DataFrames.nrow(assignments) == n_conformers       # covers every conformer
     @test length(unique(assignments.Name)) == n_conformers   # one row per conformer
 
-    # Each occupied KMeans cluster gets its own kmeans<C>/ folder holding a flat members.csv
+    # Each occupied KMeans cluster gets its own kmeans<C>/ folder holding a flat output_cluster_members.csv
     # (this cluster's members with their sub-cluster labels) and no leaf sub-folders.
     @test !isempty(result.cluster_dirs)
     for cluster_dir in result.cluster_dirs
         @test isdir(cluster_dir)
-        members_csv = joinpath(cluster_dir, "members.csv")
+        members_csv = joinpath(cluster_dir, "output_cluster_members.csv")
         @test isfile(members_csv)
         members = CSV.read(members_csv, DataFrames.DataFrame)
         @test names(members) == ["Name", label_col, "Sub_Cluster", "Mini_Cluster"]
@@ -502,10 +497,10 @@ end
         # No nested per-sub-cluster folders remain.
         @test !any(isdir, joinpath.(cluster_dir, readdir(cluster_dir)))
     end
-    # The occupied clusters each map to a folder, and members.csv files partition the ensemble.
+    # The occupied clusters each map to a folder, and output_cluster_members.csv files partition the ensemble.
     @test length(result.cluster_dirs) == length(unique(result.clustering[!, label_col]))
     @test sum(
-        DataFrames.nrow(CSV.read(joinpath(d, "members.csv"), DataFrames.DataFrame)) for
+        DataFrames.nrow(CSV.read(joinpath(d, "output_cluster_members.csv"), DataFrames.DataFrame)) for
         d in result.cluster_dirs
     ) == n_conformers
 
@@ -580,7 +575,15 @@ end
     import Random
 
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
+        models = joinpath(
+            data_root,
+            system,
+            "cluster_1",
+            "af",
+            "predictions",
+            "sequences",
+            "models",
+        )
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -621,11 +624,7 @@ end
 
     # First pass (no scores) to learn the seeded KMeans labels so the crafted score table is
     # independent of which label maps to which shape group.
-    base = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-    )
+    base = cluster_conformers(system; data_root = fixtures, out_dir = mktempdir())
 
     # No score table: stage skipped cleanly, pipeline still completes over all conformers.
     @test base.deepaccnet_dir === nothing
@@ -684,7 +683,15 @@ end
     import Random
 
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
+        models = joinpath(
+            data_root,
+            system,
+            "cluster_1",
+            "af",
+            "predictions",
+            "sequences",
+            "models",
+        )
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -722,11 +729,7 @@ end
     system = "toy_system"
     fixtures = _write_fixture(mktempdir(), system)
 
-    base = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-    )
+    base = cluster_conformers(system; data_root = fixtures, out_dir = mktempdir())
     label_col = names(base.clustering)[2]
     conformer_names = base.clustering.Name
 
@@ -806,6 +809,18 @@ end
     placeholder = joinpath(mktempdir(), "dendrogram.png")
     @test AlphaConformers._plot_dendrogram(nothing, 1.0, "tiny", placeholder) == placeholder
     @test isfile(placeholder)
+
+    # _plot_dendrogram with a real `Clustering.Hclust` renders via the StatsPlots recipe.
+    dist = [
+        0.0 0.5 5.0 5.0
+        0.5 0.0 5.0 5.0
+        5.0 5.0 0.0 0.5
+        5.0 5.0 0.5 0.0
+    ]
+    tree = AlphaConformers.Clustering.hclust(dist; linkage = :average)
+    dendro = joinpath(mktempdir(), "dendrogram.png")
+    @test AlphaConformers._plot_dendrogram(tree, 1.0, "real", dendro) == dendro
+    @test isfile(dendro)
 end
 
 @testitem "Conformer clustering styling and graph helpers" begin
@@ -875,7 +890,15 @@ end
 
     # Same deterministic ensemble as the other integration tests (three shape groups).
     function _write_fixture(data_root, system)
-        models = joinpath(data_root, system, "cluster_1", "af", "predictions", "sequences", "models")
+        models = joinpath(
+            data_root,
+            system,
+            "cluster_1",
+            "af",
+            "predictions",
+            "sequences",
+            "models",
+        )
         mkpath(models)
         residues = 10
         base = [(3.8 * (i - 1), 0.0, 0.0) for i = 1:residues]
@@ -912,7 +935,8 @@ end
 
     system = "toy_system"
     fixtures = _write_fixture(mktempdir(), system)
-    models = joinpath(fixtures, system, "cluster_1", "af", "predictions", "sequences", "models")
+    models =
+        joinpath(fixtures, system, "cluster_1", "af", "predictions", "sequences", "models")
     refs = mktempdir()
     cp(joinpath(models, "conf_A1.pdb"), joinpath(refs, "REFAP_A.pdb"))
     cp(joinpath(models, "conf_C1.pdb"), joinpath(refs, "REFHO_B.pdb"))
@@ -946,11 +970,7 @@ end
     # 0-reference mode: system-level cluster overview + plain embedding scatter, per-cluster
     # agglomerative figures, no reference-only views and no affinity/query views.
     out0 = mktempdir()
-    r0 = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out0,
-    )
+    r0 = cluster_conformers(system; data_root = fixtures, out_dir = out0)
     @test isfile(joinpath(r0.system_dir, "cluster_overview.png"))
     @test isfile(joinpath(r0.system_dir, "reference_scatter.png"))
     @test !isfile(joinpath(r0.system_dir, "reference_affinity.png"))
@@ -970,8 +990,7 @@ end
     out1 = mktempdir()
     r1 = cluster_conformers(
         system,
-        "REFAP_A";
-        refs_dir = refs,
+        joinpath(refs, "REFAP_A.pdb");
         data_root = fixtures,
         out_dir = out1,
     )
@@ -992,9 +1011,8 @@ end
     out2 = mktempdir()
     r2 = cluster_conformers(
         system,
-        "REFAP_A",
-        "REFHO_B";
-        refs_dir = refs,
+        joinpath(refs, "REFAP_A.pdb"),
+        joinpath(refs, "REFHO_B.pdb");
         data_root = fixtures,
         out_dir = out2,
     )
@@ -1028,9 +1046,8 @@ end
     out_qp = mktempdir()
     rqp = cluster_conformers(
         system,
-        "REFAP_A",
-        "REFHO_B";
-        refs_dir = refs,
+        joinpath(refs, "REFAP_A.pdb"),
+        joinpath(refs, "REFHO_B.pdb");
         data_root = fixtures,
         out_dir = out_qp,
         query = joinpath(models, "conf_B2.pdb"),
@@ -1065,7 +1082,7 @@ end
     @test all(isfile, rs.figures)
     for f in r1.figures
         isfile(f) || println("MISSING: ", f)
-    end 
+    end
     assert_no_dropped(out_s)
 
     # make_plots = false writes no figures at all.

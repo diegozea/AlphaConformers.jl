@@ -282,34 +282,35 @@ using AlphaConformers
 # Reference-free: just cluster the ensemble under data_root/<system>.
 cluster_conformers("1AKZ")
 
-# One reference (apo) or two references (apo + holo). The reference mode is
-# auto-detected from the stems; there is no mode flag and no chain argument.
-cluster_conformers("1AKZ", "1AKZ_A")
-cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E")
+# One or two references — each is a PATH to a reference structure file
+# (.pdb/.cif, optionally .gz). The reference count (0/1/2) is auto-detected, and
+# either reference slot may be given on its own; there is no chain argument.
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb")
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")
 
 # Common options (shown with their defaults).
-cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E";
-    data_root = "/data/alphaconformers/pdb",  # holds <system>/ AlphaConformers output trees
-    refs_dir  = "refs",                        # holds the apo/holo reference files
-    out_dir   = "results",                     # output root
-    kmeans_k  = 30,
-    threshold = 1.0,                           # agglomerative cut in Å
-    linkage   = :average,
-    seed      = 42)
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb";
+    data_root  = "/data/alphaconformers/pdb",  # holds <system>/ AlphaConformers output trees
+    method     = "af",                          # prediction-method subfolder to read
+    out_dir    = "results",                     # output root
+    ref_labels = ("apo", "holo"))               # label each reference (default: file basename)
 ```
 
 The input under `data_root/<system>/` is an AlphaConformers output tree. Only the
 predicted structures are clustered: the `.pdb`/`.cif` files inside `models/`
-folders (the prediction location, `cluster_*/.../predictions/sequences/models/`).
+folders (the prediction location, `cluster_*/<method>/predictions/sequences/models/`).
 
-A reference stem is `<PDBID>_<CHAIN>` (for example `1AKZ_A`) resolved against
-`refs_dir`.
+Each reference is the **path** to a structure file (`.pdb`/`.cif`, optionally
+`.gz`); there is no chain argument. Its label comes from `ref_labels` (default:
+the file's basename without extension) and names the reference's `RMSD_<label>`
+column and its cluster-assignment row. The clustering parameters (K = 30,
+agglomerative cut 1.0 Å, average linkage, seed 42) are fixed defaults.
 
 To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
 `DataFrame` or a path to a CSV with a `Name` column and the score column:
 
 ```julia
-cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E"; score_table = "deepaccnet_results.csv")
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")
 ```
 
 ### Query path
@@ -318,14 +319,14 @@ The query-path figure (`query_path.png`) ranks the clusters by their RMSD to a
 **query** structure, starting from the cluster the query falls into. The query
 defaults to a reference, so you usually do not set it:
 
-- One reference (apo only): that reference is used as the query.
-- Two references (apo + holo): the **apo** reference is used as the query.
+- One reference: that reference is used as the query.
+- Two references: the **first** reference is used as the query.
 - Reference-free: no query is used unless you pass one, so no query-path figure.
 
 ```julia
-# query_path.png is produced automatically - the apo reference is the query.
-cluster_conformers("1AKZ", "1AKZ_A")            # 1 reference  → that ref is the query
-cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E")  # 2 references → apo is the query
+# query_path.png is produced automatically - the first reference is the query.
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb")                     # 1 reference
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")  # 2 references → first is the query
 ```
 
 To override the default, pass `query` explicitly - either a conformer name (as it
@@ -336,8 +337,8 @@ nearest cluster):
 # A conformer name from the ensemble.
 cluster_conformers("1AKZ"; query = "cluster_1/.../model_1.pdb")
 
-# A structure file; here it overrides the apo default in two-reference mode.
-cluster_conformers("1AKZ", "1AKZ_A", "1SSP_E"; query = "/path/to/my_query.pdb")
+# A structure file; here it overrides the first-reference default.
+cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; query = "/path/to/my_query.pdb")
 ```
 
 ### Output structure
@@ -364,7 +365,7 @@ results/<SYSTEM>/
 |   # --- one folder per occupied KMeans cluster C ---
 |   # (when the score filter ran, only the SURVIVING clusters get a folder)
 |-- kmeans<C>/
-|   |-- members.csv                  # this cluster's members.  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
+|   |-- output_cluster_members.csv                  # this cluster's members.  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
 |   |-- dendrogram.png               # agglomerative tree of this cluster's members
 |   |-- subcluster_scatter.png       # members colored by sub-cluster
 |   `-- minicluster_graph.png        # sub-cluster MST graph (skipped if the cluster has one sub-cluster)

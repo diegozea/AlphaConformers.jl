@@ -12,7 +12,7 @@ const _SEED = 42
 # Reference handling
 # -----
 
-# Normalize a reference stem: blank/whitespace → nothing, else unchanged.
+# Normalize a reference path: blank/whitespace → nothing, else unchanged.
 function _normalize_reference(ref::String)::Union{Nothing,String}
     stripped = strip(ref)
     return isempty(stripped) ? nothing : stripped
@@ -88,36 +88,38 @@ function _ensemble_common_residues(residues_list::AbstractVector)
     # Per-conformer map from a reference residue index to this conformer's residue index.
     maps = Vector{Dict{Int,Int}}(undef, length(residues_list))
     common = Set{Int}(eachindex(reference))
-    for (c, residues) in enumerate(residues_list)
-        if c == 1
+    for (struct_idx, residues) in enumerate(residues_list)
+        if struct_idx == 1
             maps[1] = Dict(i => i for i in eachindex(reference))
         else
             result = structural_alignment(reference, residues)
-            result === nothing &&
-                error("could not align conformer $c to the reference; cannot cluster")
-            maps[c] = Dict(i_ref => i_conf for (i_ref, i_conf) in result[3])
-            intersect!(common, keys(maps[c]))
+            result === nothing && error(
+                "could not align conformer $struct_idx to the reference; cannot cluster",
+            )
+            maps[struct_idx] = Dict(i_ref => i_conf for (i_ref, i_conf) in result[3])
+            intersect!(common, keys(maps[struct_idx]))
         end
     end
     common_sorted = sort(collect(common))
     isempty(common_sorted) &&
         error("conformers share no common CA residue positions; cannot cluster")
     return [
-        [residues_list[c][maps[c][i]] for i in common_sorted] for
-        c in eachindex(residues_list)
+        [residues_list[struct_idx][maps[struct_idx][i_ref]] for i_ref in common_sorted] for
+        struct_idx in eachindex(residues_list)
     ]
 end
 
 # Superimpose every conformer's common-residue set onto the first and return the coordinates.
 #
 # `common_list` is a vector of equal-length CA-only `PDBResidue` vectors (the ensemble-common set).
-# Returns a matching vector of `L×3` coordinate matrices in the first conformer's centered frame,
-# using the package's MIToS superposition and `CAmatrix`.
+# The first conformer is centered with `MIToS.PDB.centeredresidues` and every other conformer is
+# superimposed onto it; `superimpose` centers the reference internally, so all conformers land in
+# the same centered frame. Returns a matching vector of `L×3` coordinate matrices in that frame,
+# using `CAmatrix`.
 function _superimpose_common(common_list::AbstractVector)
     reference = common_list[1]
-    ref_centered, _, _ = MIToS.PDB.superimpose(reference, reference)
     aligned = Vector{Matrix{Float64}}(undef, length(common_list))
-    aligned[1] = MIToS.PDB.CAmatrix(ref_centered)
+    aligned[1] = MIToS.PDB.CAmatrix(MIToS.PDB.centeredresidues(reference))
     for i = 2:length(common_list)
         _, bsuper, _ = MIToS.PDB.superimpose(reference, common_list[i])
         aligned[i] = MIToS.PDB.CAmatrix(bsuper)
@@ -139,34 +141,11 @@ end
 # Reference RMSD
 # -----
 
-# Structure file extensions tried when resolving a reference stem.
-const _STRUCTURE_EXTENSIONS = (".pdb", ".cif", ".pdb.gz", ".cif.gz")
-
 # Pick the MIToS structure file format from a path, looking past a trailing `.gz`.
 function _structure_format(path::AbstractString)
     name = endswith(lowercase(path), ".gz") ? path[1:(end-3)] : path
     ext = lowercase(splitext(name)[2])
     return ext == ".cif" ? MIToS.PDB.MMCIFFile : MIToS.PDB.PDBFile
-end
-
-# Resolve a reference stem (`<PDBID>_<CHAIN>`) to a file under `refs_dir`.
-#
-# Tries, across the structure extensions (`.pdb`, `.cif`, and their `.gz` variants): the exact stem
-# first, then a case-insensitive lowercase-id fallback that lowercases the PDB id but keeps the
-# chain letter (`1AKZ_A` → `1akz_A`). Returns the first existing path. Raises a clear error when the
-# stem resolves to no file. No chain argument: each reference file is read whole.
-function _resolve_reference(refs_dir::AbstractString, stem::AbstractString)
-    candidates = String[String(stem)]
-    if occursin('_', stem)
-        pdb_id, chain_letter = rsplit(String(stem), '_'; limit = 2)
-        push!(candidates, "$(lowercase(pdb_id))_$(chain_letter)")
-    end
-    for cand in candidates, ext in _STRUCTURE_EXTENSIONS
-        path = joinpath(refs_dir, cand * ext)
-        isfile(path) && return path
-    end
-    tried = join([cand * ext for cand in candidates for ext in _STRUCTURE_EXTENSIONS], ", ")
-    error("could not resolve reference stem '$stem' under '$refs_dir'; tried: $tried")
 end
 
 # Read one structure file into its CA-only `PDBResidue`s.
@@ -219,10 +198,11 @@ end
 
 # Write the reference RMSD table and the reference cluster-assignment table.
 #
-# `refs` is a vector of `(label, stem, rmsds)` tuples (`label` is the user-chosen reference name,
-# e.g. `"ref1"`/`"ref2"` by default). Writes `dist_external_rmsds.csv` (one row per conformer, a
-# `RMSD_<label>` column per reference) and `reference_clusters.csv` (one row per reference), both
-# at the per-system output root. Returns both tables.
+# `refs` is a vector of `(label, path, rmsds)` tuples (`label` is the user-chosen reference name,
+# e.g. the reference file's basename by default; `path` is the reference file path). Writes
+# `dist_external_rmsds.csv` (one row per conformer, a `RMSD_<label>` column per reference) and
+# `reference_clusters.csv` (one row per reference, with a `Path` column), both at the per-system
+# output root. Returns both tables.
 function _write_reference_tables(
     system_dir::AbstractString,
     names::AbstractVector,
@@ -231,14 +211,14 @@ function _write_reference_tables(
 )
     rmsd_table = DataFrames.DataFrame(:Name => collect(names))
     assignment_rows = NamedTuple[]
-    for (label, stem, rmsds) in refs
+    for (label, path, rmsds) in refs
         rmsd_table[!, Symbol("RMSD_$label")] = rmsds
         cluster, mean_rmsd = _assign_reference_cluster(rmsds, labels)
         push!(
             assignment_rows,
             (
                 Reference = label,
-                Stem = stem,
+                Path = path,
                 Cluster = cluster,
                 Mean_RMSD_Angstrom = mean_rmsd,
             ),
@@ -481,7 +461,7 @@ end
 
 # Write one KMeans cluster's membership table into its `kmeans<C>/` folder.
 #
-# Writes `members.csv`, this cluster's members with their sub-cluster labels (same schema as the
+# Writes `output_cluster_members.csv`, this cluster's members with their sub-cluster labels (same schema as the
 # flat top-level table: `Name`, `KMeans_K<k>`, `Sub_Cluster`, `Mini_Cluster`). Returns the
 # cluster folder path.
 function _write_cluster_outputs(
@@ -493,7 +473,7 @@ function _write_cluster_outputs(
 )
     mkpath(cluster_dir)
     members = _hierarchical_table(names, kmeans_labels, sub_labels, k)
-    CSV.write(joinpath(cluster_dir, "members.csv"), members)
+    CSV.write(joinpath(cluster_dir, "output_cluster_members.csv"), members)
     return cluster_dir
 end
 
@@ -597,7 +577,7 @@ end
 
 """
     cluster_conformers(system, ref1="", ref2="";
-        ref_labels=("ref1", "ref2"), refs_dir="refs",
+        ref_labels=("ref1", "ref2"),
         data_root="/data/alphaconformers/pdb", method="af", out_dir="results",
         score_table=nothing, make_plots=true, query=nothing, subdir=nothing)
 
@@ -607,8 +587,9 @@ Cluster an AlphaConformer prediction ensemble by shape, write the base KMeans ta
 It discovers the system's conformers, keeps the CA positions shared by all of them,
 superimposes the coordinates, runs a seeded KMeans at `kmeans_k`, and writes the clustering
 table and the intra-cluster RMSD table at the per-system output root. Up to two references may be
-supplied as `ref1`/`ref2`; either may be given on its own. Each carries a user-chosen label from
-`ref_labels` (default `"ref1"`/`"ref2"`). For each supplied reference it computes the
+supplied as `ref1`/`ref2` (paths to reference structure files); either may be given on its own.
+Each carries a user-chosen label from `ref_labels` (default: the reference file's basename without
+extension). For each supplied reference it computes the
 sequence-aware RMSD from every conformer, assigns the reference to the cluster whose conformers
 are closest to it on average, and writes the per-reference RMSD table (a `RMSD_<label>` column per
 reference) and the reference cluster-assignment table. When a DeepAccNet score table is supplied
@@ -617,7 +598,7 @@ clusters (a cluster survives when at most the fraction of its members fall below
 cutoff) and writes the surviving-cluster table under a `deepaccnet/` folder; with no score table
 this stage is skipped. It then always sub-clusters: within each KMeans cluster it builds the
 pairwise RMSD matrix of the members, cuts an agglomerative tree at `subcluster_threshold`, and
-writes that cluster's `members.csv` into its own `kmeans<C>/` folder, while a flat top-level
+writes that cluster's `output_cluster_members.csv` into its own `kmeans<C>/` folder, while a flat top-level
 `agglomerative_assignments.csv` keeps the single-table view. When the score filter ran, only the
 surviving KMeans clusters get a `kmeans<C>/` folder. Unless `make_plots` is disabled, it also
 writes the figures for each level, adapting to the reference count (0/1/2). The query-path view is
@@ -628,17 +609,17 @@ supplied.
 
 - `system::String`: System identifier; names the input subdirectory under `data_root` and the
   output subdirectory under `out_dir`. Must not be blank after whitespace stripping.
-- `ref1::String`: (Optional) first reference stem, e.g. `"1ABC_A"`. An empty/blank stem selects
-  reference-free for this slot. Defaults to `""`.
-- `ref2::String`: (Optional) second reference stem. May be given with or without `ref1`. Defaults
-  to `""`.
+- `ref1::String`: (Optional) path to the first reference structure file, e.g.
+  `"refs/1ABC_A.pdb"` (`.pdb`/`.cif` and their `.gz` variants are read). An empty/blank value
+  selects reference-free for this slot. Defaults to `""`.
+- `ref2::String`: (Optional) path to the second reference structure file. May be given with or
+  without `ref1`. Defaults to `""`.
 
 # Keywords
 
-- `ref_labels`: Two-element collection naming the references. When left at the default,
-  the reference stems themselves are used as labels (e.g. `"1akz_A"`, `"1aky_A"`).
-- `refs_dir::String`: Directory holding the reference files. Each stem is resolved against this
-  directory (`.pdb`/`.cif` and their `.gz` variants). Defaults to `"refs"`.
+- `ref_labels`: Two-element collection naming the references. When left at the default, each
+  reference's basename without extension is used as its label (e.g. a `"refs/1akz_A.pdb"` path
+  yields the label `"1akz_A"`).
 - `data_root::String`: Root directory holding one AlphaConformers output tree per `<system>`
   subfolder; predictions are read from the `models/` folders inside it. Defaults to
   `"/data/alphaconformers/pdb"`, matching where the package writes prediction outputs.
@@ -671,7 +652,7 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 - `reference_rmsd`: `nothing` in reference-free mode; otherwise a `DataFrame` with a `Name`
   column and a `RMSD_<label>` column per supplied reference, one row per conformer.
 - `reference_clusters`: `nothing` in reference-free mode; otherwise a `DataFrame` with columns
-  `Reference`, `Stem`, `Cluster`, `Mean_RMSD_Angstrom`, one row per supplied reference.
+  `Reference`, `Path`, `Cluster`, `Mean_RMSD_Angstrom`, one row per supplied reference.
 - `deepaccnet_dir`: `nothing` when no score table is supplied; otherwise the path to the written
   `deepaccnet/` directory.
 - `surviving`: `nothing` when no score table is supplied; otherwise the sorted vector of
@@ -686,7 +667,8 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 
 # Throws
 
-- `ErrorException`: if `system` is blank, if a reference stem cannot be resolved under `refs_dir`, if no conformers are found, if the conformers
+- `ErrorException`: if `system` is blank, if a supplied reference path does not exist, if no
+  conformers are found, if the conformers
   share no common CA position, when a score table is
   supplied, if it is missing the `Name`/`score_col` column, if it matches no conformer, or if a `query` is given that is neither
   a known conformer name nor an existing structure file.
@@ -703,7 +685,7 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
    clamped to the conformer count for small ensembles).
 4. Compute the mean intra-cluster RMSD to each cluster centroid and write
    `aligned_clustering_results.csv` and `aligned_cluster_rmsd.csv` at `out_dir/<system>/`.
-5. With one or two references, resolve each stem against `refs_dir`, compute the sequence-aware
+5. With one or two references, read each reference file, compute the sequence-aware
    RMSD from every conformer to each reference, assign each reference to the cluster with the
    lowest mean RMSD, and write `dist_external_rmsds.csv` and `reference_clusters.csv` at
    `out_dir/<system>/`.
@@ -713,7 +695,7 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
    when no score table is given.
 7. For each occupied (or, when the filter ran, surviving) KMeans cluster `C`, build the pairwise
    RMSD matrix of its members, cut the agglomerative tree at `subcluster_threshold` with the chosen
-   `linkage`, and write that cluster's `members.csv` into `out_dir/<system>/kmeans<C>/`. A flat
+   `linkage`, and write that cluster's `output_cluster_members.csv` into `out_dir/<system>/kmeans<C>/`. A flat
    top-level `agglomerative_assignments.csv` collects all sub-cluster assignments.
 8. When `make_plots` is set, write the figures at each level: the
    cluster-overview scatter, the adaptive reference scatter, and the query-path view (whenever a
@@ -728,7 +710,6 @@ function cluster_conformers(
     ref1::String = "",
     ref2::String = "";
     ref_labels = ("ref1", "ref2"),
-    refs_dir::String = "refs",
     data_root::String = "/data/alphaconformers/pdb",
     method::String = "af",
     out_dir::String = "results",
@@ -745,11 +726,13 @@ function cluster_conformers(
     ref1_normalized = _normalize_reference(ref1)
     ref2_normalized = _normalize_reference(ref2)
 
-    # Default ref_labels to the stems when the caller uses the generic ("ref1", "ref2") default.
-    if ref_labels[1] == "ref1" && ref_labels[2] == "ref2"
+    # Default ref_labels to each reference file's basename without extension when the caller uses
+    # the generic ("ref1", "ref2") default.
+    _default_ref_label(p) = p === nothing ? nothing : first(splitext(basename(p)))
+    if ref_labels == ("ref1", "ref2")
         ref_labels = (
-            something(ref1_normalized, "ref1"),
-            something(ref2_normalized, "ref2"),
+            something(_default_ref_label(ref1_normalized), "ref1"),
+            something(_default_ref_label(ref2_normalized), "ref2"),
         )
     end
 
@@ -757,10 +740,15 @@ function cluster_conformers(
     ref_mode = _reference_mode(ref1_normalized, ref2_normalized)
 
     # Discover the ensemble's conformers and read their CA-only residues.
-    conformers = _discover_conformers(data_root, String(stripped_system); subdir = subdir, method = method)
+    conformers = _discover_conformers(
+        data_root,
+        String(stripped_system);
+        subdir = subdir,
+        method = method,
+    )
     names = first.(conformers)
     conformer_residues = [_read_ca_residues(path) for (_name, path) in conformers]
-    
+
     # clamp to conformer count so small ensembles work without user intervention
     kmeans_k = min(_KMEANS_K, length(conformers))
 
@@ -782,7 +770,7 @@ function cluster_conformers(
 
     # Reference handling: sequence-aware RMSD from each supplied reference to every conformer and
     # the cluster it falls into (lowest mean RMSD). Each reference carries its user-chosen label
-    # (default `ref1`/`ref2`). Skipped entirely in reference-free mode.
+    # Skipped entirely in reference-free mode.
     reference_rmsd = nothing
     reference_clusters = nothing
     rmsd_ref1 = Float64[]
@@ -790,13 +778,11 @@ function cluster_conformers(
     present_labels = String[]
     if ref_mode > 0
         refs = Tuple{String,String,Vector{Float64}}[]
-        for (label, stem) in zip(ref_labels, (ref1_normalized, ref2_normalized))
-            stem === nothing && continue
-            rmsds = _reference_rmsds(
-                _read_ca_residues(_resolve_reference(refs_dir, stem)),
-                conformer_residues,
-            )
-            push!(refs, (String(label), stem, rmsds))
+        for (label, path) in zip(ref_labels, (ref1_normalized, ref2_normalized))
+            path === nothing && continue
+            isfile(path) || error("reference file not found: '$path'")
+            rmsds = _reference_rmsds(_read_ca_residues(path), conformer_residues)
+            push!(refs, (String(label), path, rmsds))
         end
 
         reference_rmsd, reference_clusters =
@@ -834,7 +820,7 @@ function cluster_conformers(
     # RMSD matrix of its members, cut the agglomerative tree at `subcluster_threshold`, and record a
     # per-conformer sub-cluster label. When the score filter ran, only the scored conformers in
     # the configured surviving clusters are sub-clustered; otherwise the full KMeans clustering.
-    # Each cluster's outputs land in its own `kmeans<C>/` folder as a flat `members.csv` (no leaf
+    # Each cluster's outputs land in its own `kmeans<C>/` folder as a flat `output_cluster_members.csv` (no leaf
     # sub-cluster folders); a flat top-level `agglomerative_assignments.csv` keeps the single-table
     # view.
     if score_table === nothing
