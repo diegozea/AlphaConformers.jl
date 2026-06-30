@@ -240,6 +240,28 @@ symlink plan and the exact apptainer command without consuming GPU time or creat
 anything. Heavy intermediates (`bert_*.npy`, `*.features.npz`, `*.fa`) are removed after
 a successful run unless `keep_intermediates = true`.
 
+## Scoring Conformers with DeepAccNet
+
+`run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
+directory and writes a score table:
+
+```julia
+using AlphaConformers
+
+base_dir = "/data/alphaconformers/1AKZ"
+sif_path = "/containers/deepaccnet.sif"
+
+csv = run_deepaccnet(base_dir, sif_path)
+```
+
+It flattens every `cluster_*/af/predictions/sequences/models/*.pdb` into a flat
+folder of symlinks named `cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU
+(`apptainer run --nv`), and returns the path to `deepaccnet_results.csv` (columns
+`sample`, `cb-lddt`). The run needs a GPU and a working `apptainer`. Pass `dry_run = true` to print the
+symlink plan and the exact apptainer command without consuming GPU time or creating
+anything. Heavy intermediates (`bert_*.npy`, `*.features.npz`, `*.fa`) are removed after
+a successful run unless `keep_intermediates = true`.
+
 ## Output
 
 The preparation step writes a folder for each template cluster:
