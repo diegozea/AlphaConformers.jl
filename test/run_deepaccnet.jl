@@ -4,9 +4,10 @@ using TestItems
 # ---------------------------
 # Spec/contract for `run_deepaccnet` and its internal helpers (Slice 9). CI has no GPU or
 # apptainer, so — exactly as `_colabfold_batch_command` is tested without executing — every
-# part is covered except the single GPU-only `run_cmd(cmd; check=true)` line: helper-built
-# symlink pairs, the apptainer command string, the dry-run path, the input-validation errors,
-# and the intermediates cleanup.
+# part is covered except the handful of lines gated behind an actual container run
+# (`run_cmd(cmd; check=true)` and the public `run_deepaccnet` glue that wraps it in
+# `mktempdir`): helper-built symlink pairs, the apptainer command string, the dry-run path,
+# the input-validation errors, method auto-detection, and symlink creation.
 
 @testitem "run_deepaccnet helpers and orchestration" begin
     # Build one cluster_<N>/<inner>/predictions/sequences/models/ tree with the given PDB
@@ -20,9 +21,11 @@ using TestItems
         return models
     end
 
-    # Link-pair construction: naming, alphabetical ordering, filtering.
-    # ------------------------------------------------------------------
-    mktempdir() do base
+    # Link-pair construction: naming, alphabetical ordering, filtering, method auto-detection.
+    # ------------------------------------------------------------------------------------------
+    mktempdir() do data_root
+        system = "sys1"
+        base = joinpath(data_root, system)
         inner = "af_pdb"
         m1 = _make_models(base, "cluster_1", inner, ["m1.pdb", "m2.pdb"])
         m2 = _make_models(base, "cluster_2", inner, ["m1.pdb"])
@@ -33,7 +36,7 @@ using TestItems
         # A non-cluster directory is ignored.
         mkpath(joinpath(base, "logs"))
 
-        pairs = AlphaConformers._deepaccnet_links(base, inner)
+        pairs = AlphaConformers._deepaccnet_links(data_root, system)
         names = first.(pairs)
         targets = last.(pairs)
 
@@ -52,6 +55,49 @@ using TestItems
         @test !any(n -> occursin("notes.txt", n), names)
     end
 
+    # Method auto-detection refuses an ambiguous system with .pdb files under two different
+    # inner method folders.
+    # ---------------------------------------------------------------------------------------
+    mktempdir() do data_root
+        system = "sys_ambiguous"
+        base = joinpath(data_root, system)
+        _make_models(base, "cluster_1", "af_pdb", ["m1.pdb"])
+        _make_models(base, "cluster_1", "af_cif_as_pdb", ["m1.pdb"])
+
+        @test_throws ArgumentError AlphaConformers._deepaccnet_links(data_root, system)
+    end
+
+    # `_discover_conformers`'s own "nothing found at all" error is caught and rethrown as an
+    # ArgumentError when a cluster_* directory exists but holds no prediction structures
+    # whatsoever (not even a `models/` folder).
+    # ------------------------------------------------------------------------------------------
+    mktempdir() do data_root
+        system = "sys_no_predictions"
+        mkpath(joinpath(data_root, system, "cluster_1"))
+
+        @test_throws ArgumentError AlphaConformers._deepaccnet_links(data_root, system)
+    end
+
+    # Symlink creation: stale paths at the link location are replaced.
+    # -----------------------------------------------------------------
+    mktempdir() do links_dir
+        target1 = joinpath(links_dir, "target1.pdb")
+        target2 = joinpath(links_dir, "target2.pdb")
+        write(target1, "one")
+        write(target2, "two")
+        link_path = joinpath(links_dir, "cluster_1_m1.pdb")
+        write(link_path, "stale")
+
+        AlphaConformers._symlink_deepaccnet_pairs(
+            links_dir,
+            [("cluster_1_m1.pdb", target1), ("cluster_1_m2.pdb", target2)],
+        )
+
+        @test islink(link_path)
+        @test readlink(link_path) == target1
+        @test islink(joinpath(links_dir, "cluster_1_m2.pdb"))
+    end
+
     # Apptainer command construction (no execution).
     # ----------------------------------------------
     cmd = AlphaConformers._deepaccnet_command(
@@ -59,9 +105,10 @@ using TestItems
         "/data/system",
         "/tmp/run/links",
         "/tmp/run/out/deepaccnet_results.csv";
-        process = 4,
+        n_threads = 4,
     )
     @test "--nv" in cmd.exec
+    @test "apptainer" in cmd.exec
     @test "/tmp/deepaccnet.sif" in cmd.exec
     # Data dirs bound: the base dir holding link targets, the symlink dir, and the output dir.
     @test "/data/system" in cmd.exec                   # base dir bound (symlink targets resolve)
@@ -73,98 +120,82 @@ using TestItems
     @test "--process" in cmd.exec
     @test "4" in cmd.exec
 
-    # Dry run: returns the output csv path, runs nothing, writes nothing.
-    # ------------------------------------------------------------------
-    mktempdir() do base
-        inner = "af"
-        _make_models(base, "cluster_1", inner, ["m1.pdb"])
-        out_dir = joinpath(base, "deepaccnet_output")
+    # container_runtime is validated and forwarded as the invoked executable.
+    cmd_singularity = AlphaConformers._deepaccnet_command(
+        "/tmp/deepaccnet.sif",
+        "/data/system",
+        "/tmp/run/links",
+        "/tmp/run/out/deepaccnet_results.csv";
+        container_runtime = "singularity",
+    )
+    @test "singularity" in cmd_singularity.exec
+    @test_throws ArgumentError AlphaConformers._deepaccnet_command(
+        "/tmp/deepaccnet.sif",
+        "/data/system",
+        "/tmp/run/links",
+        "/tmp/run/out/deepaccnet_results.csv";
+        container_runtime = "docker",
+    )
 
-        csv = AlphaConformers.run_deepaccnet(
-            base,
-            "/tmp/deepaccnet.sif";
-            inner = inner,
-            output_dir = out_dir,
+    # Dry run, sample limiting: prints the plan, runs and creates nothing.
+    # ---------------------------------------------------------------------
+    mktempdir() do links_dir
+        pairs = [
+            ("cluster_1_m1.pdb", "/data/system/cluster_1/af/m1.pdb"),
+            ("cluster_1_m2.pdb", "/data/system/cluster_1/af/m2.pdb"),
+        ]
+        AlphaConformers._run_deepaccnet(
+            links_dir,
+            "/data/system",
+            "/tmp/deepaccnet.sif",
+            joinpath(links_dir, "deepaccnet_results.csv"),
+            pairs;
+            test_samples = 1,
             dry_run = true,
         )
-        @test csv == joinpath(out_dir, "deepaccnet_results.csv")
-        # Dry run must not create the links dir, the output dir, or the result csv.
-        @test !isdir(joinpath(out_dir, "links"))
-        @test !ispath(csv)
-    end
-
-    # GPU gate: `_gpu_available` reports a Bool, and a real (non-dry) run refuses up front
-    # when no GPU is present (DeepAccNet inference needs `apptainer run --nv`). On a no-GPU
-    # host (typical CI) this exercises the refusal; on a GPU host the refusal is skipped (the
-    # run would then proceed to the container, which we do not execute here). `dry_run`
-    # bypasses the gate so the command/link plan can be inspected anywhere.
-    # ----------------------------------------------------------------------------------------
-    @test AlphaConformers._gpu_available() isa Bool
-    mktempdir() do base
-        inner = "af_pdb"
-        _make_models(base, "cluster_1", inner, ["m1.pdb"])
-        out_dir = joinpath(base, "deepaccnet_output")
-        if !AlphaConformers._gpu_available()
-            @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-                base,
-                "/tmp/deepaccnet.sif";
-                inner = inner,
-                output_dir = out_dir,
-            )
-            # The refused run must not have created links or output.
-            @test !isdir(joinpath(out_dir, "links"))
-        end
-        # `require_gpu = false` overrides the gate; with `dry_run` it returns without running.
-        csv = AlphaConformers.run_deepaccnet(
-            base,
-            "/tmp/deepaccnet.sif";
-            inner = inner,
-            output_dir = out_dir,
-            require_gpu = false,
-            dry_run = true,
-        )
-        @test csv == joinpath(out_dir, "deepaccnet_results.csv")
+        @test isempty(readdir(links_dir))
     end
 
     # Input validation: clear ArgumentErrors before any container work.
     # ----------------------------------------------------------------
-    @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-        "/no/such/base/dir",
-        "/tmp/deepaccnet.sif",
-    )
-    mktempdir() do base
+    mktempdir() do data_root
+        @test_throws ArgumentError AlphaConformers.run_deepaccnet(
+            "no_such_system",
+            "/tmp/deepaccnet.sif";
+            data_root = data_root,
+        )
+    end
+    mktempdir() do data_root
+        system = "sys_empty"
         # No cluster_* directories at all.
+        mkpath(joinpath(data_root, system))
         @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-            base,
+            system,
             "/tmp/deepaccnet.sif";
-            dry_run = true,
+            data_root = data_root,
         )
     end
-    mktempdir() do base
-        # cluster_* exists, but no *.pdb for the requested inner.
-        _make_models(base, "cluster_1", "af_pdb", ["m1.pdb"])
-        @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-            base,
-            "/tmp/deepaccnet.sif";
-            inner = "af_cif",
-            dry_run = true,
+    mktempdir() do data_root
+        system = "sys_no_pdb"
+        # cluster_* exists, but no *.pdb anywhere under it.
+        base = joinpath(data_root, system)
+        mkpath(joinpath(base, "cluster_1", "af_cif", "predictions", "sequences", "models"))
+        write(
+            joinpath(
+                base,
+                "cluster_1",
+                "af_cif",
+                "predictions",
+                "sequences",
+                "models",
+                "m1.cif",
+            ),
+            "",
         )
-    end
-
-    # Intermediates cleanup: heavy files go, results/symlinks stay.
-    # ------------------------------------------------------------
-    mktempdir() do links
-        write(joinpath(links, "bert_x.npy"), "")
-        write(joinpath(links, "a.features.npz"), "")
-        write(joinpath(links, "b.fa"), "")
-        write(joinpath(links, "keep.pdb"), "")
-
-        removed = AlphaConformers._clean_deepaccnet_intermediates(links)
-
-        @test removed == 3
-        @test !ispath(joinpath(links, "bert_x.npy"))
-        @test !ispath(joinpath(links, "a.features.npz"))
-        @test !ispath(joinpath(links, "b.fa"))
-        @test ispath(joinpath(links, "keep.pdb"))
+        @test_throws ArgumentError AlphaConformers.run_deepaccnet(
+            system,
+            "/tmp/deepaccnet.sif";
+            data_root = data_root,
+        )
     end
 end
