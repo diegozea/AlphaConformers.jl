@@ -1,6 +1,14 @@
 # DeepAccNet Apptainer runner
 # ----------------------------
 
+# Validate and pass through a container runtime name.
+function _container_runtime(container_runtime::String)
+    if container_runtime == "apptainer" || container_runtime == "singularity"
+        return container_runtime
+    end
+    throw(ArgumentError("container_runtime must be either \"apptainer\" or \"singularity\"."))
+end
+
 # Alphabetically-sorted cluster_* directory names directly under base_dir.
 _cluster_dirs(base_dir::AbstractString) = sort(
     filter(
@@ -13,8 +21,31 @@ _cluster_dirs(base_dir::AbstractString) = sort(
 _available_inners(cluster_dir::AbstractString) =
     sort(filter(n -> isdir(joinpath(cluster_dir, n)), readdir(cluster_dir)))
 
-# Uses `_discover_conformers` from `src/conformer_clustering.jl` (included in
-# `src/AlphaConformers.jl`) to find prediction `models/` files.
+# Discover prediction `models/` files under `data_root/system/cluster_*/<inner>/predictions/
+# sequences/models/`, without assuming a fixed inner method name. Returns `(name, path)` tuples
+# sorted by `name`, where `name` is the file path relative to the system directory and `path` is
+# the absolute path. Raises a clear error if the system directory is missing or holds no
+# `.pdb`/`.cif` prediction structures.
+function _discover_deepaccnet_predictions(data_root::AbstractString, system::AbstractString)
+    system_dir = joinpath(data_root, system)
+    isdir(system_dir) ||
+        error("no conformer directory found for system '$system' at '$system_dir'")
+
+    found = Tuple{String,String}[]
+    search_pattern = joinpath("cluster_*", "*", "predictions", "sequences", "models")
+    for ext in ("*.pdb", "*.cif")
+        for path in glob(joinpath(search_pattern, ext), system_dir)
+            isfile(path) || continue
+            push!(found, (relpath(path, system_dir), abspath(path)))
+        end
+    end
+
+    isempty(found) && error(
+        "no .pdb/.cif prediction structures found for system '$system' under '$system_dir'",
+    )
+    sort!(found; by = first)
+    return found
+end
 
 """
     _deepaccnet_links(data_root, system) -> Vector{Tuple{String,String}}
@@ -34,11 +65,7 @@ consistent prediction source.
 """
 function _deepaccnet_links(data_root::AbstractString, system::AbstractString)
     found = try
-        _discover_conformers(
-            data_root,
-            system;
-            subdir = joinpath("cluster_*", "*", "predictions", "sequences", "models"),
-        )
+        _discover_deepaccnet_predictions(data_root, system)
     catch e
         throw(ArgumentError(string(e)))
     end

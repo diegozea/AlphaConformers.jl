@@ -76,7 +76,6 @@ include("af_input.jl")
 include("run_alphafold.jl")
 include("organize_files.jl")
 include("run_alphaconformers.jl")
-include("conformer_clustering.jl")
 include("run_deepaccnet.jl")
 
 end
