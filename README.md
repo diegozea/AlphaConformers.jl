@@ -279,26 +279,26 @@ per-system output tree plus the essential figures.
 ```julia
 using AlphaConformers
 
-# Reference-free: just cluster the ensemble under data_root/<system>.
-cluster_conformers("1AKZ")
+# Reference-free: cluster the ensemble in an AlphaConformers run folder (its output_dir).
+cluster_conformers("/data/alphaconformers/1AKZ_A")
 
 # One or two references — each is a PATH to a reference structure file
 # (.pdb/.cif, optionally .gz). The reference count (0/1/2) is auto-detected, and
 # either reference slot may be given on its own; there is no chain argument.
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb")
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb")
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")
 
 # Common options (shown with their defaults).
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb";
-    data_root  = "/data/alphaconformers/pdb",  # holds <system>/ AlphaConformers output trees
-    method     = "af",                          # prediction-method subfolder to read
-    out_dir    = "results",                     # output root
-    ref_labels = ("apo", "holo"))               # label each reference (default: file basename)
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb";
+    method     = "af",             # prediction-method subfolder to read (alphaconformers folder_af2_result)
+    ref_labels = ("apo", "holo"))  # label each reference (default: file basename)
 ```
 
-The input under `data_root/<system>/` is an AlphaConformers output tree. Only the
-predicted structures are clustered: the `.pdb`/`.cif` files inside `models/`
-folders (the prediction location, `cluster_*/<method>/predictions/sequences/models/`).
+The single positional argument is the AlphaConformers **run folder** — the same
+`output_dir` that `alphaconformers` writes to. Predictions are read from the
+`.pdb`/`.cif` files inside its `models/` folders
+(`cluster_*/<method>/predictions/sequences/models/`), and the clustering results
+are written **back into that same folder**.
 
 Each reference is the **path** to a structure file (`.pdb`/`.cif`, optionally
 `.gz`); there is no chain argument. Its label comes from `ref_labels` (default:
@@ -310,7 +310,7 @@ To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
 `DataFrame` or a path to a CSV with a `Name` column and the score column:
 
 ```julia
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")
 ```
 
 ### Query path
@@ -325,8 +325,8 @@ defaults to a reference, so you usually do not set it:
 
 ```julia
 # query_path.png is produced automatically - the first reference is the query.
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb")                     # 1 reference
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")  # 2 references → first is the query
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb")                     # 1 reference
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")  # 2 references → first is the query
 ```
 
 To override the default, pass `query` explicitly - either a conformer name (as it
@@ -335,62 +335,61 @@ nearest cluster):
 
 ```julia
 # A conformer name from the ensemble.
-cluster_conformers("1AKZ"; query = "cluster_1/.../model_1.pdb")
+cluster_conformers("/data/alphaconformers/1AKZ_A"; query = "cluster_1/.../model_1.pdb")
 
 # A structure file; here it overrides the first-reference default.
-cluster_conformers("1AKZ", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; query = "/path/to/my_query.pdb")
+cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; query = "/path/to/my_query.pdb")
 ```
 
 ### Output structure
 
-Everything for one run is written under `out_dir/<system>/`. The tree has three
-parts: flat tables and figures at the system root, one `kmeans<C>/` folder per
-cluster, and an optional `deepaccnet/` folder when a score table was supplied.
+The clustering results are written into a `conformer_clustering/` subfolder of the
+run folder, so they stay separate from the input `cluster_*/` predictions:
 
 ```text
-results/<SYSTEM>/
-|
-|   # --- system-root tables ---
-|-- aligned_clustering_results.csv   # Stage 1 KMeans labels.  Columns: Name, KMeans_K<k> (labels 0..k-1)
-|-- aligned_cluster_rmsd.csv         # Stage 1 intra-cluster RMSD.  Columns: Method, Cluster, Size, Mean_RMSD_Angstrom
-|-- agglomerative_assignments.csv    # Stage 3 flat table for sub-clustered conformers (all conformers when no score filter runs; otherwise only scored conformers in surviving clusters).  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
-|-- dist_external_rmsds.csv          # conformer-to-reference RMSD (only with >=1 reference).  Columns: Name, RMSD_Apo[, RMSD_Holo]
-|-- reference_clusters.csv           # each reference's best cluster (only with >=1 reference).  Columns: Reference, Stem, Cluster, Mean_RMSD_Angstrom
-|
-|   # --- system-level figures ---
-|-- cluster_overview.png             # PCA scatter, colored by KMeans cluster
-|-- reference_scatter.png            # adaptive: apo-vs-holo (2 refs) / embedding-vs-reference (1 ref) / plain embedding (0 refs)
-|-- query_path.png                   # when a reference is given (tracks apo) or a `query` is passed
-|
-|   # --- one folder per occupied KMeans cluster C ---
-|   # (when the score filter ran, only the SURVIVING clusters get a folder)
-|-- kmeans<C>/
-|   |-- output_cluster_members.csv                  # this cluster's members.  Columns: Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
-|   |-- dendrogram.png               # agglomerative tree of this cluster's members
-|   |-- subcluster_scatter.png       # members colored by sub-cluster
-|   `-- minicluster_graph.png        # sub-cluster MST graph (skipped if the cluster has one sub-cluster)
-|
-`-- deepaccnet/                      # Stage 2, only when a score table is supplied
-    |-- surviving/
-    |   `-- surviving_rel<rel>_frac<frac>.csv   # the configured surviving cut (default rel=25, frac=75).  Columns: Name, KMeans_K<k>
-    |-- rmsd_scatter_by_score.png    # conformer RMSD colored by DeepAccNet score
-    `-- kmeans_deepaccnet_filtered.png   # clusters with the filtered-out ones de-emphasized
+/data/alphaconformers/1AKZ_A/            # the run folder you pass in
+├── cluster_1/ … cluster_N/             # INPUT: AlphaConformers predictions (untouched)
+└── conformer_clustering/               # OUTPUT: everything below is written here
+    |
+    |   # --- flat tables ---
+    |-- aligned_clustering_results.csv   # Name, KMeans_K<k> (labels 1..k)
+    |-- aligned_cluster_rmsd.csv         # Method, Cluster, Size, Mean_RMSD_Angstrom
+    |-- agglomerative_assignments.csv    # Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster (sub-clustered conformers)
+    |-- dist_external_rmsds.csv          # Name, RMSD_<label>…            (only with >=1 reference)
+    |-- reference_clusters.csv           # Reference, Path, Cluster, Mean_RMSD_Angstrom  (>=1 ref)
+    |
+    |   # --- figures ---
+    |-- cluster_overview.png             # PCA scatter, colored by KMeans cluster
+    |-- reference_scatter.png            # adaptive: ref-vs-ref (2) / embedding-vs-ref (1) / embedding (0)
+    |-- query_path.png                   # when a reference is given (tracks the 1st) or a `query` is passed
+    |
+    |   # --- one folder per occupied (or surviving) KMeans cluster C ---
+    |-- kmeans<C>/
+    |   |-- output_cluster_members.csv   # Name, KMeans_K<k>, Sub_Cluster, Mini_Cluster
+    |   |-- dendrogram.png
+    |   |-- subcluster_scatter.png
+    |   `-- minicluster_graph.png        # skipped if the cluster has a single sub-cluster
+    |
+    `-- deepaccnet/                      # only when a score table is supplied
+        |-- surviving/surviving.csv      # Name, KMeans_K<k>  (the configured 25%/75% cut)
+        |-- rmsd_scatter_by_score.png
+        `-- kmeans_deepaccnet_filtered.png
 ```
 
 Stage notes:
 
 - Stage 1 (KMeans) and Stage 3 (agglomerative sub-clustering) always run, so the
-  three system-root tables and the `kmeans<C>/` folders are always produced.
+  flat tables and the `kmeans<C>/` folders are always produced.
 - The `dist_external_rmsds.csv` / `reference_clusters.csv` tables and the
   reference-aware figures appear only when at least one reference is passed.
-- `deepaccnet/` and the surviving-cluster tables appear only when a score table
+- `deepaccnet/` and the surviving-cluster table appear only when a score table
   is supplied. With the filter on, only surviving clusters become `kmeans<C>/`
   folders, so a run with DeepAccNet typically has fewer cluster folders than the
   same run without it.
 
-The matching fields on the returned named tuple are `system_dir` (the root
-above), `cluster_dirs` (the `kmeans<C>/` paths), `deepaccnet_dir`, and `figures`
-(the list of written figure paths).
+The matching fields on the returned named tuple are `results_dir` (the
+`conformer_clustering/` folder above), `cluster_dirs` (the `kmeans<C>/` paths),
+`deepaccnet_dir`, and `figures` (the list of written figure paths).
 
 ## Common Helpers
 

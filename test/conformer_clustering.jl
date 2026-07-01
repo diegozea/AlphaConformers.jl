@@ -14,28 +14,17 @@ using TestItems
     @test AlphaConformers._reference_mode("1ABC_A", "1DEF_B") == 2  # 2-ref
 
     # Test cluster_conformers validation errors.
-    @test_throws ErrorException cluster_conformers("")  # blank system
-    @test_throws ErrorException cluster_conformers("   ")  # whitespace-only system
+    @test_throws ErrorException cluster_conformers("")     # blank output_dir
+    @test_throws ErrorException cluster_conformers("   ")  # whitespace-only output_dir
 
     # A second-slot reference on its own is allowed (no asymmetry); this still errors only because
-    # there is no discoverable data at the default data_root.
-    @test_throws ErrorException cluster_conformers("sys1", "", "1ABC_A")
+    # the run folder does not exist.
+    @test_throws ErrorException cluster_conformers("no_such_run_folder", "", "1ABC_A")
 
-    # Reference modes run now; with no discoverable conformers the run still errors clearly.
-    @test_throws ErrorException cluster_conformers(
-        "sys1",
-        "1ABC_A";
-        data_root = mktempdir(),
-    )
-    @test_throws ErrorException cluster_conformers(
-        "sys1",
-        "1ABC_A",
-        "1DEF_B";
-        data_root = mktempdir(),
-    )
-
-    # A reference-free call with no discoverable data errors clearly.
-    @test_throws ErrorException cluster_conformers("sys1"; data_root = mktempdir())
+    # An existing but empty run folder (no prediction models) errors clearly, in every ref mode.
+    @test_throws ErrorException cluster_conformers(mktempdir(), "1ABC_A")
+    @test_throws ErrorException cluster_conformers(mktempdir(), "1ABC_A", "1DEF_B")
+    @test_throws ErrorException cluster_conformers(mktempdir())
 end
 
 @testitem "Conformer clustering helper seams" begin
@@ -230,7 +219,8 @@ end
     system = "toy_system"
     n_conformers = 9
     fixtures = _write_fixture(mktempdir(), system)
-    models = joinpath(fixtures, system, "cluster_1", "af", "predictions", "sequences", "models")
+    run_dir = joinpath(fixtures, system)   # the AlphaConformers run folder = cluster_conformers input
+    models = joinpath(run_dir, "cluster_1", "af", "predictions", "sequences", "models")
 
     # References are pre-trimmed single-chain files; reuse two conformers as the apo/holo
     # references so each reference is identical to one ensemble member.
@@ -239,7 +229,7 @@ end
     cp(joinpath(models, "conf_C1.pdb"), joinpath(refs, "REFHO_B.pdb"))
 
     # Baseline (reference-free) labels, to know which cluster conf_A1 / conf_C1 land in.
-    base = cluster_conformers(system; data_root = fixtures, out_dir = mktempdir())
+    base = cluster_conformers(run_dir)
 
     label_col = names(base.clustering)[2]  # always the second column
     k = parse(Int, match(r"KMeans_K(\d+)", label_col)[1])
@@ -254,11 +244,10 @@ end
     refho = joinpath(refs, "REFHO_B.pdb")
 
     # 1-reference mode (apo only).
-    out1 = mktempdir()
-    one = cluster_conformers(system, refap; data_root = fixtures, out_dir = out1)
+    one = cluster_conformers(run_dir, refap)
 
-    rmsd_csv = joinpath(out1, system, "dist_external_rmsds.csv")
-    refclu_csv = joinpath(one.system_dir, "reference_clusters.csv")
+    rmsd_csv = joinpath(run_dir, "conformer_clustering", "dist_external_rmsds.csv")
+    refclu_csv = joinpath(one.results_dir, "reference_clusters.csv")
     @test isfile(rmsd_csv)
     @test isfile(refclu_csv)
 
@@ -298,15 +287,7 @@ end
     @test ref1_row.RMSD_REFAP_A ≈ 0.0 atol = 1e-4
 
     # Custom `ref_labels` flow through to the column and assignment labels.
-    out_lbl = mktempdir()
-    labelled = cluster_conformers(
-        system,
-        refap,
-        refho;
-        ref_labels = ("apo", "holo"),
-        data_root = fixtures,
-        out_dir = out_lbl,
-    )
+    labelled = cluster_conformers(run_dir, refap, refho; ref_labels = ("apo", "holo"))
     @test names(labelled.reference_rmsd) == ["Name", "RMSD_apo", "RMSD_holo"]
     @test labelled.reference_clusters.Reference == ["apo", "holo"]
 
@@ -315,10 +296,9 @@ end
     @test base.reference_clusters === nothing
 
     # 2-reference mode (default ref1/ref2 labels).
-    out2 = mktempdir()
-    two = cluster_conformers(system, refap, refho; data_root = fixtures, out_dir = out2)
+    two = cluster_conformers(run_dir, refap, refho)
     rmsd2 =
-        CSV.read(joinpath(out2, system, "dist_external_rmsds.csv"), DataFrames.DataFrame)
+        CSV.read(joinpath(run_dir, "conformer_clustering", "dist_external_rmsds.csv"), DataFrames.DataFrame)
     @test names(rmsd2) == ["Name", "RMSD_REFAP_A", "RMSD_REFHO_B"]
     refclu2 = two.reference_clusters
     @test refclu2.Reference == ["REFAP_A", "REFHO_B"]
@@ -332,12 +312,7 @@ end
     )
 
     # A reference path that does not exist raises a clear error.
-    @test_throws ErrorException cluster_conformers(
-        system,
-        joinpath(refs, "NOPE_A.pdb");
-        data_root = fixtures,
-        out_dir = mktempdir(),
-    )
+    @test_throws ErrorException cluster_conformers(run_dir, joinpath(refs, "NOPE_A.pdb"))
 end
 
 @testitem "Conformer clustering agglomerative cut" begin
@@ -470,13 +445,12 @@ end
     system = "toy_system"
     fixtures = _write_fixture(mktempdir(), system)
 
-    out = mktempdir()
-    result = cluster_conformers(system; data_root = fixtures, out_dir = out)
+    result = cluster_conformers(joinpath(fixtures, system))
     n_conformers = 9
     label_col = names(result.clustering)[2]
     k = parse(Int, match(r"KMeans_K(\d+)", label_col)[1])
     # The flat top-level assignment table is written at the per-system root.
-    assign_csv = joinpath(result.system_dir, "agglomerative_assignments.csv")
+    assign_csv = joinpath(result.results_dir, "agglomerative_assignments.csv")
     @test isfile(assign_csv)
 
     assignments = CSV.read(assign_csv, DataFrames.DataFrame)
@@ -621,10 +595,11 @@ end
     system = "toy_system"
     n_conformers = 9
     fixtures = _write_fixture(mktempdir(), system)
+    run_dir = joinpath(fixtures, system)
 
     # First pass (no scores) to learn the seeded KMeans labels so the crafted score table is
     # independent of which label maps to which shape group.
-    base = cluster_conformers(system; data_root = fixtures, out_dir = mktempdir())
+    base = cluster_conformers(run_dir)
 
     # No score table: stage skipped cleanly, pipeline still completes over all conformers.
     @test base.deepaccnet_dir === nothing
@@ -647,17 +622,11 @@ end
         "cb-lddt" => [lbl == target ? 0.0 : 1.0 for lbl in labels],
     )
 
-    out = mktempdir()
-    result = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out,
-        score_table = score_table,
-    )
+    result = cluster_conformers(run_dir; score_table = score_table)
 
     # The deepaccnet/ tree holds only the single configured cut — no leftover grid sweep, and the
     # filename no longer encodes the rel/frac values.
-    @test result.deepaccnet_dir == joinpath(out, system, "deepaccnet")
+    @test result.deepaccnet_dir == joinpath(run_dir, "conformer_clustering", "deepaccnet")
     surv_dir = joinpath(result.deepaccnet_dir, "surviving")
     @test isdir(surv_dir)
     @test isfile(joinpath(surv_dir, "surviving.csv"))
@@ -728,8 +697,9 @@ end
 
     system = "toy_system"
     fixtures = _write_fixture(mktempdir(), system)
+    run_dir = joinpath(fixtures, system)
 
-    base = cluster_conformers(system; data_root = fixtures, out_dir = mktempdir())
+    base = cluster_conformers(run_dir)
     label_col = names(base.clustering)[2]
     conformer_names = base.clustering.Name
 
@@ -739,15 +709,9 @@ end
     kept = conformer_names[2:end]
     score_table = DataFrames.DataFrame("Name" => kept, "cb-lddt" => fill(1.0, length(kept)))
 
-    out = mktempdir()
-    result = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out,
-        score_table = score_table,
-    )
+    result = cluster_conformers(run_dir; score_table = score_table)
 
-    @test result.deepaccnet_dir == joinpath(out, system, "deepaccnet")
+    @test result.deepaccnet_dir == joinpath(run_dir, "conformer_clustering", "deepaccnet")
     surv_csv = joinpath(result.deepaccnet_dir, "surviving", "surviving.csv")
     surviving = CSV.read(surv_csv, DataFrames.DataFrame)
     @test !(omitted in surviving.Name)
@@ -967,113 +931,87 @@ end
     @test AlphaConformers._FIG_DPI == 600
     @test AlphaConformers._FIG_SIZE == (1300, 800)
 
+    # Results land in the run folder, so build a fresh, deterministic fixture per run to keep the
+    # negative figure assertions isolated across runs.
+    fresh_run() = joinpath(_write_fixture(mktempdir(), system), system)
+
     # 0-reference mode: system-level cluster overview + plain embedding scatter, per-cluster
     # agglomerative figures, no reference-only views and no affinity/query views.
-    out0 = mktempdir()
-    r0 = cluster_conformers(system; data_root = fixtures, out_dir = out0)
-    @test isfile(joinpath(r0.system_dir, "cluster_overview.png"))
-    @test isfile(joinpath(r0.system_dir, "reference_scatter.png"))
-    @test !isfile(joinpath(r0.system_dir, "reference_affinity.png"))
-    @test !isfile(joinpath(r0.system_dir, "query_path.png"))
+    r0 = cluster_conformers(fresh_run())
+    @test isfile(joinpath(r0.results_dir, "cluster_overview.png"))
+    @test isfile(joinpath(r0.results_dir, "reference_scatter.png"))
+    @test !isfile(joinpath(r0.results_dir, "reference_affinity.png"))
+    @test !isfile(joinpath(r0.results_dir, "query_path.png"))
     # The individual-RMSD and reference-cluster-assignment plots were dropped in this iteration.
-    @test !isfile(joinpath(r0.system_dir, "individual_rmsd.png"))
-    @test !isfile(joinpath(r0.system_dir, "reference_cluster_assignment.png"))
+    @test !isfile(joinpath(r0.results_dir, "individual_rmsd.png"))
+    @test !isfile(joinpath(r0.results_dir, "reference_cluster_assignment.png"))
     for cluster_dir in r0.cluster_dirs
         @test isfile(joinpath(cluster_dir, "subcluster_scatter.png"))
         @test isfile(joinpath(cluster_dir, "dendrogram.png"))
         # The RMSD heatmap was dropped in this iteration.
         @test !isfile(joinpath(cluster_dir, "rmsd_heatmap.png"))
     end
-    assert_no_dropped(out0)
+    assert_no_dropped(r0.results_dir)
 
     # 1-reference mode: adaptive reference scatter, still no affinity.
-    out1 = mktempdir()
-    r1 = cluster_conformers(
-        system,
-        joinpath(refs, "REFAP_A.pdb");
-        data_root = fixtures,
-        out_dir = out1,
-    )
-    @test isfile(joinpath(r1.system_dir, "cluster_overview.png"))
-    @test isfile(joinpath(r1.system_dir, "reference_scatter.png"))
-    @test !isfile(joinpath(r1.system_dir, "individual_rmsd.png"))
-    @test !isfile(joinpath(r1.system_dir, "reference_affinity.png"))
+    r1 = cluster_conformers(fresh_run(), joinpath(refs, "REFAP_A.pdb"))
+    @test isfile(joinpath(r1.results_dir, "cluster_overview.png"))
+    @test isfile(joinpath(r1.results_dir, "reference_scatter.png"))
+    @test !isfile(joinpath(r1.results_dir, "individual_rmsd.png"))
+    @test !isfile(joinpath(r1.results_dir, "reference_affinity.png"))
     # With one reference and no explicit query, the query defaults to that reference, so the
     # query-path view is produced automatically.
-    @test isfile(joinpath(r1.system_dir, "query_path.png"))
+    @test isfile(joinpath(r1.results_dir, "query_path.png"))
     @test all(isfile, r1.figures)
     for f in r1.figures
         isfile(f) || println("MISSING: ", f)
     end
-    assert_no_dropped(out1)
+    assert_no_dropped(r1.results_dir)
 
     # 2-reference mode: adaptive (apo-vs-holo) reference scatter; affinity plot was removed.
-    out2 = mktempdir()
     r2 = cluster_conformers(
-        system,
+        fresh_run(),
         joinpath(refs, "REFAP_A.pdb"),
-        joinpath(refs, "REFHO_B.pdb");
-        data_root = fixtures,
-        out_dir = out2,
+        joinpath(refs, "REFHO_B.pdb"),
     )
-    @test isfile(joinpath(r2.system_dir, "cluster_overview.png"))
-    @test isfile(joinpath(r2.system_dir, "reference_scatter.png"))
-    @test !isfile(joinpath(r2.system_dir, "individual_rmsd.png"))
-    @test !isfile(joinpath(r2.system_dir, "reference_affinity.png"))
+    @test isfile(joinpath(r2.results_dir, "cluster_overview.png"))
+    @test isfile(joinpath(r2.results_dir, "reference_scatter.png"))
+    @test !isfile(joinpath(r2.results_dir, "individual_rmsd.png"))
+    @test !isfile(joinpath(r2.results_dir, "reference_affinity.png"))
     # With two references and no explicit query, the query defaults to the first reference, so the
     # query-path view is produced and starts from that reference's cluster.
-    @test isfile(joinpath(r2.system_dir, "query_path.png"))
+    @test isfile(joinpath(r2.results_dir, "query_path.png"))
     @test r2.reference_clusters.Reference[1] == "REFAP_A"
     @test all(isfile, r2.figures)
     for f in r2.figures
         isfile(f) || println("MISSING: ", f)
     end
-    assert_no_dropped(out2)
+    assert_no_dropped(r2.results_dir)
 
     # A supplied query (a conformer name) adds the query-path view (C4).
-    out_q = mktempdir()
-    rq = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out_q,
-        query = r0.clustering.Name[1],
-    )
-    @test isfile(joinpath(rq.system_dir, "query_path.png"))
+    rq = cluster_conformers(fresh_run(); query = r0.clustering.Name[1])
+    @test isfile(joinpath(rq.results_dir, "query_path.png"))
     @test any(f -> occursin("query_path", f), rq.figures)
 
     # A query given as a structure-file path (assigned to the nearest cluster centroid), in
     # 2-reference mode so the reference-assigned clusters are overlaid as stars on the path.
-    out_qp = mktempdir()
     rqp = cluster_conformers(
-        system,
+        fresh_run(),
         joinpath(refs, "REFAP_A.pdb"),
         joinpath(refs, "REFHO_B.pdb");
-        data_root = fixtures,
-        out_dir = out_qp,
         query = joinpath(models, "conf_B2.pdb"),
     )
-    @test isfile(joinpath(rqp.system_dir, "query_path.png"))
+    @test isfile(joinpath(rqp.results_dir, "query_path.png"))
 
     # An unresolvable query is a clear error.
-    @test_throws ErrorException cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = mktempdir(),
-        query = "no_such_conformer",
-    )
+    @test_throws ErrorException cluster_conformers(fresh_run(); query = "no_such_conformer")
 
     # Score-filter mode: the three score-stage figures appear only when the filter runs (C2).
-    out_s = mktempdir()
     score_table = DataFrames.DataFrame(
         "Name" => r0.clustering.Name,
         "cb-lddt" => collect(range(0.1, 0.9; length = DataFrames.nrow(r0.clustering))),
     )
-    rs = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out_s,
-        score_table = score_table,
-    )
+    rs = cluster_conformers(fresh_run(); score_table = score_table)
     @test rs.deepaccnet_dir !== nothing
     @test isfile(joinpath(rs.deepaccnet_dir, "rmsd_scatter_by_score.png"))
     @test isfile(joinpath(rs.deepaccnet_dir, "kmeans_deepaccnet_filtered.png"))
@@ -1083,18 +1021,12 @@ end
     for f in r1.figures
         isfile(f) || println("MISSING: ", f)
     end
-    assert_no_dropped(out_s)
+    assert_no_dropped(rs.results_dir)
 
     # make_plots = false writes no figures at all.
-    out_n = mktempdir()
-    rn = cluster_conformers(
-        system;
-        data_root = fixtures,
-        out_dir = out_n,
-        make_plots = false,
-    )
+    rn = cluster_conformers(fresh_run(); make_plots = false)
     @test isempty(rn.figures)
-    @test !isfile(joinpath(rn.system_dir, "cluster_overview.png"))
+    @test !isfile(joinpath(rn.results_dir, "cluster_overview.png"))
 end
 
 @testitem "Conformer discovery reads only prediction models, not templates" begin
@@ -1120,7 +1052,7 @@ end
     mkpath(fullpdb)
     touch(joinpath(fullpdb, "hit.pdb"))
 
-    found = AlphaConformers._discover_conformers(root, system)
+    found = AlphaConformers._discover_conformers(sys_dir)
     names_found = first.(found)
     @test length(found) == 2
     @test all(occursin(joinpath("models", ""), n) for n in names_found)
@@ -1132,28 +1064,13 @@ end
     tdir = joinpath(bare, system, "templates_complete")
     mkpath(tdir)
     touch(joinpath(tdir, "tmpl.pdb"))
-    @test_throws ErrorException AlphaConformers._discover_conformers(bare, system)
+    @test_throws ErrorException AlphaConformers._discover_conformers(joinpath(bare, system))
 
-    # An explicit `subdir` (with glob wildcards) reads only that method subfolder, skipping the
-    # full walk. Both the literal and the wildcard form find exactly the two prediction models.
-    literal = AlphaConformers._discover_conformers(
-        root,
-        system;
-        subdir = joinpath("cluster_1", "af", "predictions", "sequences", "models"),
-    )
-    @test Set(first.(literal)) == Set(names_found)
-    wildcard = AlphaConformers._discover_conformers(
-        root,
-        system;
-        subdir = joinpath("cluster_*", "af", "predictions", "sequences", "models"),
-    )
-    @test Set(first.(wildcard)) == Set(names_found)
-    # A subdir that matches nothing errors clearly.
-    @test_throws ErrorException AlphaConformers._discover_conformers(
-        root,
-        system;
-        subdir = "no_such_folder",
-    )
+    # The `method` kwarg selects the prediction subfolder (`cluster_*/<method>/...`); the default
+    # "af" finds the models, and a method with no matching folder errors clearly.
+    @test Set(first.(AlphaConformers._discover_conformers(sys_dir; method = "af"))) ==
+          Set(names_found)
+    @test_throws ErrorException AlphaConformers._discover_conformers(sys_dir; method = "esmfold")
 end
 
 @testitem "cluster_conformers is the documented public entry point" begin

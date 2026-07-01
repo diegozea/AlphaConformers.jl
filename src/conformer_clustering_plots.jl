@@ -515,10 +515,10 @@ end
 #
 # Pure orchestration over the `_plot_*` helpers; computes the PCA/MDS layouts on the fly. Sets
 # `GKSwstype` so the GR backend renders offscreen on headless machines. System-level figures land
-# at `system_dir`, score-filter figures under `deepaccnet_dir`, and each KMeans cluster's figures
+# at `results_dir`, score-filter figures under `deepaccnet_dir`, and each KMeans cluster's figures
 # in its own `kmeans<C>/` folder (carried in `cluster_results`).
 function _render_figures(;
-    system_dir,
+    results_dir,
     deepaccnet_dir,
     ref_mode::Integer,
     labels::AbstractVector,
@@ -547,7 +547,7 @@ function _render_figures(;
         _plot_cluster_overview(
             projection,
             labels,
-            joinpath(system_dir, "cluster_overview.png"),
+            joinpath(results_dir, "cluster_overview.png"),
         ),
     )
 
@@ -563,7 +563,7 @@ function _render_figures(;
             rmsd_ref1,
             rmsd_ref2,
             ref_labels,
-            joinpath(system_dir, "reference_scatter.png"),
+            joinpath(results_dir, "reference_scatter.png"),
         ),
     )
 
@@ -582,7 +582,7 @@ function _render_figures(;
                 query_cluster,
                 cluster_ids,
                 ref_map,
-                joinpath(system_dir, "query_path.png"),
+                joinpath(results_dir, "query_path.png"),
             ),
         )
     end

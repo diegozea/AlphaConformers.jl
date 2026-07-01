@@ -27,44 +27,29 @@ end
 # Conformer discovery
 # -----
 
-# Discover the AlphaConformer prediction structures of one system below `data_root/<system>`.
+# Discover the AlphaConformer prediction structures inside one run folder (`output_dir`).
 #
-# By default globs for `cluster_*/<method>/predictions/sequences/models/` under the system
-# directory, where `method` defaults to `"af"`. Only `.pdb` and `.cif` files directly under
-# that folder are collected, so input templates and search results in sibling directories are
-# automatically excluded. When `subdir` is given it globs that pattern instead (which may
-# contain glob wildcards, e.g. `cluster_*/esmfold/predictions/sequences/models`), skipping
-# the default layout assumption. Returns a vector of `(name, path)` tuples sorted by `name`,
-# where `name` is the file path relative to the system directory (stable across machines) and
-# `path` is the absolute path. Raises a clear error if the system directory is missing or
-# holds no prediction structures.
-function _discover_conformers(
-    data_root::AbstractString,
-    system::AbstractString;
-    subdir::Union{Nothing,AbstractString} = nothing,
-    method::AbstractString = "af",
-)
-    system_dir = joinpath(data_root, system)
-    isdir(system_dir) ||
-        error("no conformer directory found for system '$system' at '$system_dir'")
+# Globs for `cluster_*/<method>/predictions/sequences/models/` under `output_dir`, where `method`
+# defaults to `"af"`. Only `.pdb` and `.cif` files directly under that folder are collected, so
+# input templates and search results in sibling directories are automatically excluded. Returns a
+# vector of `(name, path)` tuples sorted by `name`, where `name` is the file path relative to
+# `output_dir` (stable across machines) and `path` is the absolute path. Raises a clear error if
+# `output_dir` is missing or holds no prediction structures.
+function _discover_conformers(output_dir::AbstractString; method::AbstractString = "af")
+    isdir(output_dir) || error("no run folder found at '$output_dir'")
 
     found = Tuple{String,String}[]
-
-    search_pattern = subdir !== nothing ? subdir : 
-        joinpath("cluster_*", method, "predictions", "sequences", "models")
-
+    search_pattern = joinpath("cluster_*", method, "predictions", "sequences", "models")
     for ext in ("*.pdb", "*.cif")
-        for path in glob(joinpath(search_pattern, ext), system_dir)
+        for path in glob(joinpath(search_pattern, ext), output_dir)
             isfile(path) || continue
-            push!(found, (relpath(path, system_dir), abspath(path)))
+            push!(found, (relpath(path, output_dir), abspath(path)))
         end
     end
 
     isempty(found) && error(
-        subdir === nothing ?
-        "no .pdb/.cif prediction structures found for system '$system' under '$system_dir'; " *
-        "prediction location), so input templates are not treated as conformers." :
-        "no .pdb/.cif structures found for system '$system' under '$system_dir/$subdir'",
+        "no .pdb/.cif prediction structures found under '$output_dir'; predictions are read " *
+        "from `cluster_*/$method/predictions/sequences/models/`, so templates are not clustered.",
     )
     sort!(found; by = first)
     return found
@@ -204,7 +189,7 @@ end
 # `reference_clusters.csv` (one row per reference, with a `Path` column), both at the per-system
 # output root. Returns both tables.
 function _write_reference_tables(
-    system_dir::AbstractString,
+    results_dir::AbstractString,
     names::AbstractVector,
     labels::AbstractVector,
     refs::AbstractVector,
@@ -225,11 +210,11 @@ function _write_reference_tables(
         )
     end
 
-    mkpath(system_dir)
-    CSV.write(joinpath(system_dir, "dist_external_rmsds.csv"), rmsd_table)
+    mkpath(results_dir)
+    CSV.write(joinpath(results_dir, "dist_external_rmsds.csv"), rmsd_table)
 
     reference_clusters = DataFrames.DataFrame(assignment_rows)
-    CSV.write(joinpath(system_dir, "reference_clusters.csv"), reference_clusters)
+    CSV.write(joinpath(results_dir, "reference_clusters.csv"), reference_clusters)
 
     return rmsd_table, reference_clusters
 end
@@ -576,17 +561,17 @@ end
 # -----
 
 """
-    cluster_conformers(system, ref1="", ref2="";
-        ref_labels=("ref1", "ref2"),
-        data_root="/data/alphaconformers/pdb", method="af", out_dir="results",
-        score_table=nothing, make_plots=true, query=nothing, subdir=nothing)
+    cluster_conformers(output_dir, ref1="", ref2="";
+        ref_labels=("ref1", "ref2"), method="af",
+        score_table=nothing, make_plots=true, query=nothing)
 
 Cluster an AlphaConformer prediction ensemble by shape, write the base KMeans tables, and
 (when references are supplied) report each reference against the cluster it falls into.
 
-It discovers the system's conformers, keeps the CA positions shared by all of them,
-superimposes the coordinates, runs a seeded KMeans at `kmeans_k`, and writes the clustering
-table and the intra-cluster RMSD table at the per-system output root. Up to two references may be
+It discovers the conformers inside the run folder `output_dir`, keeps the CA positions shared by all of them, superimposes the coordinates, runs a seeded
+KMeans, and writes the clustering table and the intra-cluster RMSD table into a
+`conformer_clustering/` subfolder of `output_dir` (kept separate from the input `cluster_*/`).
+Up to two references may be
 supplied as `ref1`/`ref2` (paths to reference structure files); either may be given on its own.
 Each carries a user-chosen label from `ref_labels` (default: the reference file's basename without
 extension). For each supplied reference it computes the
@@ -607,8 +592,9 @@ supplied.
 
 # Arguments
 
-- `system::String`: System identifier; names the input subdirectory under `data_root` and the
-  output subdirectory under `out_dir`. Must not be blank after whitespace stripping.
+- `output_dir::AbstractString`: The AlphaConformers run folder (e.g. `"/data/alphaconformers/1ABC_A"`). Predictions are read from it and
+  the clustering results are written into a `conformer_clustering/` subfolder of it. Must not be
+  blank after whitespace stripping.
 - `ref1::String`: (Optional) path to the first reference structure file, e.g.
   `"refs/1ABC_A.pdb"` (`.pdb`/`.cif` and their `.gz` variants are read). An empty/blank value
   selects reference-free for this slot. Defaults to `""`.
@@ -620,12 +606,8 @@ supplied.
 - `ref_labels`: Two-element collection naming the references. When left at the default, each
   reference's basename without extension is used as its label (e.g. a `"refs/1akz_A.pdb"` path
   yields the label `"1akz_A"`).
-- `data_root::String`: Root directory holding one AlphaConformers output tree per `<system>`
-  subfolder; predictions are read from the `models/` folders inside it. Defaults to
-  `"/data/alphaconformers/pdb"`, matching where the package writes prediction outputs.
-- `method::String`: Prediction method subfolder name used when discovering conformers under
-  the default layout (`cluster_*/<method>/predictions/sequences/models/`). Defaults to `"af"`.
-- `out_dir::String`: Root directory for output. Defaults to `"results"`.
+- `method::String`: Prediction method subfolder name used when discovering conformers under the
+  default layout (`cluster_*/<method>/predictions/sequences/models/`). Defaults to `"af"`.
 - `score_table`: Optional DeepAccNet score table, either a `DataFrame` or a path to a CSV. When
   supplied, the score filter runs; when `nothing` (the default) the filter is skipped. Must hold
   a `Name` column matching the conformers and the `score_col` score column. Conformers absent
@@ -636,19 +618,16 @@ supplied.
   falls back to the first supplied reference if any reference was given. So a run with references
   always writes the query-path figure tracking that reference, and passing `query` explicitly
   overrides this. In reference-free mode with no `query` the query-path figure is skipped.
-- `subdir`: Optional relative subfolder under `data_root/<system>` to read conformers from (it may
-  contain glob wildcards, e.g. `"cluster_*/af/predictions/sequences/models"`). When `nothing` (the
-  default) the whole system directory is walked and only `models/` folders are read.
 
 # Returns
 
-A named tuple `(; clustering, cluster_rmsd, system_dir, reference_rmsd, reference_clusters,
+A named tuple `(; clustering, cluster_rmsd, results_dir, reference_rmsd, reference_clusters,
 deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 
 - `clustering`: `DataFrame` with columns `Name` and `KMeans_K<k>` (labels in `1:k`).
 - `cluster_rmsd`: `DataFrame` with columns `Method`, `Cluster`, `Size`, `Mean_RMSD_Angstrom`.
-- `system_dir`: path to the per-system output root holding the flat tables, the system-level
-  figures, the `kmeans<C>/` folders and the optional `deepaccnet/` folder.
+- `results_dir`: path to the `conformer_clustering/` subfolder of the run folder holding the flat
+  tables, the figures, the `kmeans<C>/` folders and the optional `deepaccnet/` folder.
 - `reference_rmsd`: `nothing` in reference-free mode; otherwise a `DataFrame` with a `Name`
   column and a `RMSD_<label>` column per supplied reference, one row per conformer.
 - `reference_clusters`: `nothing` in reference-free mode; otherwise a `DataFrame` with columns
@@ -667,7 +646,7 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 
 # Throws
 
-- `ErrorException`: if `system` is blank, if a supplied reference path does not exist, if no
+- `ErrorException`: if `output_dir` is blank, if a supplied reference path does not exist, if no
   conformers are found, if the conformers
   share no common CA position, when a score table is
   supplied, if it is missing the `Name`/`score_col` column, if it matches no conformer, or if a `query` is given that is neither
@@ -677,51 +656,48 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 
 1. Validate inputs and count the references supplied (0, 1 or 2; either positional may be given on
    its own).
-2. Discover the prediction structures under `data_root/<system>` - by default only the files in
-   `models/` folders (the AlphaConformers prediction location), so input templates are skipped, or
-   the explicit `subdir` when given - read their CA traces, and keep the CA positions shared by all
-   conformers via sequence alignment.
+2. Discover the prediction structures under `output_dir` - only the files in the
+   `cluster_*/<method>/predictions/sequences/models/` folders (the AlphaConformers prediction
+   location), so input templates are skipped - read their CA traces, and keep the CA positions
+   shared by all conformers via sequence alignment.
 3. Superimpose every conformer onto the first and run seeded KMeans (up to 30 clusters,
    clamped to the conformer count for small ensembles).
 4. Compute the mean intra-cluster RMSD to each cluster centroid and write
-   `aligned_clustering_results.csv` and `aligned_cluster_rmsd.csv` at `out_dir/<system>/`.
+   `aligned_clustering_results.csv` and `aligned_cluster_rmsd.csv` at `output_dir/conformer_clustering/`.
 5. With one or two references, read each reference file, compute the sequence-aware
    RMSD from every conformer to each reference, assign each reference to the cluster with the
    lowest mean RMSD, and write `dist_external_rmsds.csv` and `reference_clusters.csv` at
-   `out_dir/<system>/`.
+   `output_dir/conformer_clustering/`.
 6. When a score table is supplied, align its scores to the conformers (dropping unscored ones),
    find the surviving clusters for the configured `surviving_rel`/`surviving_frac` cut, and write
-   `surviving.csv` under `out_dir/<system>/deepaccnet/surviving/`. Skipped
+   `surviving.csv` under `output_dir/conformer_clustering/deepaccnet/surviving/`. Skipped
    when no score table is given.
 7. For each occupied (or, when the filter ran, surviving) KMeans cluster `C`, build the pairwise
    RMSD matrix of its members, cut the agglomerative tree at `subcluster_threshold` with the chosen
-   `linkage`, and write that cluster's `output_cluster_members.csv` into `out_dir/<system>/kmeans<C>/`. A flat
+   `linkage`, and write that cluster's `output_cluster_members.csv` into `output_dir/conformer_clustering/kmeans<C>/`. A flat
    top-level `agglomerative_assignments.csv` collects all sub-cluster assignments.
 8. When `make_plots` is set, write the figures at each level: the
    cluster-overview scatter, the adaptive reference scatter, and the query-path view (whenever a
-   reference is given, or an explicit `query`) at the system root; the score-colored embedding and
+   reference is given, or an explicit `query`) at the run-folder root; the score-colored embedding and
    DeepAccNet-filtered
    scatter under `deepaccnet/` when the filter ran; and the dendrogram, sub-cluster embedding and
    mini-cluster graph in each `kmeans<C>/`.
 9. Return the tables, the output directories and the written figure paths.
 """
 function cluster_conformers(
-    system::String,
+    output_dir::AbstractString,
     ref1::String = "",
     ref2::String = "";
     ref_labels = ("ref1", "ref2"),
-    data_root::String = "/data/alphaconformers/pdb",
     method::String = "af",
-    out_dir::String = "results",
     score_table = nothing,
     make_plots::Bool = true,
     query::Union{Nothing,AbstractString} = nothing,
-    subdir::Union{Nothing,AbstractString} = nothing,
 )
 
-    # Validate and normalize inputs.
-    stripped_system = strip(system)
-    isempty(stripped_system) && error("system must not be blank")
+    # Validate the run folder (predictions are read from it and results are written into it).
+    output_dir = String(strip(output_dir))
+    isempty(output_dir) && error("output_dir must not be blank")
 
     ref1_normalized = _normalize_reference(ref1)
     ref2_normalized = _normalize_reference(ref2)
@@ -740,12 +716,7 @@ function cluster_conformers(
     ref_mode = _reference_mode(ref1_normalized, ref2_normalized)
 
     # Discover the ensemble's conformers and read their CA-only residues.
-    conformers = _discover_conformers(
-        data_root,
-        String(stripped_system);
-        subdir = subdir,
-        method = method,
-    )
+    conformers = _discover_conformers(output_dir; method = method)
     names = first.(conformers)
     conformer_residues = [_read_ca_residues(path) for (_name, path) in conformers]
 
@@ -762,11 +733,13 @@ function cluster_conformers(
     labels = _kmeans_cluster(features, kmeans_k; seed = _SEED)
     rmsd = _intra_cluster_rmsd(features, labels, n_atoms)
 
-    # Per-system output root: the top-level flat tables and the system-level figures live here,
-    # alongside the per-cluster `kmeans<C>/` folders and the optional `deepaccnet/` folder.
-    system_dir = joinpath(out_dir, String(stripped_system))
+    # Results are written into a `conformer_clustering/` subfolder of the run folder, so they stay
+    # separate from the input `cluster_*/` predictions: the flat tables and figures here, alongside
+    # the per-cluster `kmeans<C>/` folders and the optional `deepaccnet/` folder.
+    results_dir = joinpath(output_dir, "conformer_clustering")
+    mkpath(results_dir)
     clustering, cluster_rmsd =
-        _write_kmeans_tables(system_dir, names, labels, kmeans_k, rmsd)
+        _write_kmeans_tables(results_dir, names, labels, kmeans_k, rmsd)
 
     # Reference handling: sequence-aware RMSD from each supplied reference to every conformer and
     # the cluster it falls into (lowest mean RMSD). Each reference carries its user-chosen label
@@ -786,7 +759,7 @@ function cluster_conformers(
         end
 
         reference_rmsd, reference_clusters =
-            _write_reference_tables(system_dir, names, labels, refs)
+            _write_reference_tables(results_dir, names, labels, refs)
         present_labels = [r[1] for r in refs]
         rmsd_ref1 = refs[1][3]
         ref_mode == 2 && (rmsd_ref2 = refs[2][3])
@@ -803,7 +776,7 @@ function cluster_conformers(
     scored_idx = Int[]
     scores = Float64[]
     if score_table !== nothing
-        deepaccnet_dir = joinpath(system_dir, "deepaccnet")
+        deepaccnet_dir = joinpath(results_dir, "deepaccnet")
         scored_idx, scores = _align_scores(score_table, names; score_col = _SCORE_COL)
         surviving = _write_surviving_table(
             deepaccnet_dir,
@@ -842,7 +815,7 @@ function cluster_conformers(
         subs = _agglomerative_subcluster(dist, _SUBCLUSTER_THRESHOLD, _LINKAGE)
         sub_labels[idx] .= subs
 
-        cluster_dir = joinpath(system_dir, "kmeans$(lbl)")
+        cluster_dir = joinpath(results_dir, "kmeans$(lbl)")
         _write_cluster_outputs(
             cluster_dir,
             work_names[idx],
@@ -859,7 +832,7 @@ function cluster_conformers(
 
     # Flat top-level assignments table (single source for downstream consumers).
     hierarchical = _hierarchical_table(work_names, work_labels, sub_labels, kmeans_k)
-    CSV.write(joinpath(system_dir, "agglomerative_assignments.csv"), hierarchical)
+    CSV.write(joinpath(results_dir, "agglomerative_assignments.csv"), hierarchical)
 
     # Query-path inputs (C4). The query defaults to the first supplied reference, so the query-path
     # view tracks that reference without an extra argument. An explicit `query` keyword overrides
@@ -883,7 +856,7 @@ function cluster_conformers(
     figures = String[]
     if make_plots
         figures = _render_figures(;
-            system_dir,
+            results_dir,
             deepaccnet_dir,
             ref_mode,
             labels,
@@ -907,7 +880,7 @@ function cluster_conformers(
     return (;
         clustering,
         cluster_rmsd,
-        system_dir,
+        results_dir,
         reference_rmsd,
         reference_clusters,
         deepaccnet_dir,
