@@ -158,31 +158,23 @@ using TestItems
 
     # Input validation: clear ArgumentErrors before any container work.
     # ----------------------------------------------------------------
-    mktempdir() do data_root
-        @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-            "no_such_system",
-            "/tmp/deepaccnet.sif";
-            data_root = data_root,
-        )
-    end
-    mktempdir() do data_root
-        system = "sys_empty"
+    @test_throws ArgumentError AlphaConformers.run_deepaccnet(
+        "/no/such/output_dir",
+        "/tmp/deepaccnet.sif",
+    )
+    mktempdir() do output_dir
         # No cluster_* directories at all.
-        mkpath(joinpath(data_root, system))
         @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-            system,
-            "/tmp/deepaccnet.sif";
-            data_root = data_root,
+            output_dir,
+            "/tmp/deepaccnet.sif",
         )
     end
-    mktempdir() do data_root
-        system = "sys_no_pdb"
+    mktempdir() do output_dir
         # cluster_* exists, but no *.pdb anywhere under it.
-        base = joinpath(data_root, system)
-        mkpath(joinpath(base, "cluster_1", "af_cif", "predictions", "sequences", "models"))
+        mkpath(joinpath(output_dir, "cluster_1", "af_cif", "predictions", "sequences", "models"))
         write(
             joinpath(
-                base,
+                output_dir,
                 "cluster_1",
                 "af_cif",
                 "predictions",
@@ -193,9 +185,8 @@ using TestItems
             "",
         )
         @test_throws ArgumentError AlphaConformers.run_deepaccnet(
-            system,
-            "/tmp/deepaccnet.sif";
-            data_root = data_root,
+            output_dir,
+            "/tmp/deepaccnet.sif",
         )
     end
 end

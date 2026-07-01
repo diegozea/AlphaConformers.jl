@@ -164,29 +164,23 @@ function _run_deepaccnet(
 end
 
 """
-    run_deepaccnet(system, sif_path;
-        data_root="/data/alphaconformers/pdb", out_dir="results",
+    run_deepaccnet(output_dir, sif_path;
         container_runtime="apptainer", n_threads=Threads.nthreads()) -> String
 
 Run the DeepAccNet container over one AlphaConformers system and write its score table.
 
-It flattens `data_root/system/cluster_*/<inner>/predictions/sequences/models/*.pdb` (auto-detecting
+It flattens `output_dir/cluster_*/<inner>/predictions/sequences/models/*.pdb` (auto-detecting
 `inner`) into a flat folder of symlinks named `cluster_<N>_<model>.pdb`, runs the `.sif` image on
 a GPU (`run --nv`), and returns the path to `deepaccnet_results.csv` - the score table that
-`cluster_conformers(system; score_table=..., out_dir=out_dir)` consumes.
+`cluster_conformers` consumes.
 
 # Arguments
 
-- `system::AbstractString`: AlphaConformers system name, matching `cluster_conformers`'s `system`.
-- `sif_path::AbstractString`: Path to the DeepAccNet `.sif` Apptainer/Singularity image.
+- `output_dir::AbstractString`: AlphaConformers folder containing `cluster_*` subfolders.
+- `sif_path::AbstractString`: DeepAccNet Apptainer/Singularity `.sif` image.
 
 # Keywords
 
-- `data_root::AbstractString`: Root directory holding `data_root/system/cluster_*` prediction
-  folders. Defaults to `"/data/alphaconformers/pdb"`.
-- `out_dir::AbstractString`: Shared AlphaConformers run directory, matching
-  `cluster_conformers`'s `out_dir`. Results are written under `out_dir/system/deepaccnet/`.
-  Defaults to `"results"`.
 - `container_runtime::String`: Either `"apptainer"` or `"singularity"`. Defaults to
   `"apptainer"`.
 - `n_threads::Int`: Number of CPUs for featurization, forwarded as `--process N`. Defaults to
@@ -194,56 +188,52 @@ a GPU (`run --nv`), and returns the path to `deepaccnet_results.csv` - the score
 
 # Returns
 
-`output_csv = joinpath(out_dir, system, "deepaccnet", "deepaccnet_results.csv")`, the path to the
+`output_csv = joinpath(output_dir, "deepaccnet", "deepaccnet_results.csv")`, the path to the
 written score table.
 
 # Throws
 
-- `ArgumentError`: if the system directory does not exist, if it has no `cluster_*`
-  subdirectories, if no `*.pdb` file is found (the available inner folders under the first
-  cluster are listed in the message), or if `.pdb` files are found under more than one inner
-  method folder.
+- `ArgumentError`: if `output_dir` does not exist, if it has no `cluster_*` subdirectories, if no
+  `*.pdb` file is found (the available inner folders under the first cluster are listed in the
+  message), or if `.pdb` files are found under more than one inner method folder.
 
 # Behavior
 
-1. Validate the system directory, the `cluster_*` subdirectories, and the auto-detected symlink
-   pairs, raising a clear `ArgumentError` before any filesystem mutation.
-2. Create `out_dir/system/deepaccnet/`, symlink the prediction models into a temporary directory,
-   and run the container command.
+1. Validate `output_dir`, the `cluster_*` subdirectories, and the auto-detected symlink pairs,
+   raising a clear `ArgumentError` before any filesystem mutation.
+2. Create `output_dir/deepaccnet/`, symlink the prediction models into a temporary directory, and
+   run the container command.
 3. Return `output_csv`.
 """
 function run_deepaccnet(
-    system::AbstractString,
+    output_dir::AbstractString,
     sif_path::AbstractString;
-    data_root::AbstractString = "/data/alphaconformers/pdb",
-    out_dir::AbstractString = "results",
     container_runtime::String = "apptainer",
     n_threads::Int = Threads.nthreads(),
 )
-    base_dir = joinpath(data_root, system)
-    isdir(base_dir) || throw(ArgumentError("system directory not found: $base_dir"))
+    isdir(output_dir) || throw(ArgumentError("output_dir not found: $output_dir"))
 
-    clusters = _cluster_dirs(base_dir)
-    isempty(clusters) && throw(ArgumentError("no cluster_* directories under $base_dir"))
+    clusters = _cluster_dirs(output_dir)
+    isempty(clusters) && throw(ArgumentError("no cluster_* directories under $output_dir"))
 
-    pairs = _deepaccnet_links(data_root, system)
+    pairs = _deepaccnet_links(dirname(output_dir), basename(output_dir))
     if isempty(pairs)
-        msg = "no *.pdb prediction models found under $base_dir/cluster_*/<method>/predictions/sequences/models/"
-        inners = _available_inners(joinpath(base_dir, clusters[1]))
+        msg = "no *.pdb prediction models found under $output_dir/cluster_*/<method>/predictions/sequences/models/"
+        inners = _available_inners(joinpath(output_dir, clusters[1]))
         if !isempty(inners)
             msg *= ". Available method folders under $(clusters[1]): " * join(inners, ", ")
         end
         throw(ArgumentError(msg))
     end
 
-    output_dir = joinpath(out_dir, system, "deepaccnet")
-    output_csv = joinpath(output_dir, "deepaccnet_results.csv")
-    mkpath(output_dir)
+    deepaccnet_dir = joinpath(output_dir, "deepaccnet")
+    output_csv = joinpath(deepaccnet_dir, "deepaccnet_results.csv")
+    mkpath(deepaccnet_dir)
 
     mktempdir() do links_dir
         _run_deepaccnet(
             links_dir,
-            base_dir,
+            output_dir,
             sif_path,
             output_csv,
             pairs;
