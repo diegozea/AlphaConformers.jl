@@ -1,84 +1,145 @@
 
 
-# === FONCTIONS UTILITAIRES ===
+# ColabFold helpers
+# -----------------
 """
-    run_cmd(cmd)
+    run_cmd(cmd; check=false)
 
-Run a shell command, logging a success message or a warning on failure.
-Input : 
-- `cmd` : a Julia `Cmd` object to execute.
-Errors are caught and logged as warnings so the calling code can continue.
+Run a shell command.
+
+# Arguments
+- `cmd`: Command to execute.
+
+# Keywords
+- `check`: Throw an error when the command fails. Defaults to `false`, which
+  preserves the older warning-only behavior.
+
+# Returns
+`nothing`.
 """
-function run_cmd(cmd::Cmd)
+function run_cmd(cmd::Cmd; check::Bool = false)
     try
         run(cmd)
         println("✅ end without error\n")
     catch e
+        if check
+            throw(ErrorException("Command failed: $(cmd)\n$(sprint(showerror, e))"))
+        end
         @warn "⚠️ Error of execution for : $e"
     end
 end
 
+function _colabfold_batch_command(
+    input_dir::AbstractString,
+    prediction_dir::AbstractString,
+    sif_path::AbstractString,
+    cache_dir::AbstractString;
+    seed::Integer,
+    tmp_dir::AbstractString,
+)
+    # ColabFold looks for its model parameters in /cache/colabfold inside the
+    # container, so the user cache folder must be bound to that exact path.
+    return `apptainer exec --nv --no-home --cleanenv \
+        --env TF_FORCE_UNIFIED_MEMORY=1,XLA_PYTHON_CLIENT_MEM_FRACTION=4.0,OPENMM_CPU_THREADS=8,TMPDIR=/mnt/tmp \
+        --bind $input_dir:/mnt/input \
+        --bind $prediction_dir:/mnt/output \
+        --bind $tmp_dir:/mnt/tmp \
+        --bind $cache_dir:/cache/colabfold \
+        $sif_path \
+        colabfold_batch \
+            /mnt/input/sequences.a3m /mnt/output \
+            --templates \
+            --custom-template-path /mnt/input/templates_adaptative/ \
+            --random-seed $seed \
+            --num-seeds 5 \
+            --use-dropout \
+            --num-models 2 \
+            --overwrite-existing-results`
+end
+
 """
-    run_alphafold_one_run(clusters_folder, SIF_PATH, CACHE_DIR)
+    run_alphafold(output_dir, sif_path, cache_dir)
 
 Run ColabFold structure predictions for all `cluster_*` subfolders, using
 custom structural templates from each cluster's `templates_adaptative/` folder.
-Run with .sif image for ColabFold 1.5.5
-Input : 
-- `clusters_folder` : path to the folder containing `cluster_*` subfolders.
-- `SIF_PATH`        : path to the ColabFold Apptainer `.sif` image.
-- `CACHE_DIR`       : path to the cache directory for Apptainer.
+Run with a ColabFold Apptainer `.sif` image.
+
+# Arguments
+- `output_dir`: AlphaConformers folder containing `cluster_*` subfolders.
+- `sif_path`: ColabFold Apptainer `.sif` image.
+- `cache_dir`: ColabFold cache or params folder. It is mounted in the
+  container as `/cache/colabfold`.
+
+# Returns
+`nothing`.
+
+# Throws
+Throws `ArgumentError` when `output_dir` is not a prepared AlphaConformers
+folder. Throws an error when ColabFold fails for a cluster.
 """
-function run_alphafold_one_run(clusters_folder::String, SIF_PATH::String, CACHE_DIR::String)
-    ### Check input directories
-    if isempty(clusters_folder)
-        throw(ErrorException("No cluster_* folders were found in $clusters_folder"))
+function run_alphafold(output_dir::String, sif_path::String, cache_dir::String)
+    if isempty(output_dir)
+        throw(ArgumentError("output_dir is required for run_alphafold."))
+    end
+    if !isdir(output_dir)
+        throw(
+            ArgumentError(
+                "AlphaConformers output_dir does not exist: $output_dir. " *
+                "Run prepare_inputs first, or pass an output_dir from a previous prepare step.",
+            ),
+        )
     end
     input_dirs = sort(
         filter(
             d -> isdir(d) && startswith(basename(d), "cluster_"),
-            readdir(clusters_folder; join = true),
+            readdir(output_dir; join = true),
         ),
     )
+    if isempty(input_dirs)
+        throw(
+            ArgumentError(
+                "No cluster_* folders were found in $(abspath(output_dir)). " *
+                "Run prepare_inputs first, or pass an output_dir from a previous prepare step.",
+            ),
+        )
+    end
 
     println("📂 Number of folder found: ", length(input_dirs))
     seed = rand(10_000:99_999)
     #seed = 96826
     for input_dir in input_dirs
-        #Check template info 
+        #Check template info
 
         name = basename(input_dir)
-        output_dir = joinpath(input_dir, "af")
-        @show "Output directory: $output_dir"
-        if isdir(output_dir)
-            if isdir(joinpath(output_dir, "predictions", "sequences", "models"))
+        prediction_dir = joinpath(input_dir, "af")
+        @show "Output directory: $prediction_dir"
+        if isdir(prediction_dir)
+            if isdir(joinpath(prediction_dir, "predictions", "sequences", "models"))
                 @show "Folder already process"
                 continue
             else
-                rm(output_dir; recursive = true, force = true)
+                rm(prediction_dir; recursive = true, force = true)
             end
         end
-        mkdir(output_dir)
+        mkpath(prediction_dir)
+        tmp_dir = joinpath(prediction_dir, "tmp")
+        mkpath(tmp_dir)
 
         println("🚀Start $name ...")
 
-        cmd = `apptainer exec --nv --no-home --cleanenv \
-            --bind $input_dir:/mnt/input \
-            --bind $output_dir:/mnt/output \
-            --bind $CACHE_DIR:/cache \
-            $SIF_PATH \
-            colabfold_batch \
-                /mnt/input/sequences.a3m /mnt/output \
-                --templates \
-                --custom-template-path /mnt/input/templates_adaptative/ \
-                --random-seed $seed \
-                --num-seeds 5 \
-                --use-dropout \
-                --num-models 2 \
-                --overwrite-existing-results`
-        run_cmd(cmd)
+        cmd = _colabfold_batch_command(
+            input_dir,
+            prediction_dir,
+            sif_path,
+            cache_dir;
+            seed,
+            tmp_dir,
+        )
+        # Stop here if ColabFold failed; organizing missing outputs hides the
+        # real prediction error and produces confusing downstream failures.
+        run_cmd(cmd; check = true)
 
-        organize_files(output_dir)
+        organize_files(prediction_dir)
 
     end
 
@@ -89,10 +150,10 @@ end
     get_msa_sequence_afdb(uniprot_id, output_dir) -> path or nothing
 
 Download the precomputed MSA for a UniProt entry from the AlphaFold Database.
-Input : 
+Input :
 - `uniprot_id` : UniProt accession (e.g. `"P00533"`).
 - `output_dir` : folder where the `.a3m` file will be saved.
-Output : 
+Output :
 The path to the saved `<UNIPROT_ID>_msa.a3m` file, or `nothing` if failed
 If multiple AlphaFold entries exist for the same UniProt ID, the first one is used.
 """
@@ -130,6 +191,18 @@ function get_msa_sequence_afdb(uniprot_id::String, output_dir::String)
 
 end
 
+"""
+    parse_plddt_info_in_line(line) -> NamedTuple or nothing
+
+Parse one ColabFold log line containing ranking and confidence scores.
+
+# Arguments
+- `line`: Log line to inspect.
+
+# Returns
+A named tuple with `rank`, `pLDDT`, and `pTM` when the line contains all three
+fields. Returns `nothing` for unrelated lines.
+"""
 function parse_plddt_info_in_line(line::String)
     @show line
     m = match(r"(rank_[^ ]+).*pLDDT=(\d+\.\d+).*pTM=(\d+\.\d+)", line)
@@ -151,7 +224,7 @@ end
 
 Run a ColabFold structure prediction for a UniProt entry using its AlphaFold DB MSA,
 and return the path to the best predicted model.
-Input : 
+Input :
 - `uniprot`     : UniProt accession (e.g. `"P00533"`).
 - `output_path` : working directory where inputs and outputs are stored.
 - `SIF_PATH`    : path to the ColabFold Apptainer `.sif` image.
@@ -164,7 +237,7 @@ Runs ColabFold with 5 models × 5 seeds and dropout enabled.
 Reorganizes output files with `organize_files`.
 Parses `log.txt` to extract pLDDT scores, saves them to `scores.csv`,
    and copies the best-ranked model to `output_path/best_model.pdb`.
-Output : 
+Output :
 Path to `best_model.pdb`, or `nothing` if the folder was already processed.
 """
 function run_alphafold_input_structure(
@@ -174,7 +247,7 @@ function run_alphafold_input_structure(
     CACHE_DIR::String;
     msa_path_save::Union{String,Missing} = missing,
 )
-    ## Get afdb a3M 
+    ## Get afdb a3M
     if ismissing(msa_path_save)
         msa_path_save=get_msa_sequence_afdb(uniprot, output_path)
         @show "Saved MSA path: $msa_path_save"
@@ -182,7 +255,7 @@ function run_alphafold_input_structure(
         cp(msa_path_save, joinpath(output_path, uniprot*"_msa.a3m"))
         msa_path_save=joinpath(output_path, uniprot*"_msa.a3m")
     end
-    ## Run colabfold with the msa 
+    ## Run colabfold with the msa
     output_dir = joinpath(output_path, "af_input")
     @show "Output directory: $output_dir"
     if isdir(output_dir)
@@ -213,7 +286,7 @@ function run_alphafold_input_structure(
 
     organize_files(output_dir)
 
-    ## Create score file 
+    ## Create score file
     log_file = joinpath(output_dir, "predictions", "log.txt")
 
     parsed_data = []
@@ -247,6 +320,25 @@ end
 
 ### AlphaFold3 function ###
 
+"""
+    write_af3_json(out_json; run_name, sequence, chain_id="A", templates_info, seed)
+    -> out_json
+
+Write an AlphaFold3 JSON input file for one protein sequence.
+
+# Arguments
+- `out_json`: Path where the JSON file will be written.
+
+# Keywords
+- `run_name`: Name used by AlphaFold3 for this run.
+- `sequence`: Protein sequence for the query chain.
+- `chain_id`: Query chain identifier.
+- `templates_info`: Template records in the format expected by AlphaFold3.
+- `seed`: First model seed. Four following seeds are added automatically.
+
+# Returns
+The path passed as `out_json`.
+"""
 function write_af3_json(
     out_json::String;
     run_name::String,
@@ -282,6 +374,20 @@ function write_af3_json(
     return out_json
 end
 
+"""
+    aligned_indices(query_aln, template_aln) -> (query_indices, template_indices)
+
+Return zero-based residue indices for columns where two aligned sequences both have
+residues.
+
+# Arguments
+- `query_aln`: Aligned query sequence, using `-` for gaps.
+- `template_aln`: Aligned template sequence, using `-` for gaps.
+
+# Returns
+Two integer vectors with matching query and template residue indices. The indices are
+zero-based because AlphaFold3 template JSON uses zero-based indexing.
+"""
 function aligned_indices(query_aln::String, template_aln::String)
     @assert length(query_aln) == length(template_aln)
 
@@ -316,12 +422,12 @@ end
 
 Run AlphaFold3 predictions for all `cluster_*` subfolders in a given directory.
 Tested with version 22b9ab8
-Input : 
+Input :
 - `clusters_folder`    : path to the folder containing `cluster_*` subfolders.
 - `SIF_IMAGE_PATH`     : path to the folder containing the `alphafold3.sif` Apptainer image.
 - `MODEL_PARAMETERS_DIR` : path to the AlphaFold3 model weights.
 - `DB_DIR`             : path to the AlphaFold3 genetic databases.
-Output : 
+Output :
 For each `cluster_*` subfolder:
 1. Patches any `.cif` template files for AlphaFold3 compatibility.
 2. Skips folders that have already been processed (i.e. `af3/predictions/sequences/models/` exists).
@@ -496,7 +602,7 @@ end
 
 Run Boltz2 structure predictions for all subfolders in a given directory.
 Tested with version fd69c81
-Input : 
+Input :
 - `clusters_folder`  : path to the folder containing cluster subfolders.
 - `SIF_IMAGE_PATH`   : path to the Boltz2 Apptainer `.sif` image.
 - `CACHE_DIR_Boltz`  : path to the cache directory (Numba, Triton, CUDA, etc.).
@@ -633,7 +739,7 @@ function run_boltz2(
                 --cache /cache \
                 --seed $s \
                 --diffusion_samples 5 \
-                --override  
+                --override
                 `
             try
                 run(cmd)
