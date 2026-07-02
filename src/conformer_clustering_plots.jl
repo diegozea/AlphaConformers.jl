@@ -12,7 +12,7 @@
 # clipped at the figure edge (Plots has no automatic tight layout).
 const _FIG_DPI = 600
 const _FIG_SIZE = (1300, 800)
-const _FIG_MARGIN = 10plt.mm
+const _FIG_MARGIN = 10 * plt.PlotMeasures.mm
 
 # Light gray used for a `-1` noise label.
 const _NOISE_COLOR = plt.RGBA(0.7, 0.7, 0.7, 1.0)
