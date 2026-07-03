@@ -218,6 +218,27 @@ alphaconformers(;
 --> If `FOLDSEEK_DB_PATH` uses several databases, AlphaConformers chooses the unique database whose name contains
 `pdb`, ignoring case. If it cannot choose one, it stops before running Foldseek and asks for `foldseek_results_folder`. 
 
+## Scoring Conformers with DeepAccNet
+
+`run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
+directory and writes a score table:
+
+```julia
+using AlphaConformers
+
+output_dir = "/data/alphaconformers/pdb/1AKZ"
+sif_path   = "/containers/deepaccnet.sif"
+
+csv = run_deepaccnet(output_dir, sif_path)
+```
+
+It auto-detects the inner prediction-method folder, flattens every
+`cluster_*/<inner>/predictions/sequences/models/*.pdb` into a flat folder of symlinks named
+`cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU (`apptainer run --nv`), and
+returns the path to `output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and
+a working `apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
+control the number of CPUs used for featurization.
+
 ## Output
 
 The preparation step writes a folder for each template cluster:

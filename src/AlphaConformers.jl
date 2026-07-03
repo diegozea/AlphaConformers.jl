@@ -69,6 +69,7 @@ export foldseek_search, # foldseek.jl
     create_folder_structure_hobohm,
     run_cmd,
     run_alphafold,
+    run_deepaccnet,
     cluster_conformers
 
 include("utils.jl")
@@ -81,6 +82,7 @@ include("af_input.jl")
 include("run_alphafold.jl")
 include("organize_files.jl")
 include("run_alphaconformers.jl")
+include("run_deepaccnet.jl")
 include("conformer_clustering.jl")
 include("conformer_clustering_plots.jl")
 
