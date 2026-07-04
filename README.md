@@ -222,14 +222,36 @@ alphaconformers(;
 
 ## Scoring Conformers with DeepAccNet
 
-`run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
-directory and writes a score table:
+`run_deepaccnet` scores the predicted conformers in one AlphaConformers output
+directory. It runs the DeepAccNet Apptainer/Singularity image and writes a CSV
+score table.
+
+The DeepAccNet container is an external pipeline dependency. Download the
+required `deepaccnet.sif` file from Zenodo:
+
+https://zenodo.org/records/21192188
+
+Change `CONTAINER_DIR` to the folder where you want to store the image.
+
+```julia
+using Downloads
+
+CONTAINER_DIR = "/path/to/container/files"
+DEEPACCNET_SIF = joinpath(CONTAINER_DIR, "deepaccnet.sif")
+
+mkpath(CONTAINER_DIR)
+
+Downloads.download(
+    "https://zenodo.org/records/21192188/files/deepaccnet.sif?download=1",
+    DEEPACCNET_SIF,
+)
+```
 
 ```julia
 using AlphaConformers
 
 output_dir = "/data/alphaconformers/pdb/1AKZ"
-sif_path   = "/containers/deepaccnet.sif"
+sif_path = DEEPACCNET_SIF
 
 csv = run_deepaccnet(output_dir, sif_path)
 ```
@@ -449,4 +471,3 @@ julia --project=docs docs/make.jl
 
 Source code is in `src/`, tests are in `test/`, and documentation sources are
 in `docs/src/`.
-
