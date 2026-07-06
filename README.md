@@ -70,8 +70,7 @@ AlphaConformers builds inputs for structure prediction tools in several steps:
 
 ## Quick Start
 
-Run the default pipeline with input preparation, ColabFold prediction, and output
-triage : 
+Run the default pipeline with input preparation, ColabFold prediction, output, DeepAccNet scoring, and conformer clustering.
 
 ```julia
 using AlphaConformers
@@ -89,8 +88,9 @@ FOLDSEEK_DBS = [
 
 COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
 COLABFOLD_CACHE_DIR = "cache/colabfold"
+DEEPACCNET_SIF = "containers/deepaccnet.sif"
 
-# Function to run the full pipeline
+# Function to run the full five-step pipeline
 alphaconformers(
     COLABFOLD_SIF,
     COLABFOLD_CACHE_DIR;
@@ -101,6 +101,7 @@ alphaconformers(
     n_threads = 16,
     evalue_cutoff = 1e-5,
     cutoff = 1.0,
+    deepaccnet_sif = DEEPACCNET_SIF,
 )
 ```
 

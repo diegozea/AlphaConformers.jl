@@ -345,17 +345,28 @@ function _validate_alphaconformers_configuration(
     prepare::Bool,
     predict::Bool,
     triage::Bool,
+    deepaccnet::Bool,
+    cluster::Bool,
     databases,
     sifts_uniprot_mapping,
+    deepaccnet_sif,
 )
-    if !(prepare || predict || triage)
+    if !(prepare || predict || triage || deepaccnet || cluster)
         throw(
             ArgumentError(
-                "At least one pipeline step must be enabled; set `prepare`, `predict`, or `triage` to `true`.",
+                "At least one pipeline step must be enabled; set `prepare`, `predict`, `triage`, `deepaccnet`, or `cluster` to `true`.",
             ),
         )
     end
     _require_pipeline_keyword(:output_dir, output_dir, "for every `alphaconformers` call")
+
+    if deepaccnet && _is_unset(deepaccnet_sif)
+        throw(
+            ArgumentError(
+                "`deepaccnet_sif` is required when `deepaccnet=true`; pass the DeepAccNet container image path.",
+            ),
+        )
+    end
 
     if !predict && (!isempty(predictor_args) || !isempty(predictor_kwargs))
         throw(
@@ -393,11 +404,19 @@ function _validate_alphaconformers_configuration(
     return nothing
 end
 
-function _enabled_pipeline_steps(prepare::Bool, predict::Bool, triage::Bool)
+function _enabled_pipeline_steps(
+    prepare::Bool,
+    predict::Bool,
+    triage::Bool,
+    deepaccnet::Bool,
+    cluster::Bool,
+)
     steps = String[]
     prepare && push!(steps, "Prepare inputs")
     predict && push!(steps, "Predict structures")
     triage && push!(steps, "Triage outputs")
+    deepaccnet && push!(steps, "Run DeepAccNet")
+    cluster && push!(steps, "Cluster conformers")
     return steps
 end
 
@@ -634,15 +653,17 @@ end
 Run selected steps of the AlphaConformers pipeline.
 
 `alphaconformers` is the high-level entry point for input preparation, structure
-prediction, and output triage. It runs `prepare_inputs`, then
-`structure_predictor`, then `triage_outputs` when those steps are enabled. The
-selected steps are controlled by `prepare`, `predict`, and `triage`.
+prediction, output triage, DeepAccNet scoring, and conformer clustering. It runs
+`prepare_inputs`, then `structure_predictor`, then `triage_outputs`, then
+`run_deepaccnet`, then `cluster_conformers` when those steps are enabled. The
+selected steps are controlled by `prepare`, `predict`, `triage`, `deepaccnet`, and
+`cluster`.
 
 # Step Selection
-Each step flag can be turned on or off. By default all three are `true`, so the
-full pipeline is run. At least one step must be selected. The only selected-step
-combination that is not valid is `prepare=true`, `predict=false`, and
-`triage=true`, because triage needs prediction outputs.
+Each step flag can be turned on or off. By default all five are `true`, so the full
+pipeline is run. At least one step must be selected. The only selected-step
+combination that is not valid is `prepare=true`, `predict=false`, and `triage=true`,
+because triage needs prediction outputs.
 
 If `predict=false`, extra positional arguments and unknown keyword arguments are
 rejected so predictor-specific inputs are not silently ignored.
@@ -660,6 +681,8 @@ rejected so predictor-specific inputs are not silently ignored.
 - `prepare`: Run the input preparation step. Defaults to `true`.
 - `predict`: Run the structure prediction step. Defaults to `true`.
 - `triage`: Run the output triage step. Defaults to `true`.
+- `deepaccnet`: Run the DeepAccNet scoring step. Defaults to `true`.
+- `cluster`: Run the conformer clustering step. Defaults to `true`.
 - `structure_predictor`: Prediction function. Defaults to `run_alphafold`.
 - `n_threads`: Number of Foldseek threads for preparation.
 - `databases`: Foldseek database path or paths. Required when `prepare=true`.
@@ -676,6 +699,11 @@ rejected so predictor-specific inputs are not silently ignored.
   omitted, the folder returned by preparation or the folder found in `output_dir` is
   used. During preparation with several databases, AlphaConformers requires exactly
   one database whose name contains `pdb` unless this folder is passed explicitly.
+- `deepaccnet_sif`: Path to the DeepAccNet Apptainer/Singularity image. Required when
+  `deepaccnet=true`. 
+- `ref1`: Optional path to a first reference structure for clustering.
+- `ref2`: Optional path to a second reference structure for clustering.
+- `query`: Optional clustering query, a conformer name or a structure path. 
 - `kwargs...`: Keyword arguments passed only to `structure_predictor`.
 
 # Required Inputs by Step
@@ -684,21 +712,31 @@ rejected so predictor-specific inputs are not silently ignored.
   `structure_predictor`.
 - Triage needs `query_struct`, `output_dir`, prediction outputs, and
   `sifts_uniprot_mapping` unless preparation runs in the same call.
+- DeepAccNet needs `output_dir`, `deepaccnet_sif`, and prediction outputs.
+- Clustering needs `output_dir` and prediction outputs.
 
 # Returns
-A named tuple with the absolute `output_dir`, boolean step flags, and
+A named tuple with the absolute `output_dir`, the boolean step flags, and
 `triage_result`.
 
 # Throws
-Throws `ArgumentError` when enabled steps and required keywords are inconsistent.
-"""
+Throws `ArgumentError` when enabled steps and required keywords are inconsistent
 function alphaconformers(args...; kwargs...)
-    return _alphaconformers(prepare_inputs, triage_outputs, args...; kwargs...)
+    return _alphaconformers(
+        prepare_inputs,
+        triage_outputs,
+        run_deepaccnet,
+        cluster_conformers,
+        args...;
+        kwargs...,
+    )
 end
 
 function _alphaconformers(
     _prepare_inputs_function::Function,
     _triage_outputs_function::Function,
+    _run_deepaccnet_function::Function,
+    _cluster_conformers_function::Function,
     args...;
     query_struct = missing,
     pdb_folder = missing,
@@ -706,6 +744,8 @@ function _alphaconformers(
     prepare::Bool = true,
     predict::Bool = true,
     triage::Bool = true,
+    deepaccnet::Bool = true,
+    cluster::Bool = true,
     structure_predictor::Function = run_alphafold,
     n_threads::Int = Threads.nthreads(),
     databases = missing,
@@ -717,6 +757,10 @@ function _alphaconformers(
     sifts_uniprot_mapping = missing,
     folder_af2_result::AbstractString = "af",
     foldseek_results_folder = missing,
+    deepaccnet_sif::AbstractString = "",
+    ref1::String = "",
+    ref2::String = "",
+    query = nothing,
     kwargs...,
 )
     _validate_alphaconformers_configuration(
@@ -728,8 +772,11 @@ function _alphaconformers(
         prepare,
         predict,
         triage,
+        deepaccnet,
+        cluster,
         databases,
         sifts_uniprot_mapping,
+        deepaccnet_sif,
     )
 
     output_dir = abspath(output_dir)
@@ -751,10 +798,12 @@ function _alphaconformers(
         sifts_uniprot_mapping = get_uniprot_mapping()
     end
 
-    steps = _enabled_pipeline_steps(prepare, predict, triage)
+    steps = _enabled_pipeline_steps(prepare, predict, triage, deepaccnet, cluster)
     progress = Progress(steps, 0, length(steps))
     triage_result = nothing
     prepared_inputs = nothing
+    deepaccnet_result = nothing
+    cluster_result = nothing
 
     if prepare
         prepared_inputs = _prepare_inputs_function(
@@ -793,11 +842,35 @@ function _alphaconformers(
         progress_bar(progress, "Triage outputs")
     end
 
+    if deepaccnet
+        deepaccnet_result = _run_deepaccnet_function(output_dir, deepaccnet_sif; n_threads)
+        progress_bar(progress, "Run DeepAccNet")
+    end
+
+    if cluster
+        effective =
+            deepaccnet_result !== nothing ?
+            _deepaccnet_score_table(output_dir, deepaccnet_result) : nothing
+        cluster_result = _cluster_conformers_function(
+            output_dir,
+            ref1,
+            ref2;
+            method = folder_af2_result,
+            score_table = effective,
+            query,
+        )
+        progress_bar(progress, "Cluster conformers")
+    end
+
     return (
         output_dir = output_dir,
         prepared = prepare,
         prepared_inputs = prepared_inputs,
         predicted = predict,
         triage_result = triage_result,
+        deepaccnet = deepaccnet,
+        deepaccnet_result = deepaccnet_result,
+        clustered = cluster,
+        cluster_result = cluster_result,
     )
 end

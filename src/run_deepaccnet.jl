@@ -6,7 +6,9 @@ function _container_runtime(container_runtime::String)
     if container_runtime == "apptainer" || container_runtime == "singularity"
         return container_runtime
     end
-    throw(ArgumentError("container_runtime must be either \"apptainer\" or \"singularity\"."))
+    throw(
+        ArgumentError("container_runtime must be either \"apptainer\" or \"singularity\"."),
+    )
 end
 
 # Alphabetically-sorted cluster_* directory names directly under base_dir.
@@ -90,6 +92,84 @@ function _deepaccnet_links(data_root::AbstractString, system::AbstractString)
         )
     end
     return pairs
+end
+
+"""
+    _deepaccnet_score_table(output_dir, csv_path; method = nothing) -> DataFrame
+
+Convert a DeepAccNet results CSV, keyed by each flattened symlink stem `cluster_<N>_<model>`,
+into a score table keyed by each conformer's path relative to `output_dir`, so that
+`cluster_conformers` can match the scores back to its models.
+
+# Behavior
+
+DeepAccNet writes one row per flattened symlink and identifies it by the stem
+`sample = cluster_<N>_<model>`. Model file names repeat across clusters, so the stem, not the
+bare file name, is what uniquely identifies a conformer. This helper rebuilds the same
+`(link_name, target)` pairs as the run through [`_deepaccnet_links`](@ref), maps each stem
+`splitext(link_name)[1]` to the target's path relative to `output_dir`, and rewrites the CSV's
+sample column into that `Name` column. The sample column is detected case-insensitively as
+`sample` or `name`, and the score column as `cb-lddt`; a trailing `.pdb` is stripped from each
+sample value before the stem lookup. Rows whose sample has no matching link are dropped. The
+`method` keyword is accepted for call-site symmetry and does not affect the mapping, since the
+method segment is taken from each target's own on-disk path.
+
+# Arguments
+
+- `output_dir::AbstractString`: AlphaConformers system folder holding the `cluster_*`
+  subfolders; every `Name` is made relative to it.
+- `csv_path::AbstractString`: DeepAccNet results CSV to convert.
+
+# Keywords
+
+- `method`: Accepted for symmetry with the calling pipeline; currently unused.
+
+# Returns
+
+A `DataFrame` with columns `Name` (conformer path relative to `output_dir`) and `cb-lddt`
+(the preserved DeepAccNet score).
+
+# Throws
+
+- `ErrorException`: if the CSV has no sample/name column or no `cb-lddt` column.
+"""
+function _deepaccnet_score_table(
+    output_dir::AbstractString,
+    csv_path::AbstractString;
+    method = nothing,
+)
+    pairs = _deepaccnet_links(dirname(output_dir), basename(output_dir))
+    stem_to_rel = Dict{String,String}(
+        splitext(link_name)[1] => relpath(target, output_dir) for
+        (link_name, target) in pairs
+    )
+
+    table = CSV.read(csv_path, DataFrame)
+    cols = Base.names(table)
+    _norm(c) = lowercase(strip(String(c)))
+
+    sample_idx = findfirst(c -> _norm(c) in ("sample", "name"), cols)
+    sample_idx === nothing && error(
+        "DeepAccNet CSV '$csv_path' has no sample/name column; columns found: " *
+        join(cols, ", "),
+    )
+    score_idx = findfirst(c -> _norm(c) == "cb-lddt", cols)
+    score_idx === nothing && error(
+        "DeepAccNet CSV '$csv_path' has no cb-lddt column; columns found: " *
+        join(cols, ", "),
+    )
+
+    sample_col = cols[sample_idx]
+    score_col = cols[score_idx]
+
+    samples = String.(table[!, sample_col])
+    stems = [endswith(lowercase(s), ".pdb") ? chop(s; tail = 4) : s for s in samples]
+    keep = [haskey(stem_to_rel, stem) for stem in stems]
+
+    return DataFrame(
+        "Name" => [stem_to_rel[stem] for stem in stems[keep]],
+        "cb-lddt" => table[keep, score_col],
+    )
 end
 
 """
