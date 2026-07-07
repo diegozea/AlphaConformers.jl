@@ -652,18 +652,18 @@ end
 
 Run selected steps of the AlphaConformers pipeline.
 
-`alphaconformers` is the high-level entry point for input preparation, structure
-prediction, output triage, DeepAccNet scoring, and conformer clustering. It runs
-`prepare_inputs`, then `structure_predictor`, then `triage_outputs`, then
-`run_deepaccnet`, then `cluster_conformers` when those steps are enabled. The
-selected steps are controlled by `prepare`, `predict`, `triage`, `deepaccnet`, and
+- `alphaconformers` is the high-level entry point for input preparation, structure
+- prediction, output triage, DeepAccNet scoring, and conformer clustering. It runs
+- `prepare_inputs`, then `structure_predictor`, then `triage_outputs`, then
+- `run_deepaccnet`, then `cluster_conformers` when those steps are enabled. The
+- selected steps are controlled by `prepare`, `predict`, `triage`, `deepaccnet`, and
 `cluster`.
 
 # Step Selection
-Each step flag can be turned on or off. By default all five are `true`, so the full
-pipeline is run. At least one step must be selected. The only selected-step
-combination that is not valid is `prepare=true`, `predict=false`, and `triage=true`,
-because triage needs prediction outputs.
+- Each step flag can be turned on or off. By default all five are `true`, so the full
+- pipeline is run. At least one step must be selected. The only selected-step
+- combination that is not valid is `prepare=true`, `predict=false`, and `triage=true`,
+- because triage needs prediction outputs.
 
 If `predict=false`, extra positional arguments and unknown keyword arguments are
 rejected so predictor-specific inputs are not silently ignored.
@@ -716,11 +716,12 @@ rejected so predictor-specific inputs are not silently ignored.
 - Clustering needs `output_dir` and prediction outputs.
 
 # Returns
-A named tuple with the absolute `output_dir`, the boolean step flags, and
+A named tuple with the absolute `output_dir`, boolean step flags, and
 `triage_result`.
 
 # Throws
-Throws `ArgumentError` when enabled steps and required keywords are inconsistent
+Throws `ArgumentError` when enabled steps and required keywords are inconsistent.
+"""
 function alphaconformers(args...; kwargs...)
     return _alphaconformers(
         prepare_inputs,

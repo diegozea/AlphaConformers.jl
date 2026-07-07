@@ -6,9 +6,7 @@ function _container_runtime(container_runtime::String)
     if container_runtime == "apptainer" || container_runtime == "singularity"
         return container_runtime
     end
-    throw(
-        ArgumentError("container_runtime must be either \"apptainer\" or \"singularity\"."),
-    )
+    throw(ArgumentError("container_runtime must be either \"apptainer\" or \"singularity\"."))
 end
 
 # Alphabetically-sorted cluster_* directory names directly under base_dir.

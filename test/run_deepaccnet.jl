@@ -171,16 +171,7 @@ using TestItems
     end
     mktempdir() do output_dir
         # cluster_* exists, but no *.pdb anywhere under it.
-        mkpath(
-            joinpath(
-                output_dir,
-                "cluster_1",
-                "af_cif",
-                "predictions",
-                "sequences",
-                "models",
-            ),
-        )
+        mkpath(joinpath(output_dir,"cluster_1","af_cif","predictions","sequences","models"))
         write(
             joinpath(
                 output_dir,
