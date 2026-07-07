@@ -90,7 +90,7 @@ COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
 COLABFOLD_CACHE_DIR = "cache/colabfold"
 DEEPACCNET_SIF = "containers/deepaccnet.sif"
 
-# Function to run the full five-step pipeline
+# Function to run the full pipeline
 alphaconformers(
     COLABFOLD_SIF,
     COLABFOLD_CACHE_DIR;
