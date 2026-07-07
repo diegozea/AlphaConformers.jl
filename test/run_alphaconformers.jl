@@ -1044,14 +1044,13 @@ end
     repo = dirname(@__DIR__)
     ref1 = joinpath(repo, "refs", "1AKZ_A.pdb")
     ref2 = joinpath(repo, "refs", "1SSP_E.pdb")
-    (
+    resources_ok =
         Sys.which("apptainer") !== nothing &&
         gpu_ok &&
         isfile(sif) &&
         isdir(data) &&
         isfile(ref1) &&
         isfile(ref2)
-    ) || return
 
     # True when a cluster directory holds at least one AlphaFold prediction model.
     function has_models(cluster_dir)
@@ -1064,7 +1063,7 @@ end
         return false
     end
 
-    mktempdir() do tmp
+    resources_ok && mktempdir() do tmp
         # Copy the populated cluster(s) into the tempdir, preserving the tree, so the real run
         # never mutates the shared database.
         copied = String[]
