@@ -117,7 +117,9 @@ end
                 sif_path = sif_path,
                 kwargs = keyword_dict(kwargs),
             )
-            return :deepaccnet_csv
+            csv_path = joinpath(output_dir, "deepaccnet_results.csv")
+            write(csv_path, "sample,cb-lddt\ncluster_1_m1,0.9\ncluster_1_m2,0.6\n")
+            return csv_path
         end
         fake_cluster = function (output_dir, ref1, ref2; kwargs...)
             calls[:cluster] = (
@@ -146,6 +148,18 @@ end
         output_dir = joinpath(dir, "run")
         mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
 
+        models = joinpath(
+            output_dir,
+            "cluster_1",
+            "custom_af",
+            "predictions",
+            "sequences",
+            "models",
+        )
+        mkpath(models)
+        write(joinpath(models, "m1.pdb"), "")
+        write(joinpath(models, "m2.pdb"), "")
+
         for combination in combinations
             calls = Dict{Symbol,Any}()
             fake_preparer, fake_predictor, fake_triager, fake_deepaccnet, fake_cluster =
@@ -166,12 +180,11 @@ end
                         prepare = combination.prepare,
                         predict = combination.predict,
                         triage = combination.triage,
-                        deepaccnet = false,
-                        cluster = false,
                         structure_predictor = fake_predictor,
                         databases = ["foldseek_db"],
                         sifts_uniprot_mapping = mapping,
                         folder_af2_result = "custom_af",
+                        deepaccnet_sif = "image.sif",
                         predictor_keyword = 42,
                     )
                 else
@@ -186,12 +199,11 @@ end
                         prepare = combination.prepare,
                         predict = combination.predict,
                         triage = combination.triage,
-                        deepaccnet = false,
-                        cluster = false,
                         structure_predictor = fake_predictor,
                         databases = ["foldseek_db"],
                         sifts_uniprot_mapping = mapping,
                         folder_af2_result = "custom_af",
+                        deepaccnet_sif = "image.sif",
                     )
                 end
             end
@@ -199,10 +211,16 @@ end
             @test result.output_dir == abspath(output_dir)
             @test result.prepared == combination.prepare
             @test result.predicted == combination.predict
+            @test result.triaged == combination.triage
             @test (result.triage_result !== nothing) == combination.triage
+            # DeepAccNet and clustering are sub-steps of triage: they run exactly when it does.
+            @test (result.deepaccnet_result !== nothing) == combination.triage
+            @test (result.cluster_result !== nothing) == combination.triage
             @test haskey(calls, :prepare) == combination.prepare
             @test haskey(calls, :predict) == combination.predict
             @test haskey(calls, :triage) == combination.triage
+            @test haskey(calls, :deepaccnet) == combination.triage
+            @test haskey(calls, :cluster) == combination.triage
 
             if combination.prepare
                 @test calls[:prepare].query_struct == abspath(query_struct)
@@ -225,6 +243,13 @@ end
                 @test calls[:triage].sifts_uniprot_mapping === mapping
                 @test calls[:triage].kwargs[:folder_af2_result] == "custom_af"
                 @test !haskey(calls[:triage].kwargs, :predictor_keyword)
+
+                @test calls[:deepaccnet].output_dir == abspath(output_dir)
+                @test calls[:deepaccnet].sif_path == "image.sif"
+                @test calls[:deepaccnet].kwargs[:n_threads] isa Int
+
+                @test calls[:cluster].output_dir == abspath(output_dir)
+                @test calls[:cluster].kwargs[:method] == "custom_af"
             end
         end
     end
@@ -254,8 +279,6 @@ end
                 prepare = false,
                 predict = true,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = fake_predictor,
                 predictor_keyword = 42,
             )
@@ -318,7 +341,11 @@ end
         )
         return :triaged
     end
-    fake_deepaccnet = (output_dir, sif_path; kwargs...) -> :deepaccnet_csv
+    fake_deepaccnet = function (output_dir, sif_path; kwargs...)
+        csv_path = joinpath(output_dir, "deepaccnet_results.csv")
+        write(csv_path, "sample,cb-lddt\ncluster_1_m1,0.9\ncluster_1_m2,0.6\n")
+        return csv_path
+    end
     fake_cluster = (output_dir, ref1, ref2; kwargs...) -> :clustered
 
     mktempdir() do dir
@@ -326,6 +353,13 @@ end
         pdb_folder = joinpath(dir, "pdb")
         output_dir = joinpath(dir, "run")
         mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
+
+        # Minimal prediction tree so the triage step's DeepAccNet-to-clustering adapter resolves.
+        models =
+            joinpath(output_dir, "cluster_1", "af", "predictions", "sequences", "models")
+        mkpath(models)
+        write(joinpath(models, "m1.pdb"), "")
+        write(joinpath(models, "m2.pdb"), "")
 
         result = redirect_stdout(devnull) do
             AlphaConformers._alphaconformers(
@@ -341,11 +375,10 @@ end
                 prepare = true,
                 predict = true,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = fake_predictor,
                 databases = [joinpath(dir, "custom_fullpdb")],
                 sifts_uniprot_mapping = mapping,
+                deepaccnet_sif = "image.sif",
             )
         end
 
@@ -368,12 +401,11 @@ end
                 prepare = true,
                 predict = true,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = fake_predictor,
                 databases = [joinpath(dir, "custom_fullpdb")],
                 sifts_uniprot_mapping = mapping,
                 foldseek_results_folder = explicit_folder,
+                deepaccnet_sif = "image.sif",
             )
         end
 
@@ -409,7 +441,11 @@ end
         calls[:triage] = (foldseek_results_folder = foldseek_results_folder,)
         return :triaged
     end
-    fake_deepaccnet = (output_dir, sif_path; kwargs...) -> :deepaccnet_csv
+    fake_deepaccnet = function (output_dir, sif_path; kwargs...)
+        csv_path = joinpath(output_dir, "deepaccnet_results.csv")
+        write(csv_path, "sample,cb-lddt\ncluster_1_m1,0.9\ncluster_1_m2,0.6\n")
+        return csv_path
+    end
     fake_cluster = (output_dir, ref1, ref2; kwargs...) -> :clustered
 
     mktempdir() do dir
@@ -417,6 +453,12 @@ end
         pdb_folder = joinpath(dir, "pdb")
         output_dir = joinpath(dir, "run")
         mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
+
+        models =
+            joinpath(output_dir, "cluster_1", "af", "predictions", "sequences", "models")
+        mkpath(models)
+        write(joinpath(models, "m1.pdb"), "")
+        write(joinpath(models, "m2.pdb"), "")
 
         result = redirect_stdout(devnull) do
             AlphaConformers._alphaconformers(
@@ -432,11 +474,10 @@ end
                 prepare = true,
                 predict = true,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = fake_predictor,
                 databases = [joinpath(dir, "afdb"), joinpath(dir, "myPDBdatabase")],
                 sifts_uniprot_mapping = mapping,
+                deepaccnet_sif = "image.sif",
             )
         end
 
@@ -479,8 +520,6 @@ end
                 prepare = false,
                 predict = false,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 query_struct,
                 sifts_uniprot_mapping = mapping,
             )
@@ -497,8 +536,6 @@ end
                 prepare = false,
                 predict = false,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("At least one pipeline step must be enabled", msg)
@@ -515,8 +552,6 @@ end
                 prepare = true,
                 predict = false,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("`query_struct` is required when `prepare=true`", msg)
@@ -532,8 +567,6 @@ end
                 prepare = false,
                 predict = false,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("`query_struct` is required when `triage=true`", msg)
@@ -550,8 +583,6 @@ end
                 prepare = true,
                 predict = false,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("`pdb_folder` is required when `prepare=true`", msg)
@@ -568,8 +599,6 @@ end
                 prepare = true,
                 predict = false,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("`databases` is required when `prepare=true`", msg)
@@ -588,8 +617,6 @@ end
                 prepare = true,
                 predict = false,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("`triage=true` requires prediction outputs", msg)
@@ -605,8 +632,6 @@ end
                 prepare = false,
                 predict = false,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("`sifts_uniprot_mapping` is required", msg)
@@ -625,8 +650,6 @@ end
                 prepare = true,
                 predict = false,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
             )
         end
         @test occursin("Predictor arguments were provided but `predict=false`", msg)
@@ -644,14 +667,11 @@ end
                 prepare = true,
                 predict = false,
                 triage = false,
-                deepaccnet = false,
-                cluster = false,
                 predictor_keyword = 42,
             )
         end
         @test occursin("Predictor arguments were provided but `predict=false`", msg)
 
-        # DeepAccNet requires its container image path.
         msg = argument_error_message() do
             AlphaConformers._alphaconformers(
                 should_not_run,
@@ -659,37 +679,14 @@ end
                 should_not_run,
                 should_not_run;
                 output_dir,
+                query_struct,
+                sifts_uniprot_mapping = mapping,
                 prepare = false,
                 predict = false,
-                triage = false,
-                deepaccnet = true,
-                cluster = false,
+                triage = true,
             )
         end
         @test occursin("deepaccnet_sif", msg)
-
-        # Skipping the main algorithm to run only DeepAccNet + clustering validates OK:
-        # only `output_dir` and `deepaccnet_sif` are required for that combination.
-        ok_deepaccnet = (output_dir, sif_path; kwargs...) -> nothing
-        ok_cluster = (output_dir, ref1, ref2; kwargs...) -> :clustered
-        result = redirect_stdout(devnull) do
-            AlphaConformers._alphaconformers(
-                should_not_run,
-                should_not_run,
-                ok_deepaccnet,
-                ok_cluster;
-                output_dir,
-                prepare = false,
-                predict = false,
-                triage = false,
-                deepaccnet = true,
-                cluster = true,
-                deepaccnet_sif = "image.sif",
-            )
-        end
-        @test result.deepaccnet == true
-        @test result.clustered == true
-        @test result.cluster_result == :clustered
 
         msg = argument_error_message() do
             AlphaConformers.prepare_inputs(query_struct, pdb_folder, output_dir)
@@ -717,9 +714,8 @@ end
                 prepare = true,
                 predict = true,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = should_not_run,
+                deepaccnet_sif = "image.sif",
             )
         end
         @test prepare_called[] == false
@@ -741,9 +737,8 @@ end
                 prepare = true,
                 predict = true,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = should_not_run,
+                deepaccnet_sif = "image.sif",
             )
         end
         @test prepare_called[] == false
@@ -765,9 +760,8 @@ end
                 prepare = true,
                 predict = true,
                 triage = true,
-                deepaccnet = false,
-                cluster = false,
                 structure_predictor = should_not_run,
+                deepaccnet_sif = "image.sif",
             )
         end
         @test prepare_called[] == false
@@ -775,7 +769,9 @@ end
     end
 end
 
-@testitem "alphaconformers runs DeepAccNet and clustering steps through the seam" begin
+@testitem "alphaconformers runs the triage step's DeepAccNet and clustering sub-steps" begin
+    import DataFrames
+
     function keyword_dict(kwargs)
         dict = Dict{Symbol,Any}()
         for pair in kwargs
@@ -784,88 +780,100 @@ end
         return dict
     end
 
-    # The two main-algorithm seams must never run in these combinations.
-    should_not_run = function (args...; kwargs...)
-        error("This step should not run for this flag combination.")
-    end
-
-    combinations = [
-        (name = "deepaccnet only", deepaccnet = true, cluster = false),
-        (name = "cluster only", deepaccnet = false, cluster = true),
-        (name = "deepaccnet and cluster", deepaccnet = true, cluster = true),
-    ]
-
     mktempdir() do dir
         output_dir = joinpath(dir, "run")
-        # A minimal prediction tree so the real DeepAccNet-to-clustering adapter resolves when
-        # both steps run; the seam still checks wiring, not the converted table.
+        # A minimal prediction tree so the real DeepAccNet-to-clustering adapter resolves.
         models =
             joinpath(output_dir, "cluster_1", "af", "predictions", "sequences", "models")
         mkpath(models)
         write(joinpath(models, "m1.pdb"), "")
         write(joinpath(models, "m2.pdb"), "")
+        query_struct = joinpath(dir, "1ABC_A.pdb")
+        mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
 
-        for combination in combinations
-            calls = Dict{Symbol,Any}()
-            fake_deepaccnet = function (output_dir, sif_path; kwargs...)
-                calls[:deepaccnet] = (
-                    output_dir = output_dir,
-                    sif_path = sif_path,
-                    kwargs = keyword_dict(kwargs),
-                )
-                csv_path = joinpath(output_dir, "deepaccnet_results.csv")
-                write(csv_path, "sample,cb-lddt\ncluster_1_m1,0.9\ncluster_1_m2,0.6\n")
-                return csv_path
-            end
-            fake_cluster = function (output_dir, ref1, ref2; kwargs...)
-                calls[:cluster] = (
-                    output_dir = output_dir,
-                    ref1 = ref1,
-                    ref2 = ref2,
-                    kwargs = keyword_dict(kwargs),
-                )
-                return :clustered
-            end
-
-            result = redirect_stdout(devnull) do
-                AlphaConformers._alphaconformers(
-                    should_not_run,
-                    should_not_run,
-                    fake_deepaccnet,
-                    fake_cluster;
-                    output_dir,
-                    prepare = false,
-                    predict = false,
-                    triage = false,
-                    deepaccnet = combination.deepaccnet,
-                    cluster = combination.cluster,
-                    deepaccnet_sif = "image.sif",
-                    ref1 = "apo.pdb",
-                    ref2 = "holo.pdb",
-                )
-            end
-
-            @test result.output_dir == abspath(output_dir)
-            @test result.deepaccnet == combination.deepaccnet
-            @test result.clustered == combination.cluster
-            @test haskey(calls, :deepaccnet) == combination.deepaccnet
-            @test haskey(calls, :cluster) == combination.cluster
-            @test (result.deepaccnet_result !== nothing) == combination.deepaccnet
-            @test (result.cluster_result == :clustered) == combination.cluster
-
-            if combination.deepaccnet
-                @test calls[:deepaccnet].output_dir == abspath(output_dir)
-                @test calls[:deepaccnet].sif_path == "image.sif"
-                @test calls[:deepaccnet].kwargs[:n_threads] isa Int
-            end
-
-            if combination.cluster
-                @test calls[:cluster].output_dir == abspath(output_dir)
-                @test calls[:cluster].ref1 == "apo.pdb"
-                @test calls[:cluster].ref2 == "holo.pdb"
-                @test calls[:cluster].kwargs[:method] == "af"
-            end
+        calls = Dict{Symbol,Any}()
+        fake_triager = function (output_dir, query_struct, sifts_uniprot_mapping; kwargs...)
+            calls[:triage] = (output_dir = output_dir, kwargs = keyword_dict(kwargs))
+            return :triaged
         end
+        fake_deepaccnet = function (output_dir, sif_path; kwargs...)
+            calls[:deepaccnet] = (
+                output_dir = output_dir,
+                sif_path = sif_path,
+                kwargs = keyword_dict(kwargs),
+            )
+            csv_path = joinpath(output_dir, "deepaccnet_results.csv")
+            write(csv_path, "sample,cb-lddt\ncluster_1_m1,0.9\ncluster_1_m2,0.6\n")
+            return csv_path
+        end
+        fake_cluster = function (output_dir, ref1, ref2; kwargs...)
+            calls[:cluster] = (
+                output_dir = output_dir,
+                ref1 = ref1,
+                ref2 = ref2,
+                kwargs = keyword_dict(kwargs),
+            )
+            return :clustered
+        end
+
+        # Analysis-only run: triage drives its three sub-steps in order against an existing
+        # folder, feeding the DeepAccNet scores into clustering.
+        result = redirect_stdout(devnull) do
+            AlphaConformers._alphaconformers(
+                (args...; kwargs...) -> error("prepare must not run"),
+                fake_triager,
+                fake_deepaccnet,
+                fake_cluster;
+                output_dir,
+                prepare = false,
+                predict = false,
+                triage = true,
+                query_struct,
+                sifts_uniprot_mapping = mapping,
+                deepaccnet_sif = "image.sif",
+                ref1 = "apo.pdb",
+                ref2 = "holo.pdb",
+            )
+        end
+
+        @test result.output_dir == abspath(output_dir)
+        @test result.triaged == true
+        @test result.triage_result == :triaged
+        @test result.deepaccnet_result !== nothing
+        @test result.cluster_result == :clustered
+        @test haskey(calls, :triage)
+        @test haskey(calls, :deepaccnet)
+        @test haskey(calls, :cluster)
+
+        @test calls[:deepaccnet].output_dir == abspath(output_dir)
+        @test calls[:deepaccnet].sif_path == "image.sif"
+        @test calls[:deepaccnet].kwargs[:n_threads] isa Int
+        @test calls[:cluster].output_dir == abspath(output_dir)
+        @test calls[:cluster].ref1 == "apo.pdb"
+        @test calls[:cluster].ref2 == "holo.pdb"
+        @test calls[:cluster].kwargs[:method] == "af"
+
+        # With triage disabled, none of its three sub-steps run.
+        no_run =
+            (args...; kwargs...) -> error("triage sub-steps must not run when triage=false")
+        predict_only = redirect_stdout(devnull) do
+            AlphaConformers._alphaconformers(
+                (args...; kwargs...) -> error("prepare must not run"),
+                no_run,
+                no_run,
+                no_run;
+                output_dir,
+                prepare = false,
+                predict = true,
+                triage = false,
+                structure_predictor = (output_dir, args...; kwargs...) -> :predicted,
+            )
+        end
+        @test predict_only.predicted == true
+        @test predict_only.triaged == false
+        @test predict_only.triage_result === nothing
+        @test predict_only.deepaccnet_result === nothing
+        @test predict_only.cluster_result === nothing
     end
 end
 
@@ -873,7 +881,7 @@ end
     import DataFrames
 
     no_prepare = (args...; kwargs...) -> error("prepare must not run")
-    no_triage = (args...; kwargs...) -> error("triage must not run")
+    fake_triage = (args...; kwargs...) -> :triaged
 
     # A fake DeepAccNet that writes a real results CSV keyed by the flat symlink stem.
     fake_deepaccnet = function (output_dir, sif_path; kwargs...)
@@ -889,6 +897,8 @@ end
         mkpath(models)
         write(joinpath(models, "m1.pdb"), "")
         write(joinpath(models, "m2.pdb"), "")
+        query_struct = joinpath(dir, "1ABC_A.pdb")
+        mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
 
         # Auto-feed: with no explicit score table, the DeepAccNet CSV is converted and
         # handed to clustering as a relative-path-keyed DataFrame.
@@ -901,15 +911,15 @@ end
         redirect_stdout(devnull) do
             AlphaConformers._alphaconformers(
                 no_prepare,
-                no_triage,
+                fake_triage,
                 fake_deepaccnet,
                 fake_cluster;
                 output_dir,
                 prepare = false,
                 predict = false,
-                triage = false,
-                deepaccnet = true,
-                cluster = true,
+                triage = true,
+                query_struct,
+                sifts_uniprot_mapping = mapping,
                 deepaccnet_sif = "image.sif",
             )
         end
@@ -926,6 +936,7 @@ end
 
 @testitem "alphaconformers runs real clustering fed by DeepAccNet scores" begin
     import Random
+    import DataFrames
 
     ENV["GKSwstype"] = "100"  # headless GKS backend so figures render without a display
 
@@ -1000,15 +1011,18 @@ end
         result = redirect_stdout(devnull) do
             AlphaConformers._alphaconformers(
                 (args...; kwargs...) -> error("prepare must not run"),
-                (args...; kwargs...) -> error("triage must not run"),
+                (args...; kwargs...) -> :triaged,
                 fake_deepaccnet,
                 AlphaConformers.cluster_conformers;
                 output_dir = run_dir,
                 prepare = false,
                 predict = false,
-                triage = false,
-                deepaccnet = true,
-                cluster = true,
+                triage = true,
+                query_struct = joinpath(fixtures, "TOY_A.pdb"),
+                sifts_uniprot_mapping = DataFrames.DataFrame(
+                    PDB = String[],
+                    CHAIN = String[],
+                ),
                 deepaccnet_sif = "image.sif",
                 ref1 = ref1,
                 ref2 = ref2,
@@ -1030,10 +1044,14 @@ end
 end
 
 @testitem "alphaconformers runs real DeepAccNet + clustering on a GPU workstation" begin
+    import DataFrames
+
     ENV["GKSwstype"] = "100"  # headless GKS backend so figures render without a display
-    # This test drives the real DeepAccNet container and real clustering end to end. It is
-    # gated on the local GPU workstation: a GPU, apptainer, the DeepAccNet `.sif` image and the
-    # 1AKZ conformer database must all be present, so it auto-skips everywhere else (CI, laptops).
+    # This test drives the real DeepAccNet container and real clustering end to end (the two
+    # sub-steps the triage step runs after `triage_outputs`, which is stubbed here so the fixture
+    # does not need full triage inputs). It is gated on the local GPU workstation: a GPU,
+    # apptainer, the DeepAccNet `.sif` image and the 1AKZ conformer database must all be present,
+    # so it auto-skips everywhere else (CI, laptops).
     gpu_ok = try
         success(`nvidia-smi -L`)
     catch
@@ -1069,20 +1087,23 @@ end
         copied = String[]
         for name in readdir(data)
             cluster_dir = joinpath(data, name)
-            startswith(name, "cluster_") && isdir(cluster_dir) && has_models(cluster_dir) ||
-                continue
+            startswith(name, "cluster_") && isdir(cluster_dir) && has_models(cluster_dir) || continue
             cp(cluster_dir, joinpath(tmp, name))
             push!(copied, name)
         end
         @test !isempty(copied)
 
-        result = AlphaConformers.alphaconformers(;
+        result = AlphaConformers._alphaconformers(
+            (args...; kwargs...) -> error("prepare must not run"),
+            (args...; kwargs...) -> :triaged,
+            AlphaConformers.run_deepaccnet,
+            AlphaConformers.cluster_conformers;
             output_dir = tmp,
             prepare = false,
             predict = false,
-            triage = false,
-            deepaccnet = true,
-            cluster = true,
+            triage = true,
+            query_struct = ref1,
+            sifts_uniprot_mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[]),
             deepaccnet_sif = sif,
             ref1 = ref1,
             ref2 = ref2,
