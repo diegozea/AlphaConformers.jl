@@ -70,7 +70,8 @@ AlphaConformers builds inputs for structure prediction tools in several steps:
 
 ## Quick Start
 
-Run the default pipeline with input preparation, ColabFold prediction, output, DeepAccNet scoring, and conformer clustering.
+Run the default pipeline with input preparation, ColabFold prediction, and output
+triage : 
 
 ```julia
 using AlphaConformers
@@ -214,6 +215,7 @@ alphaconformers(;
     triage = true,
     sifts_uniprot_mapping,
     foldseek_results_folder = joinpath(OUTPUT_DIR, "fullpdb_results"),
+    deepaccnet_sif = DEEPACCNET_SIF,
 )
 ```
 --> If `FOLDSEEK_DB_PATH` uses several databases, AlphaConformers chooses the unique database whose name contains

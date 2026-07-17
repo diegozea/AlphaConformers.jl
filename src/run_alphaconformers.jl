@@ -347,7 +347,6 @@ function _validate_alphaconformers_configuration(
     triage::Bool,
     databases,
     sifts_uniprot_mapping,
-    deepaccnet_sif,
 )
     if !(prepare || predict || triage)
         throw(
@@ -389,25 +388,23 @@ function _validate_alphaconformers_configuration(
                 ),
             )
         end
-        if _is_unset(deepaccnet_sif)
-            throw(
-                ArgumentError(
-                    "`deepaccnet_sif` is required when `triage=true`; the triage step runs DeepAccNet scoring, so pass the DeepAccNet container image path.",
-                ),
-            )
-        end
     end
 
     return nothing
 end
 
-function _enabled_pipeline_steps(prepare::Bool, predict::Bool, triage::Bool)
+function _enabled_pipeline_steps(
+    prepare::Bool,
+    predict::Bool,
+    triage::Bool,
+    run_deepaccnet::Bool,
+)
     steps = String[]
     prepare && push!(steps, "Prepare inputs")
     predict && push!(steps, "Predict structures")
     if triage
         push!(steps, "Triage outputs")
-        push!(steps, "Run DeepAccNet")
+        run_deepaccnet && push!(steps, "Run DeepAccNet")
         push!(steps, "Cluster conformers")
     end
     return steps
@@ -762,7 +759,6 @@ function _alphaconformers(
         triage,
         databases,
         sifts_uniprot_mapping,
-        deepaccnet_sif,
     )
 
     output_dir = abspath(output_dir)
@@ -784,7 +780,8 @@ function _alphaconformers(
         sifts_uniprot_mapping = get_uniprot_mapping()
     end
 
-    steps = _enabled_pipeline_steps(prepare, predict, triage)
+    run_deepaccnet = triage && !_is_unset(deepaccnet_sif)
+    steps = _enabled_pipeline_steps(prepare, predict, triage, run_deepaccnet)
     progress = Progress(steps, 0, length(steps))
     triage_result = nothing
     prepared_inputs = nothing
@@ -827,8 +824,11 @@ function _alphaconformers(
         )
         progress_bar(progress, "Triage outputs")
 
-        deepaccnet_result = _run_deepaccnet_function(output_dir, deepaccnet_sif; n_threads)
-        progress_bar(progress, "Run DeepAccNet")
+        if run_deepaccnet
+            deepaccnet_result =
+                _run_deepaccnet_function(output_dir, deepaccnet_sif; n_threads)
+            progress_bar(progress, "Run DeepAccNet")
+        end
 
         effective =
             deepaccnet_result !== nothing ?

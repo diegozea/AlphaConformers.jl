@@ -673,22 +673,6 @@ end
         @test occursin("Predictor arguments were provided but `predict=false`", msg)
 
         msg = argument_error_message() do
-            AlphaConformers._alphaconformers(
-                should_not_run,
-                should_not_run,
-                should_not_run,
-                should_not_run;
-                output_dir,
-                query_struct,
-                sifts_uniprot_mapping = mapping,
-                prepare = false,
-                predict = false,
-                triage = true,
-            )
-        end
-        @test occursin("deepaccnet_sif", msg)
-
-        msg = argument_error_message() do
             AlphaConformers.prepare_inputs(query_struct, pdb_folder, output_dir)
         end
         @test occursin("`databases` is required when running `prepare_inputs`", msg)
@@ -874,6 +858,65 @@ end
         @test predict_only.triage_result === nothing
         @test predict_only.deepaccnet_result === nothing
         @test predict_only.cluster_result === nothing
+    end
+end
+
+@testitem "alphaconformers skips DeepAccNet when no container image is given" begin
+    import DataFrames
+
+    function keyword_dict(kwargs)
+        dict = Dict{Symbol,Any}()
+        for pair in kwargs
+            dict[pair.first] = pair.second
+        end
+        return dict
+    end
+
+    mktempdir() do dir
+        output_dir = joinpath(dir, "run")
+        query_struct = joinpath(dir, "1ABC_A.pdb")
+        mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
+
+        calls = Dict{Symbol,Any}()
+        fake_triager = function (output_dir, query_struct, sifts_uniprot_mapping; kwargs...)
+            calls[:triage] = (output_dir = output_dir, kwargs = keyword_dict(kwargs))
+            return :triaged
+        end
+        # DeepAccNet must be skipped: this fake fails if the pipeline ever calls it.
+        fake_deepaccnet =
+            (args...; kwargs...) ->
+                error("DeepAccNet must not run without a container image")
+        fake_cluster = function (output_dir, ref1, ref2; kwargs...)
+            calls[:cluster] = (output_dir = output_dir, kwargs = keyword_dict(kwargs))
+            return :clustered
+        end
+
+        # Triage runs without `deepaccnet_sif`: DeepAccNet is skipped and clustering still
+        # runs, but with no score table.
+        result = redirect_stdout(devnull) do
+            AlphaConformers._alphaconformers(
+                (args...; kwargs...) -> error("prepare must not run"),
+                fake_triager,
+                fake_deepaccnet,
+                fake_cluster;
+                output_dir,
+                prepare = false,
+                predict = false,
+                triage = true,
+                query_struct,
+                sifts_uniprot_mapping = mapping,
+            )
+        end
+
+        @test result.triaged == true
+        @test result.triage_result == :triaged
+        @test result.deepaccnet_result === nothing
+        @test result.cluster_result == :clustered
+        @test haskey(calls, :triage)
+        @test !haskey(calls, :deepaccnet)
+        @test haskey(calls, :cluster)
+        # Clustering ran without a DeepAccNet score table.
+        @test calls[:cluster].kwargs[:score_table] === nothing
     end
 end
 
