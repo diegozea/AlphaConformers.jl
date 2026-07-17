@@ -221,27 +221,6 @@ alphaconformers(;
 --> If `FOLDSEEK_DB_PATH` uses several databases, AlphaConformers chooses the unique database whose name contains
 `pdb`, ignoring case. If it cannot choose one, it stops before running Foldseek and asks for `foldseek_results_folder`. 
 
-## Scoring Conformers with DeepAccNet
-
-`run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
-directory and writes a score table:
-
-```julia
-using AlphaConformers
-
-output_dir = "/data/alphaconformers/pdb/1AKZ"
-sif_path   = "/containers/deepaccnet.sif"
-
-csv = run_deepaccnet(output_dir, sif_path)
-```
-
-It auto-detects the inner prediction-method folder, flattens every
-`cluster_*/<inner>/predictions/sequences/models/*.pdb` into a flat folder of symlinks named
-`cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU (`apptainer run --nv`), and
-returns the path to `output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and
-a working `apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
-control the number of CPUs used for featurization.
-
 ## Output
 
 The preparation step writes a folder for each template cluster:
@@ -292,8 +271,35 @@ cluster can produce up to 10 model predictions before triage. Choose an
 separate from `COLABFOLD_CACHE_DIR`, which stores reusable ColabFold files and
 can require around 4 GB or more.
 
+## Scoring and Clustering Conformers
 
-## Conformer Clustering
+When you call `alphaconformers(...)` with
+`triage = true` (the default), it always runs output triage and then conformer
+clustering. DeepAccNet scoring runs in between **only if you pass `deepaccnet_sif`**;
+when it runs, its scores are fed automatically into the clustering filter (Stage 2).
+
+### Scoring with DeepAccNet (`run_deepaccnet`)
+
+`run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
+directory and writes a score table:
+
+```julia
+using AlphaConformers
+
+output_dir = "/data/alphaconformers/pdb/1AKZ"
+sif_path   = "/containers/deepaccnet.sif"
+
+csv = run_deepaccnet(output_dir, sif_path)
+```
+
+It auto-detects the inner prediction-method folder, flattens every
+`cluster_*/<inner>/predictions/sequences/models/*.pdb` into a flat folder of symlinks named
+`cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU (`apptainer run --nv`), and
+returns the path to `output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and
+a working `apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
+control the number of CPUs used for featurization.
+
+### Clustering conformers (`cluster_conformers`)
 
 `cluster_conformers` groups an AlphaConformer prediction ensemble for one
 protein system by shape. It runs three stages - KMeans clustering, an optional
@@ -331,13 +337,14 @@ column and its cluster-assignment row. The clustering parameters (K = 30,
 agglomerative cut 1.0 Å, average linkage, seed 42) are fixed defaults.
 
 To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
-`DataFrame` or a path to a CSV with a `Name` column and the score column:
+`DataFrame` or a path to a CSV with a `Name` column and the score column. This is the `deepaccnet_results.csv` written by `run_deepaccnet` above, and the full
+pipeline wires it in automatically when `deepaccnet_sif` is supplied:
 
 ```julia
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")
 ```
 
-### Query path
+#### Query path
 
 The query-path figure (`query_path.png`) ranks the clusters by their RMSD to a
 **query** structure, starting from the cluster the query falls into. The query
@@ -365,7 +372,7 @@ cluster_conformers("/data/alphaconformers/1AKZ_A"; query = "cluster_1/.../model_
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; query = "/path/to/my_query.pdb")
 ```
 
-### Output structure
+#### Output structure
 
 The clustering results are written into a `conformer_clustering/` subfolder of the
 run folder, so they stay separate from the input `cluster_*/` predictions:

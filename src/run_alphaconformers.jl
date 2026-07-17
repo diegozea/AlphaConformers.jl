@@ -668,8 +668,9 @@ rejected so predictor-specific inputs are not silently ignored.
 - `output_dir`: Shared AlphaConformers run directory. Required for every call.
 - `prepare`: Run the input preparation step. Defaults to `true`.
 - `predict`: Run the structure prediction step. Defaults to `true`.
-- `triage`: Run the triage step (output triage, DeepAccNet scoring, and conformer
-  clustering). Defaults to `true`.
+- `triage`: Run the triage step. This always runs output triage and conformer
+  clustering, and runs DeepAccNet scoring in between only when `deepaccnet_sif` is
+  passed. Defaults to `true`.
 - `structure_predictor`: Prediction function. Defaults to `run_alphafold`.
 - `n_threads`: Number of Foldseek threads for preparation.
 - `databases`: Foldseek database path or paths. Required when `prepare=true`.
@@ -686,8 +687,10 @@ rejected so predictor-specific inputs are not silently ignored.
   omitted, the folder returned by preparation or the folder found in `output_dir` is
   used. During preparation with several databases, AlphaConformers requires exactly
   one database whose name contains `pdb` unless this folder is passed explicitly.
-- `deepaccnet_sif`: Path to the DeepAccNet Apptainer/Singularity image. Required when
-  `triage=true`.
+- `deepaccnet_sif`: Optional path to the DeepAccNet Apptainer/Singularity image. When
+  `triage=true` and this is passed, DeepAccNet scoring runs and its scores feed the
+  clustering filter; when omitted, triage skips DeepAccNet and clusters without a score
+  filter.
 - `ref1`: Optional path to a first reference structure for clustering.
 - `ref2`: Optional path to a second reference structure for clustering.
 - `query`: Optional clustering query, a conformer name or a structure path.
@@ -697,9 +700,10 @@ rejected so predictor-specific inputs are not silently ignored.
 - Preparation needs `query_struct`, `pdb_folder`, `output_dir`, and `databases`.
 - Prediction needs `output_dir` plus the arguments required by
   `structure_predictor`.
-- Triage needs `query_struct`, `output_dir`, prediction outputs, `deepaccnet_sif`,
-  and `sifts_uniprot_mapping` unless preparation runs in the same call. Its DeepAccNet
-  and clustering sub-steps also read the prediction outputs under `output_dir`.
+- Triage needs `query_struct`, `output_dir`, prediction outputs, and
+  `sifts_uniprot_mapping` unless preparation runs in the same call. It then clusters the
+  conformers, and scores them with DeepAccNet first when `deepaccnet_sif` is passed. Its
+  DeepAccNet and clustering sub-steps also read the prediction outputs under `output_dir`.
 
 # Returns
 A named tuple with the absolute `output_dir`, the boolean step flags, and the step results `prepared_inputs`, `triage_result`,
