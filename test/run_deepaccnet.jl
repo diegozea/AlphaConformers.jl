@@ -171,7 +171,7 @@ using TestItems
     end
     mktempdir() do output_dir
         # cluster_* exists, but no *.pdb anywhere under it.
-        mkpath(joinpath(output_dir, "cluster_1", "af_cif", "predictions", "sequences", "models"))
+        mkpath(joinpath(output_dir,"cluster_1","af_cif","predictions","sequences","models"))
         write(
             joinpath(
                 output_dir,
@@ -187,6 +187,93 @@ using TestItems
         @test_throws ArgumentError AlphaConformers.run_deepaccnet(
             output_dir,
             "/tmp/deepaccnet.sif",
+        )
+    end
+end
+
+@testitem "run_deepaccnet score-table conversion" begin
+    # Score-table conversion: the DeepAccNet CSV is keyed by the flat symlink stem
+    # `cluster_<N>_<model>`, but `cluster_conformers` matches conformers by their path relative
+    # to the system directory. `_deepaccnet_score_table` rewrites the stem into that relative
+    # `Name`, preserves the `cb-lddt` score, drops unmatched samples, and errors on a missing
+    # required column.
+    # ----------------------------------------------------------------------------------------
+    mktempdir() do data_root
+        system = "sys1"
+        output_dir = joinpath(data_root, system)
+        models =
+            joinpath(output_dir, "cluster_1", "af", "predictions", "sequences", "models")
+        mkpath(models)
+        write(joinpath(models, "m1.pdb"), "")
+        write(joinpath(models, "m2.pdb"), "")
+
+        csv_path = joinpath(data_root, "deepaccnet_results.csv")
+        # A third row keyed by a sample with no matching link must be dropped.
+        write(
+            csv_path,
+            "sample,cb-lddt\ncluster_1_m1,0.85\ncluster_1_m2,0.72\ncluster_9_ghost,0.5\n",
+        )
+
+        table = AlphaConformers._deepaccnet_score_table(output_dir, csv_path; method = "af")
+
+        @test table.Name == [
+            joinpath("cluster_1", "af", "predictions", "sequences", "models", "m1.pdb"),
+            joinpath("cluster_1", "af", "predictions", "sequences", "models", "m2.pdb"),
+        ]
+        @test table[!, "cb-lddt"] == [0.85, 0.72]
+        @test size(table, 1) == 2
+        @test !any(occursin("ghost"), table.Name)
+    end
+
+    # Real DeepAccNet output is TAB-delimited and uses long production model names. The adapter
+    # must parse that layout (CSV.jl auto-detects the delimiter) and still map the flat stem back
+    # to the relative `Name`, matching the live container path rather than only the toy CSVs.
+    # ----------------------------------------------------------------------------------------
+    mktempdir() do data_root
+        system = "sys_tab"
+        output_dir = joinpath(data_root, system)
+        models =
+            joinpath(output_dir, "cluster_1", "af", "predictions", "sequences", "models")
+        mkpath(models)
+        model1 = "sequences_unrelaxed_rank_001_alphafold2_ptm_model_2_seed_15479.pdb"
+        model2 = "sequences_unrelaxed_rank_002_alphafold2_ptm_model_2_seed_15477.pdb"
+        write(joinpath(models, model1), "")
+        write(joinpath(models, model2), "")
+
+        # Sample stems mirror the flat symlink names DeepAccNet is given: `cluster_<N>_<model>`
+        # without the `.pdb` extension, tab-separated from the score.
+        csv_path = joinpath(data_root, "deepaccnet_results.csv")
+        write(
+            csv_path,
+            "sample\tcb-lddt\n" *
+            "cluster_1_$(first(splitext(model1)))\t0.91\n" *
+            "cluster_1_$(first(splitext(model2)))\t0.64\n",
+        )
+
+        table = AlphaConformers._deepaccnet_score_table(output_dir, csv_path)
+
+        @test table.Name == [
+            joinpath("cluster_1", "af", "predictions", "sequences", "models", model1),
+            joinpath("cluster_1", "af", "predictions", "sequences", "models", model2),
+        ]
+        @test table[!, "cb-lddt"] == [0.91, 0.64]
+    end
+
+    # A missing required column raises a clear error (here the `cb-lddt` score column).
+    # --------------------------------------------------------------------------------
+    mktempdir() do data_root
+        system = "sys2"
+        output_dir = joinpath(data_root, system)
+        models =
+            joinpath(output_dir, "cluster_1", "af", "predictions", "sequences", "models")
+        mkpath(models)
+        write(joinpath(models, "m1.pdb"), "")
+
+        csv_path = joinpath(data_root, "no_score.csv")
+        write(csv_path, "sample\ncluster_1_m1\n")
+        @test_throws ErrorException AlphaConformers._deepaccnet_score_table(
+            output_dir,
+            csv_path,
         )
     end
 end
