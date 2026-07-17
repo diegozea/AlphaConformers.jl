@@ -95,6 +95,22 @@ using TestItems
         @test length(vector_output) == 1
         @test isfile(vector_output[1].table_file)
 
+        memflags_dir = joinpath(dir, "memflags")
+        mkpath(memflags_dir)
+        memflags_output = run_foldseek(
+            query_pdb,
+            1,
+            db_path;
+            out_folder = memflags_dir,
+            db_load_mode = 1,
+            split_memory_limit = "1G",
+        )
+        @test length(memflags_output) == 1
+        @test isfile(memflags_output[1].table_file)
+        foldseek_params = read(joinpath(memflags_dir, "test_db_results", "output"), String)
+        @test occursin("Split memory limit", foldseek_params)
+        @test occursin("1G", foldseek_params)
+
         cd(dir) do
             relative_output = run_foldseek(
                 "query.pdb",

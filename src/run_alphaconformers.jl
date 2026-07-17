@@ -419,6 +419,12 @@ structures, and writes one output folder per template cluster.
 - `n_threads`: Number of Foldseek threads. Defaults to `Threads.nthreads()`.
 - `databases`: Foldseek database path or paths used for the search. This keyword is
   required.
+- `db_load_mode` : Foldseek `--db-load-mode` (0 auto, 1 fread, 2 mmap, 3 mmap+touch).
+    The default 2 memory-maps the target database so large databases
+    are paged in on demand instead of read into RAM.
+- `split_memory_limit`: Foldseek `--split-memory-limit`, the maximum RAM per prefilter
+  split (for example `"4G"`). Defaults to `"0"`, meaning all available system memory; a
+  smaller value splits the search so it fits a memory-limited node.
 - `evalue_cutoff`: Maximum Foldseek e-value. Set to `NaN` to keep all hits.
 - `cutoff`: RMSD cutoff used to group template structures.
 - `test_analyse`: Remove other known structures from the query UniProt entry before
@@ -446,6 +452,8 @@ function prepare_inputs(
     output_dir::AbstractString;
     n_threads::Int = Threads.nthreads(),
     databases = missing,
+    db_load_mode::Integer = 2,
+    split_memory_limit::AbstractString = "0",
     evalue_cutoff::Float64 = 1e-5,
     cutoff::Float64 = 1.0,
     test_analyse::Bool = false,
@@ -492,7 +500,14 @@ function prepare_inputs(
     println("Query PDB code: $query_pdb_code, Query chain code: $query_chain_code")
 
     println("Running Foldseek")
-    output = run_foldseek(query_struct, n_threads, foldseek_db, out_folder = output_dir)
+    output = run_foldseek(
+        query_struct,
+        n_threads,
+        foldseek_db;
+        out_folder = output_dir,
+        db_load_mode,
+        split_memory_limit,
+    )
     progress_bar(prog, "Foldseek search")
     # Init empty vector to store the table files
     output_vector = Vector{String}()
@@ -663,6 +678,10 @@ rejected so predictor-specific inputs are not silently ignored.
 - `structure_predictor`: Prediction function. Defaults to `run_alphafold`.
 - `n_threads`: Number of Foldseek threads for preparation.
 - `databases`: Foldseek database path or paths. Required when `prepare=true`.
+- `db_load_mode`: Foldseek `--db-load-mode` used during preparation (0 auto, 1 fread,
+  2 mmap, 3 mmap+touch). Defaults to `2` (memory-map the database to limit RAM use).
+- `split_memory_limit`: Foldseek `--split-memory-limit` used during preparation, the
+  maximum RAM per prefilter split (for example `"4G"`). Defaults to `"0"` (all memory).
 - `evalue_cutoff`: Maximum Foldseek e-value used during preparation.
 - `cutoff`: RMSD cutoff used during preparation clustering.
 - `test_analyse`: Remove other known structures from the query UniProt entry before
@@ -709,6 +728,8 @@ function _alphaconformers(
     structure_predictor::Function = run_alphafold,
     n_threads::Int = Threads.nthreads(),
     databases = missing,
+    db_load_mode::Integer = 2,
+    split_memory_limit::AbstractString = "0",
     evalue_cutoff::Float64 = 1e-5,
     cutoff::Float64 = 1.0,
     test_analyse::Bool = false,
@@ -763,6 +784,8 @@ function _alphaconformers(
             output_dir;
             n_threads,
             databases = foldseek_db,
+            db_load_mode,
+            split_memory_limit,
             evalue_cutoff,
             cutoff,
             test_analyse,
