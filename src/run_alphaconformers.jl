@@ -393,20 +393,11 @@ function _validate_alphaconformers_configuration(
     return nothing
 end
 
-function _enabled_pipeline_steps(
-    prepare::Bool,
-    predict::Bool,
-    triage::Bool,
-    run_deepaccnet::Bool,
-)
+function _enabled_pipeline_steps(prepare::Bool, predict::Bool, triage::Bool)
     steps = String[]
     prepare && push!(steps, "Prepare inputs")
     predict && push!(steps, "Predict structures")
-    if triage
-        push!(steps, "Triage outputs")
-        run_deepaccnet && push!(steps, "Run DeepAccNet")
-        push!(steps, "Cluster conformers")
-    end
+    triage && push!(steps, "Triage outputs")
     return steps
 end
 
@@ -785,7 +776,7 @@ function _alphaconformers(
     end
 
     run_deepaccnet = triage && !_is_unset(deepaccnet_sif)
-    steps = _enabled_pipeline_steps(prepare, predict, triage, run_deepaccnet)
+    steps = _enabled_pipeline_steps(prepare, predict, triage)
     progress = Progress(steps, 0, length(steps))
     triage_result = nothing
     prepared_inputs = nothing
@@ -826,12 +817,10 @@ function _alphaconformers(
             folder_af2_result,
             foldseek_results_folder = triage_foldseek_results_folder,
         )
-        progress_bar(progress, "Triage outputs")
 
         if run_deepaccnet
             deepaccnet_result =
                 _run_deepaccnet_function(output_dir, deepaccnet_sif; n_threads)
-            progress_bar(progress, "Run DeepAccNet")
         end
 
         effective =
@@ -845,7 +834,7 @@ function _alphaconformers(
             score_table = effective,
             query,
         )
-        progress_bar(progress, "Cluster conformers")
+        progress_bar(progress, "Triage outputs")
     end
 
     return (
