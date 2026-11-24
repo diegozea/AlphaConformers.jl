@@ -502,19 +502,73 @@ end
 
 @testitem "Conformer clustering surviving clusters" begin
     # Crafted scores + cutoffs yield an exact surviving set. Two clusters of three members each.
-    # Scores: cluster 0 has two low and one high; cluster 1 has one low and two high.
+    # Median is 0.825 (> 0.6), so the fixed 0.6 cutoff is active: cluster 0 has 2/3 below 0.6,
+    # cluster 1 has 0/3 below 0.6. Cluster 1 always survives, while cluster 0 is dropped at
+    # frac 50% and 60% and survives once the allowed fraction reaches 75%.
     labels = [0, 0, 0, 1, 1, 1]
-    scores = [0.1, 0.2, 0.9, 0.8, 0.85, 0.95]
+    scores_high = [0.1, 0.2, 0.9, 0.8, 0.85, 0.95]
 
-    # The median (rel 50) cutoff is 0.825: cluster 0 has 2/3 of its members below it, cluster 1
-    # only 1/3. So cluster 1 always survives, and cluster 0 survives only once the allowed
-    # fraction reaches 75%.
-    @test AlphaConformers._surviving_clusters(labels, scores, 50, 50) == [1]
-    @test AlphaConformers._surviving_clusters(labels, scores, 50, 60) == [1]
-    @test AlphaConformers._surviving_clusters(labels, scores, 50, 75) == [0, 1]
+    @test AlphaConformers._surviving_clusters(labels, scores_high, 0.6, 50.0) == [1]
+    @test AlphaConformers._surviving_clusters(labels, scores_high, 0.6, 60.0) == [1]
+    @test AlphaConformers._surviving_clusters(labels, scores_high, 0.6, 75.0) == [0, 1]
 
-    # With nobody below the cutoff (rel 0 → the minimum, strict `<`), every cluster survives.
-    @test AlphaConformers._surviving_clusters(labels, scores, 0, 50) == [0, 1]
+    # Strict `<` comparison: members sitting exactly on the cutoff (0.6) are not removed.
+    scores_on_cutoff = [0.6, 0.6, 0.6, 0.8, 0.85, 0.9]
+    @test AlphaConformers._surviving_clusters(labels, scores_on_cutoff, 0.6, 60.0) == [0, 1]
+
+    # When median(scores) <= 0.6, no filtering is applied and every cluster survives even if a
+    # cluster has 100% of its members below 0.6.
+    scores_low_med = [0.1, 0.2, 0.3, 0.5, 0.55, 0.9]   # median = 0.4 <= 0.6
+    @test AlphaConformers._surviving_clusters(labels, scores_low_med, 0.6, 60.0) == [0, 1]
+
+    # Exact median boundary (median == 0.6) also skips filtering (requires strictly `> 0.6`).
+    scores_eq_med = [0.1, 0.2, 0.5, 0.7, 0.8, 0.9]     # median = 0.6
+    @test AlphaConformers._surviving_clusters(labels, scores_eq_med, 0.6, 60.0) == [0, 1]
+
+    # Explicit median_gate lower than the median enables filtering on the same scores.
+    @test AlphaConformers._surviving_clusters(
+        labels,
+        scores_eq_med,
+        0.6,
+        60.0;
+        median_gate = 0.5,
+    ) == [1]
+
+    # Higher custom cutoff (0.85) on `scores_high` (median = 0.825):
+    # - with default `median_gate = score_cutoff = 0.85`, median 0.825 <= 0.85 so no filtering runs.
+    # - with `median_gate = 0.6`, filtering runs at 0.85: cluster 0 has 2/3 below 0.85 (dropped at
+    #   60%), cluster 1 has 1/3 below 0.85 (survives at 60%, dropped at 20%).
+    @test AlphaConformers._surviving_clusters(labels, scores_high, 0.85, 60.0) == [0, 1]
+    @test AlphaConformers._surviving_clusters(
+        labels,
+        scores_high,
+        0.85,
+        60.0;
+        median_gate = 0.6,
+    ) == [1]
+    @test AlphaConformers._surviving_clusters(
+        labels,
+        scores_high,
+        0.85,
+        20.0;
+        median_gate = 0.6,
+    ) == Int[]
+
+    # Non-Float64 score_cutoff / frac_pct (positional -> MethodError) or median_gate (keyword -> TypeError).
+    @test_throws MethodError AlphaConformers._surviving_clusters(labels, scores_high, 1, 60.0)
+    @test_throws MethodError AlphaConformers._surviving_clusters(labels, scores_high, true, 60.0)
+    @test_throws MethodError AlphaConformers._surviving_clusters(labels, scores_high, 0.6, 60)
+    @test_throws MethodError AlphaConformers._surviving_clusters(labels, scores_high, 0.6, true)
+    @test_throws TypeError AlphaConformers._surviving_clusters(
+        labels,
+        scores_high,
+        0.6,
+        60.0;
+        median_gate = 1,
+    )
+
+    # Empty score vector returns all labels cleanly.
+    @test AlphaConformers._surviving_clusters(Int[], Float64[], 0.6, 60.0) == Int[]
 end
 
 @testitem "Conformer clustering score alignment" begin
@@ -611,7 +665,8 @@ end
     conformer_names = base.clustering.Name
 
     # Target the smallest cluster (a strict minority of the ensemble) so that giving its members
-    # a low score and everyone else a high score makes only that cluster fail at rel 50 / frac 50.
+    # a low score (0.0) and everyone else a high score (1.0, median > 0.6) makes only that
+    # cluster fail at cutoff 0.6 / frac 60%.
     target = sort(unique(labels); by = l -> (count(==(l), labels), l))[1]
     target_size = count(==(target), labels)
     survivors = sort([l for l in unique(labels) if l != target])
@@ -624,8 +679,8 @@ end
 
     result = cluster_conformers(run_dir; score_table = score_table)
 
-    # The deepaccnet/ tree holds only the single configured cut — no leftover grid sweep, and the
-    # filename no longer encodes the rel/frac values.
+    # The deepaccnet/ tree holds only the single configured cut - no leftover grid sweep, and the
+    # filename does not encode the cutoff values.
     @test result.deepaccnet_dir == joinpath(run_dir, "conformer_clustering", "deepaccnet")
     surv_dir = joinpath(result.deepaccnet_dir, "surviving")
     @test isdir(surv_dir)
@@ -643,6 +698,106 @@ end
     @test DataFrames.nrow(result.hierarchical) == n_conformers - target_size
     @test Set(result.hierarchical.Name) == survivor_names
     @test all(in(Set(survivors)), result.hierarchical[!, label_col])
+
+    # When the ensemble median score is <= 0.6, the median gate disables filtering and every
+    # cluster survives (even though all members score below 0.6).
+    low_run = joinpath(_write_fixture(mktempdir(), system), system)
+    low_scores = DataFrames.DataFrame(
+        "Name" => conformer_names,
+        "cb-lddt" => [lbl == target ? 0.1 : 0.55 for lbl in labels],
+    )
+    low_result = cluster_conformers(low_run; score_table = low_scores, make_plots = false)
+    @test low_result.surviving == sort(unique(labels))
+    @test DataFrames.nrow(low_result.hierarchical) == n_conformers
+    @test Set(low_result.hierarchical.Name) == Set(conformer_names)
+
+    # Custom `score_threshold`:
+    # 1) Lowering the threshold to 0.5 (median_gate defaults to 0.5, and ensemble median
+    #    0.55 > 0.5) enables filtering on `low_scores` and drops only the target cluster.
+    custom_run = joinpath(_write_fixture(mktempdir(), system), system)
+    custom_result = cluster_conformers(
+        custom_run;
+        score_table = low_scores,
+        score_threshold = 0.5,
+        make_plots = false,
+    )
+    @test custom_result.surviving == survivors
+    @test DataFrames.nrow(custom_result.hierarchical) == n_conformers - target_size
+
+    # 2) Raising the threshold to 0.7: when the target cluster scores 0.65 and all other
+    #    clusters score 0.9 (median = 0.9), the default 0.6 threshold keeps all clusters,
+    #    whereas `score_threshold = 0.7` drops the target cluster.
+    mid_scores = DataFrames.DataFrame(
+        "Name" => conformer_names,
+        "cb-lddt" => [lbl == target ? 0.65 : 0.9 for lbl in labels],
+    )
+    mid_default_run = joinpath(_write_fixture(mktempdir(), system), system)
+    mid_default = cluster_conformers(
+        mid_default_run;
+        score_table = mid_scores,
+        make_plots = false,
+    )
+    @test mid_default.surviving == sort(unique(labels))
+
+    mid_strict_run = joinpath(_write_fixture(mktempdir(), system), system)
+    mid_strict = cluster_conformers(
+        mid_strict_run;
+        score_table = mid_scores,
+        score_threshold = 0.7,
+        make_plots = false,
+    )
+    @test mid_strict.surviving == survivors
+    @test DataFrames.nrow(mid_strict.hierarchical) == n_conformers - target_size
+
+    # Custom `median_gate = -Inf` applies `score_threshold` unconditionally.
+    ungated_run = joinpath(_write_fixture(mktempdir(), system), system)
+    ungated_result = cluster_conformers(
+        ungated_run;
+        score_table = low_scores,
+        score_threshold = 0.5,
+        median_gate = -Inf,
+        make_plots = false,
+    )
+    @test ungated_result.surviving == survivors
+
+    # A `median_gate` higher than the ensemble median disables filtering even if members fall
+    # below `score_threshold`.
+    high_gate_run = joinpath(_write_fixture(mktempdir(), system), system)
+    high_gate_result = cluster_conformers(
+        high_gate_run;
+        score_table = mid_scores,
+        score_threshold = 0.7,
+        median_gate = 0.95,
+        make_plots = false,
+    )
+    @test high_gate_result.surviving == sort(unique(labels))
+
+    permissive_run = joinpath(_write_fixture(mktempdir(), system), system)
+    permissive_result = cluster_conformers(
+        permissive_run;
+        score_table = score_table,
+        surviving_frac = 100.0,
+        make_plots = false,
+    )
+    @test permissive_result.surviving == sort(unique(labels))
+
+    # Invalid filter arguments and non-Float64 thresholds raise clear errors before doing work.
+    @test_throws ErrorException cluster_conformers(run_dir; score_threshold = NaN)
+    @test_throws ErrorException cluster_conformers(run_dir; score_threshold = -0.1)
+    @test_throws ErrorException cluster_conformers(run_dir; score_threshold = 1.1)
+    @test_throws ErrorException cluster_conformers(run_dir; median_gate = NaN)
+    @test_throws ErrorException cluster_conformers(run_dir; median_gate = -0.1)
+    @test_throws ErrorException cluster_conformers(run_dir; median_gate = 1.1)
+    @test_throws ErrorException cluster_conformers(run_dir; median_gate = Inf)
+    @test_throws ErrorException cluster_conformers(run_dir; surviving_frac = -1.0)
+    @test_throws ErrorException cluster_conformers(run_dir; surviving_frac = 101.0)
+    @test_throws ErrorException cluster_conformers(run_dir; surviving_frac = NaN)
+    @test_throws TypeError cluster_conformers(run_dir; surviving_frac = 60)
+    @test_throws TypeError cluster_conformers(run_dir; surviving_frac = true)
+    @test_throws TypeError cluster_conformers(run_dir; score_threshold = 1)
+    @test_throws TypeError cluster_conformers(run_dir; score_threshold = true)
+    @test_throws TypeError cluster_conformers(run_dir; median_gate = 1)
+    @test_throws TypeError cluster_conformers(run_dir; median_gate = false)
 
 end
 

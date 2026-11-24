@@ -282,6 +282,7 @@ when it runs, its scores are fed automatically into the clustering filter (Stage
 
 ### Scoring with DeepAccNet (`run_deepaccnet`)
 
+
 `run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
 directory and writes a score table:
 
@@ -340,7 +341,10 @@ agglomerative cut 1.0 Å, average linkage, seed 42) are fixed defaults.
 
 To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
 `DataFrame` or a path to a CSV with a `Name` column and the score column. This is the `deepaccnet_results.csv` written by `run_deepaccnet` above, and the full
-pipeline wires it in automatically when `deepaccnet_sif` is supplied:
+pipeline wires it in automatically when `deepaccnet_sif` is supplied. By default,
+when the ensemble median score exceeds `median_gate` (default `score_threshold = 0.6`),
+a cluster survives if at most `surviving_frac` (`60.0%`) of its members score below
+`score_threshold`; otherwise all clusters survive:
 
 ```julia
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")
@@ -404,7 +408,7 @@ run folder, so they stay separate from the input `cluster_*/` predictions:
     |   `-- minicluster_graph.png        # skipped if the cluster has a single sub-cluster
     |
     `-- deepaccnet/                      # only when a score table is supplied
-        |-- surviving/surviving.csv      # Name, KMeans_K<k>  (the configured 25%/75% cut)
+        |-- surviving/surviving.csv      # Name, KMeans_K<k>  (0.6 cutoff if median > 0.6, frac 60%)
         |-- rmsd_scatter_by_score.png
         `-- kmeans_deepaccnet_filtered.png
 ```

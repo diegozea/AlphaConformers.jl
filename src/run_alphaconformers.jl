@@ -685,6 +685,11 @@ rejected so predictor-specific inputs are not silently ignored.
 - `ref1`: Optional path to a first reference structure for clustering.
 - `ref2`: Optional path to a second reference structure for clustering.
 - `query`: Optional clustering query, a conformer name or a structure path.
+- `score_threshold`: DeepAccNet score cutoff passed to `cluster_conformers` (default: `0.6`).
+- `median_gate`: Ensemble median score gate passed to `cluster_conformers` (default:
+  `score_threshold`; set to `-Inf` to filter unconditionally).
+- `surviving_frac`: Maximum percentage (`0.0..100.0`) of cluster members allowed below
+  `score_threshold` for a cluster to survive (default: `60.0`).
 - `kwargs...`: Keyword arguments passed only to `structure_predictor`.
 
 # Required Inputs by Step
@@ -741,6 +746,9 @@ function _alphaconformers(
     ref1::String = "",
     ref2::String = "",
     query = nothing,
+    score_threshold::Float64 = _SCORE_CUTOFF,
+    median_gate::Float64 = score_threshold,
+    surviving_frac::Float64 = _SURVIVING_FRAC,
     kwargs...,
 )
     _validate_alphaconformers_configuration(
@@ -832,6 +840,9 @@ function _alphaconformers(
             ref2;
             method = folder_af2_result,
             score_table = effective,
+            score_threshold,
+            median_gate,
+            surviving_frac,
             query,
         )
         progress_bar(progress, "Triage outputs")

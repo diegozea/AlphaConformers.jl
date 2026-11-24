@@ -836,6 +836,96 @@ end
         @test calls[:cluster].ref1 == "apo.pdb"
         @test calls[:cluster].ref2 == "holo.pdb"
         @test calls[:cluster].kwargs[:method] == "af"
+        @test calls[:cluster].kwargs[:score_threshold] === 0.6
+        @test calls[:cluster].kwargs[:median_gate] === 0.6
+        @test calls[:cluster].kwargs[:surviving_frac] === 60.0
+
+        # Passing only `score_threshold` defaults `median_gate` to that same Float64 value.
+        empty!(calls)
+        redirect_stdout(devnull) do
+            AlphaConformers._alphaconformers(
+                (args...; kwargs...) -> error("prepare must not run"),
+                fake_triager,
+                fake_deepaccnet,
+                fake_cluster;
+                output_dir,
+                prepare = false,
+                predict = false,
+                triage = true,
+                query_struct,
+                sifts_uniprot_mapping = mapping,
+                deepaccnet_sif = "image.sif",
+                score_threshold = 0.55,
+            )
+        end
+        @test calls[:cluster].kwargs[:score_threshold] === 0.55
+        @test calls[:cluster].kwargs[:median_gate] === 0.55
+        @test calls[:cluster].kwargs[:surviving_frac] === 60.0
+
+        # Custom `score_threshold`, `median_gate`, and `surviving_frac` forward cleanly.
+        empty!(calls)
+        redirect_stdout(devnull) do
+            AlphaConformers._alphaconformers(
+                (args...; kwargs...) -> error("prepare must not run"),
+                fake_triager,
+                fake_deepaccnet,
+                fake_cluster;
+                output_dir,
+                prepare = false,
+                predict = false,
+                triage = true,
+                query_struct,
+                sifts_uniprot_mapping = mapping,
+                deepaccnet_sif = "image.sif",
+                score_threshold = 0.55,
+                median_gate = 0.5,
+                surviving_frac = 75.0,
+            )
+        end
+        @test calls[:cluster].kwargs[:score_threshold] === 0.55
+        @test calls[:cluster].kwargs[:median_gate] === 0.5
+        @test calls[:cluster].kwargs[:surviving_frac] === 75.0
+
+        # Non-Float64 `score_threshold`, `median_gate`, or `surviving_frac` keyword is rejected with a TypeError.
+        @test_throws TypeError AlphaConformers._alphaconformers(
+            (args...; kwargs...) -> error("prepare must not run"),
+            fake_triager,
+            fake_deepaccnet,
+            fake_cluster;
+            output_dir,
+            prepare = false,
+            predict = false,
+            triage = true,
+            query_struct,
+            sifts_uniprot_mapping = mapping,
+            score_threshold = 1,
+        )
+        @test_throws TypeError AlphaConformers._alphaconformers(
+            (args...; kwargs...) -> error("prepare must not run"),
+            fake_triager,
+            fake_deepaccnet,
+            fake_cluster;
+            output_dir,
+            prepare = false,
+            predict = false,
+            triage = true,
+            query_struct,
+            sifts_uniprot_mapping = mapping,
+            median_gate = true,
+        )
+        @test_throws TypeError AlphaConformers._alphaconformers(
+            (args...; kwargs...) -> error("prepare must not run"),
+            fake_triager,
+            fake_deepaccnet,
+            fake_cluster;
+            output_dir,
+            prepare = false,
+            predict = false,
+            triage = true,
+            query_struct,
+            sifts_uniprot_mapping = mapping,
+            surviving_frac = 75,
+        )
 
         # With triage disabled, none of its three sub-steps run.
         no_run =
