@@ -220,6 +220,21 @@ alphaconformers(;
 --> If `FOLDSEEK_DB_PATH` uses several databases, AlphaConformers chooses the unique database whose name contains
 `pdb`, ignoring case. If it cannot choose one, it stops before running Foldseek and asks for `foldseek_results_folder`. 
 
+### Foldseek Memory Options
+
+During data preparation, `alphaconformers`, `prepare_inputs`, and `run_foldseek` accept
+two optional keywords to control how much RAM Foldseek uses:
+
+- `db_load_mode` (default: `2`): controls how Foldseek loads the target database
+  (`0` = auto, `1` = fread, `2` = mmap, `3` = mmap+touch).
+  **Note:** Foldseek's own default is `0` (auto), not `2`. AlphaConformers uses `2`
+  (mmap) by default so large databases are read from disk only as needed instead of being
+  loaded completely into RAM upfront. Pass `db_load_mode = 0` to restore Foldseek's
+  default behavior.
+- `split_memory_limit` (default: `"0"`): limits the RAM used per prefilter split
+  (Foldseek's `--split-memory-limit` flag). Use `"0"` for all available system memory, or
+  a size string such as `"16G"` or `"32G"` on a memory-limited machine.
+
 ## Scoring Conformers with DeepAccNet
 
 `run_deepaccnet` scores the predicted conformers in one AlphaConformers output

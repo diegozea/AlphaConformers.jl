@@ -419,9 +419,9 @@ structures, and writes one output folder per template cluster.
 - `n_threads`: Number of Foldseek threads. Defaults to `Threads.nthreads()`.
 - `databases`: Foldseek database path or paths used for the search. This keyword is
   required.
-- `db_load_mode` : Foldseek `--db-load-mode` (0 auto, 1 fread, 2 mmap, 3 mmap+touch).
-    The default 2 memory-maps the target database so large databases
-    are paged in on demand instead of read into RAM.
+- `db_load_mode`: Foldseek `--db-load-mode` (0 auto, 1 fread, 2 mmap, 3 mmap+touch).
+  Defaults to `2` (mmap), unlike Foldseek's own default of `0` (auto), so large databases
+  are paged in on demand instead of read into RAM.
 - `split_memory_limit`: Foldseek `--split-memory-limit`, the maximum RAM per prefilter
   split (for example `"4G"`). Defaults to `"0"`, meaning all available system memory; a
   smaller value splits the search so it fits a memory-limited node.
@@ -679,7 +679,8 @@ rejected so predictor-specific inputs are not silently ignored.
 - `n_threads`: Number of Foldseek threads for preparation.
 - `databases`: Foldseek database path or paths. Required when `prepare=true`.
 - `db_load_mode`: Foldseek `--db-load-mode` used during preparation (0 auto, 1 fread,
-  2 mmap, 3 mmap+touch). Defaults to `2` (memory-map the database to limit RAM use).
+  2 mmap, 3 mmap+touch). Defaults to `2` (mmap), unlike Foldseek's own default of `0`
+  (auto), to limit RAM use on large databases.
 - `split_memory_limit`: Foldseek `--split-memory-limit` used during preparation, the
   maximum RAM per prefilter split (for example `"4G"`). Defaults to `"0"` (all memory).
 - `evalue_cutoff`: Maximum Foldseek e-value used during preparation.

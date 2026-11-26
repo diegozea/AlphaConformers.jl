@@ -107,8 +107,9 @@ Input
 - `db_path`    : path to the Foldseek database file
 Memory keywords (forwarded to Foldseek to control RAM use)
 - `db_load_mode`       : Foldseek `--db-load-mode` (0 auto, 1 fread, 2 mmap, 3 mmap+touch).
-                         The default 2 memory-maps the target database so large databases
-                         are paged in on demand instead of read into RAM.
+                         Defaults to `2` (mmap), unlike Foldseek's own default of `0`
+                         (auto), so large target databases are paged in on demand instead
+                         of read into RAM.
 - `split_memory_limit` : Foldseek `--split-memory-limit`, the maximum RAM per prefilter
                          split (e.g. "4G"). The default "0" uses all available system
                          memory; a smaller value splits the search to fit a memory budget.
@@ -187,9 +188,9 @@ function run_foldseek(
             # run the search using -a to be able to recover the alignment
             # --prefilter-mode 1 to use less RAM when searching the AFDB, needing ~35 Gb
             # --db-load-mode selects how the target database is loaded (0: auto, 1: fread,
-            #   2: mmap, 3: mmap+touch). The default 2 (mmap) leaves the database on disk
-            #   and pages it in on demand, so large databases do not have
-            #   to be read fully into RAM.
+            #   2: mmap, 3: mmap+touch). AlphaConformers defaults to 2 (mmap), unlike
+            #   Foldseek's own default of 0 (auto), so large databases are paged in on
+            #   demand instead of read fully into RAM.
             # --split-memory-limit caps the RAM used per prefilter split (e.g. "4G"); "0"
             #   (the default) lets Foldseek use all available system memory. Setting a
             #   limit splits the target database into chunks so the search fits within the
