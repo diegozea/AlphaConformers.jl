@@ -93,7 +93,7 @@ function _deepaccnet_links(data_root::AbstractString, system::AbstractString)
 end
 
 """
-    _deepaccnet_score_table(output_dir, csv_path; method = nothing) -> DataFrame
+    _deepaccnet_score_table(output_dir, csv_path) -> DataFrame
 
 Convert a DeepAccNet results CSV, keyed by each flattened symlink stem `cluster_<N>_<model>`,
 into a score table keyed by each conformer's path relative to `output_dir`, so that
@@ -108,19 +108,13 @@ bare file name, is what uniquely identifies a conformer. This helper rebuilds th
 `splitext(link_name)[1]` to the target's path relative to `output_dir`, and rewrites the CSV's
 sample column into that `Name` column. The sample column is detected case-insensitively as
 `sample` or `name`, and the score column as `cb-lddt`; a trailing `.pdb` is stripped from each
-sample value before the stem lookup. Rows whose sample has no matching link are dropped. The
-`method` keyword is accepted for call-site symmetry and does not affect the mapping, since the
-method segment is taken from each target's own on-disk path.
+sample value before the stem lookup. Rows whose sample has no matching link are dropped.
 
 # Arguments
 
 - `output_dir::AbstractString`: AlphaConformers system folder holding the `cluster_*`
   subfolders; every `Name` is made relative to it.
 - `csv_path::AbstractString`: DeepAccNet results CSV to convert.
-
-# Keywords
-
-- `method`: Accepted for symmetry with the calling pipeline; currently unused.
 
 # Returns
 
@@ -133,8 +127,7 @@ A `DataFrame` with columns `Name` (conformer path relative to `output_dir`) and 
 """
 function _deepaccnet_score_table(
     output_dir::AbstractString,
-    csv_path::AbstractString;
-    method = nothing,
+    csv_path::AbstractString,
 )
     pairs = _deepaccnet_links(dirname(output_dir), basename(output_dir))
     stem_to_rel = Dict{String,String}(

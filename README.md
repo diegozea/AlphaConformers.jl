@@ -275,32 +275,51 @@ can require around 4 GB or more.
 
 ## Scoring and Clustering Conformers
 
-When you call `alphaconformers(...)` with
-`triage = true` (the default), it always runs output triage and then conformer
-clustering. DeepAccNet scoring runs in between **only if you pass `deepaccnet_sif`**;
-when it runs, its scores are fed automatically into the clustering filter (Stage 2).
+When you call `alphaconformers(...)` with `triage = true` (the default), the conformer analysis will occur in two steps:
+
+1. **DeepAccNet scoring (`run_deepaccnet`)**: optional, runs only if you pass
+   `deepaccnet_sif`.
+2. **Conformer clustering (`cluster_conformers`)**: always runs. If step 1 ran, its
+   scores are passed automatically into the clustering score filter; otherwise clustering
+   runs without a score filter.
 
 ### Scoring with DeepAccNet (`run_deepaccnet`)
 
-
 `run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
-directory and writes a score table:
+directory and writes a score table to `output_dir/deepaccnet/deepaccnet_results.csv`.
+A DeepAccNet image is available from Zenodo:
+
+https://zenodo.org/records/21192188
+
+Change `CONTAINER_DIR` to the folder where you want to store the image. The file
+name and download URL are fixed for this Zenodo image.
+
+```julia
+using Downloads
+
+CONTAINER_DIR = "/path/to/container/files"
+DEEPACCNET_SIF = joinpath(CONTAINER_DIR, "deepaccnet.sif")
+
+mkpath(CONTAINER_DIR)
+
+Downloads.download(
+    "https://zenodo.org/records/21192188/files/deepaccnet.sif?download=1",
+    DEEPACCNET_SIF,
+)
+```
 
 ```julia
 using AlphaConformers
 
 output_dir = "/data/alphaconformers/pdb/1AKZ"
-sif_path   = "/containers/deepaccnet.sif"
+sif_path = DEEPACCNET_SIF
 
 csv = run_deepaccnet(output_dir, sif_path)
 ```
 
-It auto-detects the inner prediction-method folder, flattens every
-`cluster_*/<inner>/predictions/sequences/models/*.pdb` into a flat folder of symlinks named
-`cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU (`apptainer run --nv`), and
-returns the path to `output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and
-a working `apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
-control the number of CPUs used for featurization.
+The run needs a GPU and a working `apptainer` (or `singularity`, via
+`container_runtime`). Pass `n_threads` to control the number of CPUs used for
+featurization.
 
 ### Clustering conformers (`cluster_conformers`)
 
@@ -339,12 +358,19 @@ the file's basename without extension) and names the reference's `RMSD_<label>`
 column and its cluster-assignment row. The clustering parameters (K = 30,
 agglomerative cut 1.0 Å, average linkage, seed 42) are fixed defaults.
 
-To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
-`DataFrame` or a path to a CSV with a `Name` column and the score column. This is the `deepaccnet_results.csv` written by `run_deepaccnet` above, and the full
-pipeline wires it in automatically when `deepaccnet_sif` is supplied. By default,
-when the ensemble median score exceeds `median_gate` (default `score_threshold = 0.6`),
-a cluster survives if at most `surviving_frac` (`60.0%`) of its members score below
-`score_threshold`; otherwise all clusters survive:
+When running `alphaconformers(...)`, DeepAccNet output (`deepaccnet_results.csv`)
+is passed into Stage 2 automatically. When calling `cluster_conformers` standalone,
+pass it via `score_table` to enable the Stage 2 score filter:
+
+- **`score_threshold`** (default: `0.6`, range `0.0..1.0`): per-conformer score cutoff;
+  conformers scoring strictly below `score_threshold` count as removed when the median
+  gate passes.
+- **`median_gate`** (default: `score_threshold`, range `0.0..1.0` or `-Inf`): ensemble
+  median score gate. Filtering runs only when `median(scores) > median_gate`; otherwise
+  no filtering is applied and all clusters survive (set to `-Inf` to filter
+  unconditionally).
+- **`surviving_frac`** (default: `60.0`, range `0.0..100.0`): maximum percentage of a
+  cluster's members allowed below `score_threshold` for that cluster to survive.
 
 ```julia
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")

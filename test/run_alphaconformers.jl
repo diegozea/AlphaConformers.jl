@@ -927,6 +927,38 @@ end
             surviving_frac = 75,
         )
 
+        # Invalid out-of-range filter values fail immediately during configuration validation,
+        # before prepare, predict, triage_outputs, DeepAccNet, or clustering ever run.
+        must_not_run = (args...; kwargs...) -> error("step must not run on invalid filter config")
+        for bad_kw in (
+            (; score_threshold = NaN),
+            (; score_threshold = -0.1),
+            (; score_threshold = 1.1),
+            (; median_gate = NaN),
+            (; median_gate = -0.1),
+            (; median_gate = 1.1),
+            (; median_gate = Inf),
+            (; surviving_frac = -1.0),
+            (; surviving_frac = 101.0),
+            (; surviving_frac = NaN),
+        )
+            @test_throws ArgumentError AlphaConformers._alphaconformers(
+                must_not_run,
+                must_not_run,
+                must_not_run,
+                must_not_run,
+                "colabfold.sif",
+                "cache";
+                structure_predictor = must_not_run,
+                query_struct,
+                pdb_folder = dir,
+                output_dir,
+                databases = "fullpdb",
+                deepaccnet_sif = "image.sif",
+                bad_kw...,
+            )
+        end
+
         # With triage disabled, none of its three sub-steps run.
         no_run =
             (args...; kwargs...) -> error("triage sub-steps must not run when triage=false")

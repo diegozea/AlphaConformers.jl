@@ -347,6 +347,9 @@ function _validate_alphaconformers_configuration(
     triage::Bool,
     databases,
     sifts_uniprot_mapping,
+    score_threshold::Float64 = _SCORE_CUTOFF,
+    median_gate::Float64 = score_threshold,
+    surviving_frac::Float64 = _SURVIVING_FRAC,
 )
     if !(prepare || predict || triage)
         throw(
@@ -356,6 +359,7 @@ function _validate_alphaconformers_configuration(
         )
     end
     _require_pipeline_keyword(:output_dir, output_dir, "for every `alphaconformers` call")
+    _validate_score_filter_parameters(score_threshold, median_gate, surviving_frac)
 
     if !predict && (!isempty(predictor_args) || !isempty(predictor_kwargs))
         throw(
@@ -685,11 +689,16 @@ rejected so predictor-specific inputs are not silently ignored.
 - `ref1`: Optional path to a first reference structure for clustering.
 - `ref2`: Optional path to a second reference structure for clustering.
 - `query`: Optional clustering query, a conformer name or a structure path.
-- `score_threshold`: DeepAccNet score cutoff passed to `cluster_conformers` (default: `0.6`).
-- `median_gate`: Ensemble median score gate passed to `cluster_conformers` (default:
-  `score_threshold`; set to `-Inf` to filter unconditionally).
-- `surviving_frac`: Maximum percentage (`0.0..100.0`) of cluster members allowed below
-  `score_threshold` for a cluster to survive (default: `60.0`).
+- `score_threshold`: Per-conformer DeepAccNet score cutoff in `0.0..1.0` passed to
+  `cluster_conformers`. Conformers scoring strictly below `score_threshold` count as
+  removed when the median gate passes. Defaults to `0.6`.
+- `median_gate`: Ensemble median score gate in `0.0..1.0` (or `-Inf`) passed to
+  `cluster_conformers`. Filtering runs only when `median(scores) > median_gate`; otherwise
+  all clusters survive. Defaults to `score_threshold` (set to `-Inf` to apply
+  `score_threshold` unconditionally).
+- `surviving_frac`: Maximum percentage (`0.0..100.0`) of a cluster's members allowed below
+  `score_threshold` for the cluster to survive, passed to `cluster_conformers`. Defaults
+  to `60.0`.
 - `kwargs...`: Keyword arguments passed only to `structure_predictor`.
 
 # Required Inputs by Step
@@ -762,6 +771,9 @@ function _alphaconformers(
         triage,
         databases,
         sifts_uniprot_mapping,
+        score_threshold,
+        median_gate,
+        surviving_frac,
     )
 
     output_dir = abspath(output_dir)

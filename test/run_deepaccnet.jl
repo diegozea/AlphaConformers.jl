@@ -171,7 +171,7 @@ using TestItems
     end
     mktempdir() do output_dir
         # cluster_* exists, but no *.pdb anywhere under it.
-        mkpath(joinpath(output_dir,"cluster_1","af_cif","predictions","sequences","models"))
+        mkpath(joinpath(output_dir, "cluster_1", "af_cif", "predictions", "sequences", "models"))
         write(
             joinpath(
                 output_dir,
@@ -214,7 +214,7 @@ end
             "sample,cb-lddt\ncluster_1_m1,0.85\ncluster_1_m2,0.72\ncluster_9_ghost,0.5\n",
         )
 
-        table = AlphaConformers._deepaccnet_score_table(output_dir, csv_path; method = "af")
+        table = AlphaConformers._deepaccnet_score_table(output_dir, csv_path)
 
         @test table.Name == [
             joinpath("cluster_1", "af", "predictions", "sequences", "models", "m1.pdb"),

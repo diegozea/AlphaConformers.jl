@@ -6,9 +6,24 @@ const _SUBCLUSTER_THRESHOLD = 1.0
 const _LINKAGE = :average
 const _SCORE_COL = "cb-lddt"
 const _SCORE_CUTOFF = 0.6
-const _MEDIAN_GATE = 0.6
 const _SURVIVING_FRAC = 60.0
 const _SEED = 42
+
+function _validate_score_filter_parameters(
+    score_threshold::Float64,
+    median_gate::Float64,
+    surviving_frac::Float64,
+)
+    (isnan(score_threshold) || !(0.0 <= score_threshold <= 1.0)) && throw(
+        ArgumentError("score_threshold must be between 0.0 and 1.0 (got $score_threshold)"),
+    )
+    (isnan(median_gate) || !(median_gate == -Inf || 0.0 <= median_gate <= 1.0)) && throw(
+        ArgumentError("median_gate must be between 0.0 and 1.0, or -Inf (got $median_gate)"),
+    )
+    (isnan(surviving_frac) || !(0.0 <= surviving_frac <= 100.0)) &&
+        throw(ArgumentError("surviving_frac must be in 0.0..100.0 (got $surviving_frac)"))
+    return nothing
+end
 
 # Reference handling
 # -----
@@ -721,12 +736,7 @@ function cluster_conformers(
     # Validate the run folder and filter parameters.
     output_dir = String(strip(output_dir))
     isempty(output_dir) && error("output_dir must not be blank")
-    (isnan(score_threshold) || !(0.0 <= score_threshold <= 1.0)) &&
-        error("score_threshold must be between 0.0 and 1.0 (got $score_threshold)")
-    (isnan(median_gate) || !(median_gate == -Inf || 0.0 <= median_gate <= 1.0)) &&
-        error("median_gate must be between 0.0 and 1.0, or -Inf (got $median_gate)")
-    (isnan(surviving_frac) || !(0.0 <= surviving_frac <= 100.0)) &&
-        error("surviving_frac must be in 0..100 (got $surviving_frac)")
+    _validate_score_filter_parameters(score_threshold, median_gate, surviving_frac)
 
     ref1_normalized = _normalize_reference(ref1)
     ref2_normalized = _normalize_reference(ref2)
@@ -795,7 +805,7 @@ function cluster_conformers(
     end
 
     # DeepAccNet score filter (Stage 2). Runs only when a score table is supplied. When the
-    # ensemble median score exceeds `_MEDIAN_GATE` (0.6), a cluster survives if at most
+    # ensemble median score exceeds `median_gate` (0.6), a cluster survives if at most
     # `_SURVIVING_FRAC`% (60%) of its members fall below `_SCORE_CUTOFF` (0.6); otherwise no
     # filtering is applied and every cluster survives. Writes that surviving-cluster table under
     # `deepaccnet/`; the cut feeds the agglomerative stage below. Skipped cleanly when no score
