@@ -401,6 +401,107 @@ function _enabled_pipeline_steps(prepare::Bool, predict::Bool, triage::Bool)
     return steps
 end
 
+function _check_dry_run_paths(
+    predictor_args,
+    structure_predictor::Function;
+    query_struct,
+    pdb_folder,
+    output_dir::AbstractString,
+    prepare::Bool,
+    predict::Bool,
+    triage::Bool,
+    foldseek_db,
+    foldseek_results_folder,
+)
+    errors = String[]
+
+    if prepare
+        isfile(query_struct) ||
+            push!(errors, "`query_struct` does not exist: $query_struct")
+        try
+            _parse_query_pdb_filename(query_struct)
+        catch err
+            push!(errors, sprint(showerror, err))
+        end
+        isdir(pdb_folder) ||
+            push!(errors, "`pdb_folder` directory does not exist: $pdb_folder")
+        for db in _foldseek_database_paths(foldseek_db)
+            db_abs = abspath(db)
+            isfile(db_abs) ||
+                push!(errors, "Foldseek database file does not exist: $db_abs")
+        end
+    end
+
+    if predict
+        if !prepare
+            if !isdir(output_dir)
+                push!(errors, "`output_dir` does not exist: $output_dir")
+            elseif structure_predictor === run_alphafold ||
+                   structure_predictor === run_alphafold3
+                any(
+                    d -> isdir(d) && startswith(basename(d), "cluster_"),
+                    readdir(output_dir; join = true),
+                ) || push!(errors, "No `cluster_*` folders were found in $output_dir")
+            elseif structure_predictor === run_boltz2
+                any(isdir, readdir(output_dir; join = true)) ||
+                    push!(errors, "No cluster folders were found in $output_dir")
+            end
+        end
+
+        if structure_predictor === run_alphafold || structure_predictor === run_boltz2
+            if length(predictor_args) != 2
+                push!(
+                    errors,
+                    "`$(nameof(structure_predictor))` requires 2 positional arguments (`sif_path`, `cache_dir`), got $(length(predictor_args)).",
+                )
+            else
+                sif_path = abspath(String(predictor_args[1]))
+                cache_dir = abspath(String(predictor_args[2]))
+                isfile(sif_path) ||
+                    push!(errors, "Container `.sif` image does not exist: $sif_path")
+                isdir(cache_dir) ||
+                    push!(errors, "Cache directory does not exist: $cache_dir")
+            end
+        elseif structure_predictor === run_alphafold3
+            if length(predictor_args) != 3
+                push!(
+                    errors,
+                    "`run_alphafold3` requires 3 positional arguments (`sif_image_dir`, `model_parameters_dir`, `db_dir`), got $(length(predictor_args)).",
+                )
+            else
+                sif_dir = abspath(String(predictor_args[1]))
+                isfile(joinpath(sif_dir, "alphafold3.sif")) ||
+                    push!(errors, "`alphafold3.sif` does not exist in: $sif_dir")
+                isdir(abspath(String(predictor_args[2]))) || push!(
+                    errors,
+                    "AlphaFold3 `model_parameters_dir` does not exist: $(predictor_args[2])",
+                )
+                isdir(abspath(String(predictor_args[3]))) ||
+                    push!(errors, "AlphaFold3 `db_dir` does not exist: $(predictor_args[3])")
+            end
+        end
+    end
+
+    if triage && !prepare
+        isfile(query_struct) ||
+            push!(errors, "`query_struct` does not exist: $query_struct")
+        if !isdir(output_dir)
+            predict || push!(errors, "`output_dir` does not exist: $output_dir")
+        else
+            try
+                _resolve_foldseek_results_folder(output_dir; foldseek_results_folder)
+            catch err
+                push!(errors, sprint(showerror, err))
+            end
+        end
+    end
+
+    isempty(errors) || throw(
+        ArgumentError("Dry run validation failed:\n" * join("- " .* errors, "\n")),
+    )
+    return nothing
+end
+
 """
     prepare_inputs(query_struct, pdb_folder, output_dir; kwargs...)
 
@@ -660,6 +761,8 @@ rejected so predictor-specific inputs are not silently ignored.
 - `prepare`: Run the input preparation step. Defaults to `true`.
 - `predict`: Run the structure prediction step. Defaults to `true`.
 - `triage`: Run the output triage step. Defaults to `true`.
+- `dry_run`: Validate configuration and input paths, then print the planned steps
+  without modifying files or running any pipeline step. Defaults to `false`.
 - `structure_predictor`: Prediction function. Defaults to `run_alphafold`.
 - `n_threads`: Number of Foldseek threads for preparation.
 - `databases`: Foldseek database path or paths. Required when `prepare=true`.
@@ -686,11 +789,12 @@ rejected so predictor-specific inputs are not silently ignored.
   `sifts_uniprot_mapping` unless preparation runs in the same call.
 
 # Returns
-A named tuple with the absolute `output_dir`, boolean step flags, and
-`triage_result`.
+A named tuple with the absolute `output_dir`, boolean step flags, `triage_result`,
+`dry_run`, and the planned `steps`.
 
 # Throws
-Throws `ArgumentError` when enabled steps and required keywords are inconsistent.
+Throws `ArgumentError` when enabled steps and required keywords are inconsistent, or
+when `dry_run=true` detects missing or invalid input paths.
 """
 function alphaconformers(args...; kwargs...)
     return _alphaconformers(prepare_inputs, triage_outputs, args...; kwargs...)
@@ -706,6 +810,7 @@ function _alphaconformers(
     prepare::Bool = true,
     predict::Bool = true,
     triage::Bool = true,
+    dry_run::Bool = false,
     structure_predictor::Function = run_alphafold,
     n_threads::Int = Threads.nthreads(),
     databases = missing,
@@ -747,11 +852,50 @@ function _alphaconformers(
             foldseek_results_folder,
         ) : missing
 
+    steps = _enabled_pipeline_steps(prepare, predict, triage)
+
+    if dry_run
+        _check_dry_run_paths(
+            args,
+            structure_predictor;
+            query_struct,
+            pdb_folder,
+            output_dir,
+            prepare,
+            predict,
+            triage,
+            foldseek_db,
+            foldseek_results_folder,
+        )
+        println(
+            "[dry-run] Output directory: $output_dir ($(isdir(output_dir) ? "exists" : "will be created"))",
+        )
+        println("[dry-run] Planned steps: ", join(steps, " -> "))
+        prepare && println(
+            "[dry-run] Prepare: query=$query_struct, pdb_folder=$pdb_folder, databases=$(abspath.(_foldseek_database_paths(foldseek_db)))",
+        )
+        predict && println(
+            "[dry-run] Predict: $(nameof(structure_predictor))(output_dir, $(join(string.(args), ", ")))",
+        )
+        triage && println(
+            "[dry-run] Triage: query=$query_struct, folder_af2_result=$folder_af2_result",
+        )
+        println("[dry-run] Validation passed. No files were modified and no steps were executed.")
+        return (
+            output_dir = output_dir,
+            prepared = false,
+            prepared_inputs = nothing,
+            predicted = false,
+            triage_result = nothing,
+            dry_run = true,
+            steps = steps,
+        )
+    end
+
     if prepare && _is_unset(sifts_uniprot_mapping)
         sifts_uniprot_mapping = get_uniprot_mapping()
     end
 
-    steps = _enabled_pipeline_steps(prepare, predict, triage)
     progress = Progress(steps, 0, length(steps))
     triage_result = nothing
     prepared_inputs = nothing
@@ -799,5 +943,7 @@ function _alphaconformers(
         prepared_inputs = prepared_inputs,
         predicted = predict,
         triage_result = triage_result,
+        dry_run = false,
+        steps = steps,
     )
 end
