@@ -16,7 +16,7 @@ structural similarity, and writes prediction-ready input folders.
 The goal is to help prediction tools explore alternative protein conformations,
 instead of only producing models close to one preferred state.
 
-Zenodo link for reproducibility: https://zenodo.org/records/21133448
+Zenodo link for reproducibility: https://doi.org/10.5281/zenodo.24594305
 
 ## Summary
 
