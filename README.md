@@ -24,7 +24,6 @@ Zenodo link for reproducibility: https://zenodo.org/records/21133448
 - [Requirements](#requirements)
 - [What It Does](#what-it-does)
 - [Quick Start](#quick-start)
-- [Quick Output](#quick-output)
 - [Pipeline Steps](#pipeline-steps)
 - [Scoring Conformers with DeepAccNet](#scoring-conformers-with-deepaccnet)
 - [Output](#output)
@@ -125,8 +124,6 @@ alphaconformers(
 
 The query file name should include the PDB code and chain, for example
 `1ABC_A.pdb`.
-
-## Quick Output
 
 Running `alphaconformers` writes results into `output_dir/`:
 
