@@ -103,7 +103,7 @@ using TestItems
             db_path;
             out_folder = memflags_dir,
             db_load_mode = 1,
-            split_memory_limit = "1G",
+            split_memory_limit = 1,
         )
         @test length(memflags_output) == 1
         @test isfile(memflags_output[1].table_file)
@@ -244,6 +244,12 @@ end
         @test_throws ErrorException foldseek_search(pdb_file)
         @test_throws ErrorException foldseek_search(pdb_file; db_path = db_dir)
         @test_throws ErrorException run_foldseek(pdb_file, 1, db_dir)
+        @test_throws ArgumentError run_foldseek(
+            pdb_file,
+            1,
+            db_dir;
+            split_memory_limit = -1,
+        )
     end
 
     aln = [('A', 'A'), ('C', '-'), ('G', 'G'), ('-', 'T'), ('T', 'T')]

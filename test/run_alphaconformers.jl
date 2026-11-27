@@ -149,7 +149,7 @@ end
                         structure_predictor = fake_predictor,
                         databases = ["foldseek_db"],
                         db_load_mode = 1,
-                        split_memory_limit = "2G",
+                        split_memory_limit = 2,
                         sifts_uniprot_mapping = mapping,
                         folder_af2_result = "custom_af",
                         predictor_keyword = 42,
@@ -167,7 +167,7 @@ end
                         structure_predictor = fake_predictor,
                         databases = ["foldseek_db"],
                         db_load_mode = 1,
-                        split_memory_limit = "2G",
+                        split_memory_limit = 2,
                         sifts_uniprot_mapping = mapping,
                         folder_af2_result = "custom_af",
                     )
@@ -189,7 +189,7 @@ end
                 @test calls[:prepare].kwargs[:databases] == ["foldseek_db"]
                 # The Foldseek memory keywords must reach preparation unchanged.
                 @test calls[:prepare].kwargs[:db_load_mode] == 1
-                @test calls[:prepare].kwargs[:split_memory_limit] == "2G"
+                @test calls[:prepare].kwargs[:split_memory_limit] == 2
                 @test calls[:prepare].kwargs[:sifts_uniprot_mapping] === mapping
                 @test !haskey(calls[:prepare].kwargs, :predictor_keyword)
             end

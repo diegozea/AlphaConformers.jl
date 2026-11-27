@@ -110,9 +110,10 @@ Memory keywords (forwarded to Foldseek to control RAM use)
                          Defaults to `2` (mmap), unlike Foldseek's own default of `0`
                          (auto), so large target databases are paged in on demand instead
                          of read into RAM.
-- `split_memory_limit` : Foldseek `--split-memory-limit`, the maximum RAM per prefilter
-                         split (e.g. "4G"). The default "0" uses all available system
-                         memory; a smaller value splits the search to fit a memory budget.
+- `split_memory_limit` : Maximum RAM per prefilter split in gigabytes (GB), forwarded to
+                         Foldseek's `--split-memory-limit`. Defaults to `0`, which uses all
+                         available system memory; a positive integer splits the search to
+                         fit a memory budget.
 Output
 For each database, results are written to `out_folder/<db_name>_results/` and contain:
 - `<pdb_name>_results.m8`  : hit table.
@@ -131,8 +132,12 @@ function run_foldseek(
     filtrage::Bool = true,
     format_output::String = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
     db_load_mode::Integer = 2,
-    split_memory_limit::AbstractString = "0",
+    split_memory_limit::Int = 0,
 )
+    split_memory_limit >= 0 || throw(
+        ArgumentError("split_memory_limit must be non-negative (got $split_memory_limit)."),
+    )
+    split_memory_limit_arg = split_memory_limit == 0 ? "0" : "$(split_memory_limit)G"
     pdb_file = abspath(pdb_file)
     out_folder = abspath(out_folder)
 
@@ -191,14 +196,15 @@ function run_foldseek(
             #   2: mmap, 3: mmap+touch). AlphaConformers defaults to 2 (mmap), unlike
             #   Foldseek's own default of 0 (auto), so large databases are paged in on
             #   demand instead of read fully into RAM.
-            # --split-memory-limit caps the RAM used per prefilter split (e.g. "4G"); "0"
-            #   (the default) lets Foldseek use all available system memory. Setting a
-            #   limit splits the target database into chunks so the search fits within the
-            #   memory budget of a shared or memory-limited node.
+            # --split-memory-limit caps the RAM used per prefilter split (built from
+            #   split_memory_limit in GB as "<N>G", or "0" when 0 to use all available
+            #   system memory). Setting a positive limit splits the target database into
+            #   chunks so the search fits within the memory budget of a shared or
+            #   memory-limited node.
             if filtrage
                 run(
                     pipeline(
-                        `$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 --threads $n_threads --db-load-mode $db_load_mode --split-memory-limit $split_memory_limit`,
+                        `$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 10 --max-seqs 1000 -e 10 --prefilter-mode 1 --threads $n_threads --db-load-mode $db_load_mode --split-memory-limit $split_memory_limit_arg`,
                         stdout = joinpath(out_folder_db, "output"),
                         stderr = joinpath(out_folder_db, "error"),
                     ),
@@ -206,7 +212,7 @@ function run_foldseek(
             else
                 run(
                     pipeline(
-                        `$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 1 --max-seqs 1000000 -e inf --prefilter-mode 0 --threads $n_threads --db-load-mode $db_load_mode --split-memory-limit $split_memory_limit`,
+                        `$(Foldseek_jll.foldseek()) search query_db $db_path results tmp -a -s 1 --max-seqs 1000000 -e inf --prefilter-mode 0 --threads $n_threads --db-load-mode $db_load_mode --split-memory-limit $split_memory_limit_arg`,
                         stdout = joinpath(out_folder_db, "output"),
                         stderr = joinpath(out_folder_db, "error"),
                     ),
@@ -291,7 +297,7 @@ function run_foldseek(
     filtrage::Bool = true,
     format_output::String = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qtmscore,ttmscore,alntmscore,rmsd,prob",
     db_load_mode::Integer = 2,
-    split_memory_limit::AbstractString = "0",
+    split_memory_limit::Int = 0,
 )
     pdb_file = abspath(pdb_file)
     out_folder = abspath(out_folder)

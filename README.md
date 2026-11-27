@@ -231,9 +231,10 @@ two optional keywords to control how much RAM Foldseek uses:
   (mmap) by default so large databases are read from disk only as needed instead of being
   loaded completely into RAM upfront. Pass `db_load_mode = 0` to restore Foldseek's
   default behavior.
-- `split_memory_limit` (default: `"0"`): limits the RAM used per prefilter split
-  (Foldseek's `--split-memory-limit` flag). Use `"0"` for all available system memory, or
-  a size string such as `"16G"` or `"32G"` on a memory-limited machine.
+- `split_memory_limit` (default: `0`): limits the RAM used per prefilter split, in
+  gigabytes (GB), forwarded to Foldseek's `--split-memory-limit` flag. Use `0` for all
+  available system memory, or a positive integer such as `16` or `32` on a memory-limited
+  machine.
 
 ## Scoring Conformers with DeepAccNet
 

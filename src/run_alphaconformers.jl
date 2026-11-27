@@ -422,9 +422,9 @@ structures, and writes one output folder per template cluster.
 - `db_load_mode`: Foldseek `--db-load-mode` (0 auto, 1 fread, 2 mmap, 3 mmap+touch).
   Defaults to `2` (mmap), unlike Foldseek's own default of `0` (auto), so large databases
   are paged in on demand instead of read into RAM.
-- `split_memory_limit`: Foldseek `--split-memory-limit`, the maximum RAM per prefilter
-  split (for example `"4G"`). Defaults to `"0"`, meaning all available system memory; a
-  smaller value splits the search so it fits a memory-limited node.
+- `split_memory_limit`: Maximum RAM per prefilter split in gigabytes (GB), forwarded to
+  Foldseek's `--split-memory-limit`. Defaults to `0`, meaning all available system memory;
+  a positive integer splits the search so it fits a memory-limited node.
 - `evalue_cutoff`: Maximum Foldseek e-value. Set to `NaN` to keep all hits.
 - `cutoff`: RMSD cutoff used to group template structures.
 - `test_analyse`: Remove other known structures from the query UniProt entry before
@@ -453,7 +453,7 @@ function prepare_inputs(
     n_threads::Int = Threads.nthreads(),
     databases = missing,
     db_load_mode::Integer = 2,
-    split_memory_limit::AbstractString = "0",
+    split_memory_limit::Int = 0,
     evalue_cutoff::Float64 = 1e-5,
     cutoff::Float64 = 1.0,
     test_analyse::Bool = false,
@@ -681,8 +681,9 @@ rejected so predictor-specific inputs are not silently ignored.
 - `db_load_mode`: Foldseek `--db-load-mode` used during preparation (0 auto, 1 fread,
   2 mmap, 3 mmap+touch). Defaults to `2` (mmap), unlike Foldseek's own default of `0`
   (auto), to limit RAM use on large databases.
-- `split_memory_limit`: Foldseek `--split-memory-limit` used during preparation, the
-  maximum RAM per prefilter split (for example `"4G"`). Defaults to `"0"` (all memory).
+- `split_memory_limit`: Maximum RAM per prefilter split in gigabytes (GB) during
+  preparation, forwarded to Foldseek's `--split-memory-limit`. Defaults to `0` (all
+  available system memory).
 - `evalue_cutoff`: Maximum Foldseek e-value used during preparation.
 - `cutoff`: RMSD cutoff used during preparation clustering.
 - `test_analyse`: Remove other known structures from the query UniProt entry before
@@ -730,7 +731,7 @@ function _alphaconformers(
     n_threads::Int = Threads.nthreads(),
     databases = missing,
     db_load_mode::Integer = 2,
-    split_memory_limit::AbstractString = "0",
+    split_memory_limit::Int = 0,
     evalue_cutoff::Float64 = 1e-5,
     cutoff::Float64 = 1.0,
     test_analyse::Bool = false,
