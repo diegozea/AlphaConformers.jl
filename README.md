@@ -26,7 +26,6 @@ Zenodo link for reproducibility: https://zenodo.org/records/21133448
 - [Quick Start](#quick-start)
 - [Pipeline Steps](#pipeline-steps)
 - [Scoring Conformers with DeepAccNet](#scoring-conformers-with-deepaccnet)
-- [Output](#output)
 - [Conformer Clustering](#conformer-clustering)
 - [Container Setup](#container-setup)
 - [Common Helpers](#common-helpers)
@@ -64,12 +63,8 @@ You need:
 
 - Julia 1.10 or newer.
 - One or more local Foldseek databases --> path save in `FOLDSEEK_DB_PATH` 
-- A folder containing PDB or mmCIF files used for the UniProt lookup when adding
-  known related structures --> path save in `PDB_DB`.
+- A folder containing PDB or mmCIF files used as input for AF2 predictions --> path save in `PDB_DB`.
 - SIFTS mapping files, or network access so the package can download them automatically.
-
-(You can also pass paths directly to the functions instead of using environment
-variables)
 
 ## What It Does
 
@@ -132,11 +127,20 @@ output_dir/
 |-- all_sequence.a3m
 `-- cluster_1/
     |-- sequences.a3m
+    |-- templates_complete/
     |-- templates_adaptative/
     `-- af/predictions/sequences/models/   # predicted structures (.pdb)
 ```
 
-See [Output](#output) below for the full folder breakdown and disk usage notes.
+Each `cluster_*` folder contains:
+
+- `sequences.a3m`: the alignment used for that cluster.
+- `templates_complete/`: downloaded or generated template structure files.
+- `templates_adaptative/`: template files renamed for downstream prediction tools.
+
+Full runs can take hours because preparation creates one `cluster_*` folder per
+structural cluster and each cluster can produce up to 10 predicted models. Choose
+an `output_dir` with a couple of GB of free space to store all the predictions.
 
 ## Pipeline Steps
 
@@ -171,6 +175,15 @@ alphaconformers(
 The input-preparation step does not require a GPU, but ColabFold
 prediction is meant to run on a CUDA-capable Linux or HPC system.
 
+AlphaConformers also provides helpers for AlphaFold3, Boltz2.
+
+```julia
+using AlphaConformers
+
+run_alphafold3(clusters_folder, sif_image_dir, model_parameters_dir, db_dir)
+run_boltz2(clusters_folder, boltz_sif_path, boltz_cache_dir)
+```
+
 - After prediction, triage can also be run separately. It requires `output_dir`,
 `query_struct`, and a SIFTS mapping:
 
@@ -204,99 +217,57 @@ sif_path = DEEPACCNET_SIF
 csv = run_deepaccnet(output_dir, sif_path)
 ```
 
-It auto-detects the inner prediction-method folder, flattens every
-`cluster_*/<inner>/predictions/sequences/models/*.pdb` into a flat folder of symlinks named
-`cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU (`apptainer run --nv`), and
-returns the path to `output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and
-a working `apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
+It auto-detects the inner prediction-method folder, runs the `.sif` image on a GPU
+(`apptainer run --nv`), and returns the path to
+`output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and a working
+`apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
 control the number of CPUs used for featurization.
-
-## Output
-
-The preparation step writes a folder for each template cluster:
-
-```text
-output_dir/
-|-- all_sequence.a3m
-|-- calpha_template.csv
-|-- fullpdb_results/
-|-- target_db_results/
-`-- cluster_1/
-    |-- sequences.a3m
-    |-- templates_complete/
-    `-- templates_adaptative/
-```
-
-Each `cluster_*` folder contains:
-
-- `sequences.a3m`: the alignment used for that cluster.
-- `templates_complete/`: downloaded or generated template structure files.
-- `templates_adaptative/`: template files renamed for downstream prediction
-  tools.
-
-When prediction helpers are used, their raw outputs are reorganized into a
-common layout:
-
-```text
-cluster_1/
-`-- af/
-    `-- predictions/
-        `-- sequences/
-            |-- models/
-            |-- scores/
-            `-- plots/
-```
-
-The exact prediction subfolder depends on the runner:
-
-- `af/` for ColabFold.
-- `af3/` for AlphaFold3.
-- `bz/` for Boltz2.
-
-Full runs can take time because preparation writes one `cluster_*` folder per
-structural cluster, and the default `run_alphafold` predictor runs ColabFold once
-for each cluster. With the current default ColabFold settings, each processed
-cluster can produce up to 10 model predictions before triage. Choose an
-`output_dir` with a couple of GB free to store all those predictions. This is 
-separate from `COLABFOLD_CACHE_DIR`, which stores reusable ColabFold files and
-can require around 4 GB or more.
 
 ## Conformer Clustering
 
-`cluster_conformers` groups an AlphaConformer prediction ensemble for one
-protein system by shape. It runs three stages - KMeans clustering, an optional
-DeepAccNet score filter, and agglomerative sub-clustering, it writes a
-per-system output tree plus the essential figures. 
+`cluster_conformers` groups an AlphaConformers prediction ensemble for one
+protein system by shape and writes a per-system output tree plus the essential
+figures. It runs in three stages:
+
+1. **KMeans clustering**: groups predicted conformers by structural similarity.
+2. **DeepAccNet score filter** (optional): filters clusters using a score table.
+3. **Agglomerative sub-clustering**: sub-clusters each occupied (or surviving) KMeans cluster.
+
+Reference-free clustering:
 
 ```julia
 using AlphaConformers
 
-# Reference-free: cluster the ensemble in an AlphaConformers run folder (its output_dir).
 cluster_conformers("/data/alphaconformers/1AKZ_A")
+```
 
-# One or two references — each is a PATH to a reference structure file
-# (.pdb/.cif, optionally .gz). The reference count (0/1/2) is auto-detected, and
-# either reference slot may be given on its own; there is no chain argument.
+With one or two reference structures:
+
+```julia
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb")
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb")
+```
 
-# Common options (shown with their defaults).
+With common options (shown with their defaults):
+
+```julia
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb";
     method     = "af",             # prediction-method subfolder to read (alphaconformers folder_af2_result)
     ref_labels = ("apo", "holo"))  # label each reference (default: file basename)
 ```
 
-The single positional argument is the AlphaConformers **run folder** — the same
-`output_dir` that `alphaconformers` writes to. Predictions are read from the
-`.pdb`/`.cif` files inside its `models/` folders
-(`cluster_*/<method>/predictions/sequences/models/`), and the clustering results
-are written **back into that same folder**.
+Clustering notes:
 
-Each reference is the **path** to a structure file (`.pdb`/`.cif`, optionally
-`.gz`); there is no chain argument. Its label comes from `ref_labels` (default:
-the file's basename without extension) and names the reference's `RMSD_<label>`
-column and its cluster-assignment row. The clustering parameters (K = 30,
-agglomerative cut 1.0 Å, average linkage, seed 42) are fixed defaults.
+- **Run folder**: the single positional argument is the `output_dir` written by
+  `alphaconformers`. Predictions are read from
+  `cluster_*/<method>/predictions/sequences/models/`, and clustering results are
+  written into `conformer_clustering/` inside that same folder.
+- **References**: each reference is a path to a `.pdb`/`.cif` file (optionally
+  `.gz`) with no chain argument. The reference count (0/1/2) is auto-detected,
+  and labels come from `ref_labels` (default: file basename without extension) to
+  name `RMSD_<label>` and the cluster-assignment row.
+- **Defaults**: clustering parameters (`K = 30`, agglomerative cut `1.0 Å`,
+  average linkage, seed `42`) are fixed defaults.
 
 To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
 `DataFrame` or a path to a CSV with a `Name` column and the score column:
@@ -383,7 +354,7 @@ The matching fields on the returned named tuple are `results_dir` (the
 `conformer_clustering/` folder above), `cluster_dirs` (the `kmeans<C>/` paths),
 `deepaccnet_dir`, and `figures` (the list of written figure paths).
 
-## Containers Setup
+## Container Setup
 
 ### ColabFold Container Setup
 
@@ -434,17 +405,6 @@ written inside each cluster's `af/` directory.
 ```julia
 COLABFOLD_CACHE_DIR = "cache/colabfold"
 ```
-
-AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
-
-```julia
-run_alphafold3(output_dir, sif_image_dir, model_parameters_dir, db_dir)
-run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
-```
-
-These helpers expect local container images and local model or database paths.
-They do not download model weights. They also accept
-`container_runtime = "singularity"` when needed.
 
 ### DeepAccNet Container Setup
 
