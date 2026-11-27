@@ -1,5 +1,6 @@
 # AlphaConformers
 
+[![bioRxiv](https://img.shields.io/badge/bioRxiv-10.64898%2F2026.08.18.745512-b31b1b.svg)](https://www.biorxiv.org/content/10.64898/2026.08.18.745512v1)
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://diegozea.github.io/AlphaConformers.jl/stable/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://diegozea.github.io/AlphaConformers.jl/dev/)
 [![Build Status](https://github.com/diegozea/AlphaConformers.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/diegozea/AlphaConformers.jl/actions/workflows/CI.yml?query=branch%3Amain)
@@ -15,7 +16,22 @@ structural similarity, and writes prediction-ready input folders.
 The goal is to help prediction tools explore alternative protein conformations,
 instead of only producing models close to one preferred state.
 
-Zenodo link for reproductibility : https://zenodo.org/records/21133448
+Zenodo link for reproducibility: https://zenodo.org/records/21133448
+
+## Summary
+
+- [Installation](#installation)
+- [Requirements](#requirements)
+- [What It Does](#what-it-does)
+- [Quick Start](#quick-start)
+- [Quick Output](#quick-output)
+- [Pipeline Steps](#pipeline-steps)
+- [Scoring Conformers with DeepAccNet](#scoring-conformers-with-deepaccnet)
+- [Output](#output)
+- [Conformer Clustering](#conformer-clustering)
+- [Container Setup](#container-setup)
+- [Common Helpers](#common-helpers)
+- [Development](#development)
 
 ## Installation
 
@@ -49,9 +65,9 @@ You need:
 
 - Julia 1.10 or newer.
 - One or more local Foldseek databases --> path save in `FOLDSEEK_DB_PATH` 
-- A folder containing PDB or mmCIF files used when adding known related
-  structures --> path save in `PDB_DB`
-- SIFTS mapping files, or network access so the package can download them --> path save in `SIFTS_DB`
+- A folder containing PDB or mmCIF files used for the UniProt lookup when adding
+  known related structures --> path save in `PDB_DB`.
+- SIFTS mapping files, or network access so the package can download them automatically.
 
 (You can also pass paths directly to the functions instead of using environment
 variables)
@@ -64,7 +80,7 @@ AlphaConformers builds inputs for structure prediction tools in several steps:
    databases --> save in `FOLDSEEK_DB_PATH` (if PDB database need to mention "pdb" in the name)
 2. It merges Foldseek hit tables and structure-based alignments.
 3. It uses SIFTS and UniProt mappings to add other known structures for related
-   proteins --> save in `SIFTS_DB` and `PDB_DB`
+   proteins --> save in `PDB_DB`
 4. It clusters the collected templates by structural similarity.
 5. It writes one folder per cluster, with an alignment and template structures
 6. It can optionally run ColabFold, AlphaFold3, or Boltz2 through helper
@@ -103,72 +119,28 @@ alphaconformers(
     n_threads = 16,
     evalue_cutoff = 1e-5,
     cutoff = 1.0,
+    dry_run = true, # test, remove to run
 )
 ```
 
 The query file name should include the PDB code and chain, for example
 `1ABC_A.pdb`.
 
-## ColabFold Container Setup
+## Quick Output
 
-AlphaConformers can run ColabFold with an Apptainer/Singularity image. A
-ColabFold 1.5.5 image is available from Zenodo:
+Running `alphaconformers` writes results into `output_dir/`:
 
-https://zenodo.org/records/20842530
-
-Change `CONTAINER_DIR` to the folder where you want to store the image. The file
-name and download URL are fixed for this Zenodo image.
-
-```julia
-using Downloads
-
-CONTAINER_DIR = "/path/to/container/files"
-COLABFOLD_SIF = joinpath(CONTAINER_DIR, "colabfold-1.5.5-cuda12.2.2.sif")
-
-mkpath(CONTAINER_DIR)
-
-Downloads.download(
-    "https://zenodo.org/records/20842530/files/colabfold-1.5.5-cuda12.2.2.sif?download=1",
-    COLABFOLD_SIF,
-)
+```text
+output_dir/
+|-- fullpdb_results/
+|-- all_sequence.a3m
+`-- cluster_1/
+    |-- sequences.a3m
+    |-- templates_adaptative/
+    `-- af/predictions/sequences/models/   # predicted structures (.pdb)
 ```
 
-If your system uses Singularity instead of Apptainer, add the runtime keyword:
-
-```julia
-container_runtime = "singularity"
-```
-
-Prediction uses the default `structure_predictor = run_alphafold`. That predictor
-expects two positional arguments before the semicolon: `sif_path` and `cache_dir`.
-`sif_path` is the ColabFold Apptainer/Singularity `.sif` image:
-
-```julia
-COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
-```
-
-The `cache_dir` folder is important for ColabFold runs. It is mounted inside the
-Apptainer container as `/cache/colabfold`, where ColabFold looks for its model
-weights and cache files. Choose a permanent location and reuse the same folder
-across runs so the weights do not need to be downloaded again. This saves time
-and avoids repeated large downloads. The cache can require around 4 GB of disk
-space or more. Prediction outputs are not written to this folder; they are
-written inside each cluster's `af/` directory.
-
-```julia
-COLABFOLD_CACHE_DIR = "cache/colabfold"
-```
-
-AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
-
-```julia
-run_alphafold3(output_dir, sif_image_dir, model_parameters_dir, db_dir)
-run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
-```
-
-These helpers expect local container images and local model or database paths.
-They do not download model weights. They also accept
-`container_runtime = "singularity"` when needed.
+See [Output](#output) below for the full folder breakdown and disk usage notes.
 
 ## Pipeline Steps
 
@@ -224,28 +196,8 @@ alphaconformers(;
 
 `run_deepaccnet` scores the predicted conformers in one AlphaConformers output
 directory. It runs the DeepAccNet Apptainer/Singularity image and writes a CSV
-score table.
-
-The DeepAccNet container is an external pipeline dependency. Download the
-required `deepaccnet.sif` file from Zenodo:
-
-https://zenodo.org/records/21192188
-
-Change `CONTAINER_DIR` to the folder where you want to store the image.
-
-```julia
-using Downloads
-
-CONTAINER_DIR = "/path/to/container/files"
-DEEPACCNET_SIF = joinpath(CONTAINER_DIR, "deepaccnet.sif")
-
-mkpath(CONTAINER_DIR)
-
-Downloads.download(
-    "https://zenodo.org/records/21192188/files/deepaccnet.sif?download=1",
-    DEEPACCNET_SIF,
-)
-```
+score table (see [Container Setup](#container-setup) below to download
+`deepaccnet.sif` from Zenodo).
 
 ```julia
 using AlphaConformers
@@ -312,7 +264,6 @@ cluster can produce up to 10 model predictions before triage. Choose an
 `output_dir` with a couple of GB free to store all those predictions. This is 
 separate from `COLABFOLD_CACHE_DIR`, which stores reusable ColabFold files and
 can require around 4 GB or more.
-
 
 ## Conformer Clustering
 
@@ -435,6 +386,92 @@ Stage notes:
 The matching fields on the returned named tuple are `results_dir` (the
 `conformer_clustering/` folder above), `cluster_dirs` (the `kmeans<C>/` paths),
 `deepaccnet_dir`, and `figures` (the list of written figure paths).
+
+## Containers Setup
+
+### ColabFold Container Setup
+
+AlphaConformers can run ColabFold with an Apptainer/Singularity image. A
+ColabFold 1.5.5 image is available from Zenodo:
+
+https://zenodo.org/records/20842530
+
+Change `CONTAINER_DIR` to the folder where you want to store the image. The file
+name and download URL are fixed for this Zenodo image.
+
+```julia
+using Downloads
+
+CONTAINER_DIR = "/path/to/container/files"
+COLABFOLD_SIF = joinpath(CONTAINER_DIR, "colabfold-1.5.5-cuda12.2.2.sif")
+
+mkpath(CONTAINER_DIR)
+
+Downloads.download(
+    "https://zenodo.org/records/20842530/files/colabfold-1.5.5-cuda12.2.2.sif?download=1",
+    COLABFOLD_SIF,
+)
+```
+
+If your system uses Singularity instead of Apptainer, add the runtime keyword:
+
+```julia
+container_runtime = "singularity"
+```
+
+Prediction uses the default `structure_predictor = run_alphafold`. That predictor
+expects two positional arguments before the semicolon: `sif_path` and `cache_dir`.
+`sif_path` is the ColabFold Apptainer/Singularity `.sif` image:
+
+```julia
+COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
+```
+
+The `cache_dir` folder is important for ColabFold runs. It is mounted inside the
+Apptainer container as `/cache/colabfold`, where ColabFold looks for its model
+weights and cache files. Choose a permanent location and reuse the same folder
+across runs so the weights do not need to be downloaded again. This saves time
+and avoids repeated large downloads. The cache can require around 4 GB of disk
+space or more. Prediction outputs are not written to this folder; they are
+written inside each cluster's `af/` directory.
+
+```julia
+COLABFOLD_CACHE_DIR = "cache/colabfold"
+```
+
+AlphaConformers also provides helpers for AlphaFold3 and Boltz2:
+
+```julia
+run_alphafold3(output_dir, sif_image_dir, model_parameters_dir, db_dir)
+run_boltz2(output_dir, boltz_sif_path, boltz_cache_dir)
+```
+
+These helpers expect local container images and local model or database paths.
+They do not download model weights. They also accept
+`container_runtime = "singularity"` when needed.
+
+### DeepAccNet Container Setup
+
+The DeepAccNet container is an external pipeline dependency. Download the
+required `deepaccnet.sif` file from Zenodo:
+
+https://zenodo.org/records/21192188
+
+Change `CONTAINER_DIR` to the folder where you want to store the image.
+
+```julia
+using Downloads
+
+CONTAINER_DIR = "/path/to/container/files"
+DEEPACCNET_SIF = joinpath(CONTAINER_DIR, "deepaccnet.sif")
+
+mkpath(CONTAINER_DIR)
+
+Downloads.download(
+    "https://zenodo.org/records/21192188/files/deepaccnet.sif?download=1",
+    DEEPACCNET_SIF,
+)
+```
 
 ## Common Helpers
 
