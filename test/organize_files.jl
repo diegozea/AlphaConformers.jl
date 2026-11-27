@@ -52,6 +52,32 @@ end
     end
 end
 
+@testitem "organize_files succeeds when destination folders already exist" begin
+    mktempdir() do dir
+        mkpath(joinpath(dir, "predictions", "sequences", "models"))
+        mkpath(joinpath(dir, "predictions", "sequences", "plots"))
+        mkpath(joinpath(dir, "predictions", "sequences", "scores"))
+        write(joinpath(dir, "predictions", "config.json"), "{\"old\":true}")
+
+        write(joinpath(dir, "config.json"), "{\"new\":true}")
+        write(joinpath(dir, "log.txt"), "log")
+        write(joinpath(dir, "cite.bibtex"), "citation")
+        write(joinpath(dir, "sequences.a3m"), ">query\nACD\n")
+        write(joinpath(dir, "sequences.done.txt"), "done")
+        write(joinpath(dir, "model_2.pdb"), "MODEL2")
+
+        organize_files(dir)
+        organize_files(dir)
+
+        @test read(joinpath(dir, "predictions", "config.json"), String) ==
+              "{\"new\":true}"
+        @test read(
+            joinpath(dir, "predictions", "sequences", "models", "model_2.pdb"),
+            String,
+        ) == "MODEL2"
+    end
+end
+
 @testitem "triage_outputs reports missing Foldseek results clearly" begin
     mktempdir() do dir
         query_struct = joinpath(dir, "query.pdb")

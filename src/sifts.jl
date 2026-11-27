@@ -472,7 +472,7 @@ function get_unknown_conformations(
             # Create a foldseek database 
             tmp_targets_dir = joinpath(tmp_folder, "tmp_targets_dir")
             isdir(tmp_targets_dir) && rm(tmp_targets_dir; recursive = true, force = true)
-            mkdir(tmp_targets_dir)
+            mkpath(tmp_targets_dir)
             raw_downloads_dir = joinpath(tmp_folder, "raw_downloads")
 
             for fname in new_targets

@@ -162,7 +162,7 @@ function run_alphaconformers(
         @warn "Overwriting existing directory: $output_dir"
         rm(output_dir; recursive = true, force = true)
     end
-    mkdir(output_dir)
+    mkpath(output_dir)
     println(output_dir)
 
     AlphaConformers.prepare_inputs(

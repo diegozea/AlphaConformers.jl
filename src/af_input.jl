@@ -304,7 +304,7 @@ function create_msa_and_templates(
     write(joinpath(cluster_folder, "sequences.a3m"), cleaned_msa, MIToS.MSA.FASTA)
     # save the template structures
     template_folder = joinpath(cluster_folder, "templates")
-    isdir(template_folder) || mkdir(template_folder)
+    mkpath(template_folder)
     # AF: PDB files should have only one model.
     # AF: Filenames should be in lowercase.
     for (pdb_file, chain, model) in

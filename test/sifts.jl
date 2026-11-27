@@ -108,3 +108,97 @@ end
     @test filtered.target == ["2DEF.cif_A", "9ZZZ.cif_A"]
     @test DataFrames.nrow(search_results) == 5
 end
+
+@testitem "get_unknown_conformations creates temp targets dir and runs Foldseek offline" begin
+    import DataFrames
+    import MIToS
+    import Printf
+
+    function write_test_pdb(path)
+        residues = [
+            "ALA",
+            "GLY",
+            "SER",
+            "THR",
+            "LEU",
+            "VAL",
+            "ASP",
+            "LYS",
+            "GLU",
+            "ILE",
+            "ASN",
+            "PHE",
+            "TYR",
+            "ARG",
+            "GLN",
+        ]
+        serial = 1
+        open(path, "w") do io
+            for (resnum, resname) in enumerate(residues)
+                x = 3.8 * (resnum - 1)
+                atoms = (
+                    ("N", x - 1.2, 0.0, 0.0, "N"),
+                    ("CA", x, 0.0, 0.0, "C"),
+                    ("C", x + 1.2, 1.0, 0.0, "C"),
+                    ("O", x + 1.8, 2.0, 0.0, "O"),
+                )
+                for (atom, ax, ay, az, element) in atoms
+                    Printf.@printf(
+                        io,
+                        "ATOM  %5d %-4s %3s A%4d    %8.3f%8.3f%8.3f  1.00 20.00          %2s\n",
+                        serial,
+                        atom,
+                        resname,
+                        resnum,
+                        ax,
+                        ay,
+                        az,
+                        element,
+                    )
+                    serial += 1
+                end
+            end
+            println(io, "TER")
+            println(io, "END")
+        end
+    end
+
+    mktempdir() do dir
+        query_pdb = joinpath(dir, "1ABC_A.pdb")
+        write_test_pdb(query_pdb)
+
+        pdb_folder = joinpath(dir, "pdb_folder")
+        mkpath(pdb_folder)
+        residues = MIToS.PDB.read_file(query_pdb, MIToS.PDB.PDBFile)
+        MIToS.PDB.write_file(
+            joinpath(pdb_folder, "2DEF.cif"),
+            residues,
+            MIToS.PDB.MMCIFFile,
+        )
+
+        out_folder = joinpath(dir, "out")
+        mkpath(out_folder)
+
+        mapping = DataFrames.DataFrame(
+            PDB = ["1abc", "2def"],
+            CHAIN = ["A", "A"],
+            SP_PRIMARY = ["P11111", "P11111"],
+        )
+        search_results = DataFrames.DataFrame(target = ["1ABC.cif_A"])
+
+        result = redirect_stdout(devnull) do
+            AlphaConformers.get_unknown_conformations(
+                search_results,
+                mapping,
+                pdb_folder,
+                out_folder,
+                query_pdb,
+                1,
+            )
+        end
+
+        @test result isa DataFrames.DataFrame
+        @test DataFrames.nrow(result) >= 1
+        @test isfile(joinpath(out_folder, "target_db"))
+    end
+end

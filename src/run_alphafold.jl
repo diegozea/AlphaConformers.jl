@@ -266,7 +266,7 @@ function run_alphafold_input_structure(
             rm(output_dir; recursive = true, force = true)
         end
     end
-    mkdir(output_dir)
+    mkpath(output_dir)
 
     seed = rand(10_000:99_999)
     cmd = `apptainer exec --nv --no-home --cleanenv \
@@ -487,7 +487,7 @@ function run_alphafold3(
                 rm(output_dir; recursive = true, force = true)
             end
         end
-        mkdir(output_dir)
+        mkpath(output_dir)
 
         cluster_name = basename(input_dir)
         out_json=joinpath(input_dir, "af3_config.json")
@@ -715,13 +715,13 @@ function run_boltz2(
                 rm(output_dir; recursive = true, force = true)
             end
         end
-        mkdir(output_dir)
+        mkpath(output_dir)
 
         println("🚀Start $cluster_name ...")
         for s = seed:(seed+4)
             # Run AlphaFold3
             output_dir_seed=joinpath(output_dir, "seed_$s")
-            isdir(output_dir_seed) || mkdir(output_dir_seed)
+            mkpath(output_dir_seed)
             cmd = `apptainer exec --nv --no-home --cleanenv \
                 --bind $input_dir:/mnt/input \
                 --bind $output_dir_seed:/mnt/output \

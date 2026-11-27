@@ -468,12 +468,12 @@ function create_folder_structure_hobohm(
     for clust = 1:clusters
         # MSA
 
-        cluster_folder = mkdir(joinpath(out_folder, "cluster_$(clust)"))
+        cluster_folder = mkpath(joinpath(out_folder, "cluster_$(clust)"))
         msa_file = joinpath(cluster_folder, "sequences.a3m")
         MIToS.MSA.write_file(msa_file, cl2msa[clust], MIToS.MSA.FASTA)
 
         # Structures
-        cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
+        cluster_template_folder = mkpath(joinpath(cluster_folder, "templates_complete"))
         for (target, structure) in cl2pdb[clust]
             #Get the right extension 
             base_name=first(splitext(basename(target)))
@@ -557,7 +557,7 @@ Download complete template files into `cluster_folder/templates_complete`.
 `nothing`. Templates that cannot be downloaded are skipped with a warning.
 """
 function download_template(cluster_folder, templates)
-    cluster_template_folder = mkdir(joinpath(cluster_folder, "templates_complete"))
+    cluster_template_folder = mkpath(joinpath(cluster_folder, "templates_complete"))
     for target in templates
         #Get the right extension 
         base_name = first(splitext(basename(target)))
@@ -661,7 +661,7 @@ function clean_msa_template_names(
             println("Folder already clean")
             continue
         end
-        cluster_template_clean_folder = mkdir(joinpath(cluster_folder, cluster_name))
+        cluster_template_clean_folder = mkpath(joinpath(cluster_folder, cluster_name))
 
         templates = glob("*", cluster_template_folder)
         isempty(templates) && error("No templates found in $cluster_template_folder")

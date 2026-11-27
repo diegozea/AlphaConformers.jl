@@ -253,3 +253,77 @@ end
     @test filtered.target == ["2DEF.cif_A"]
     @test DataFrames.nrow(foldseek_results) == 3
 end
+
+@testitem "create_msa_and_templates succeeds when templates folder already exists" begin
+    import Printf
+
+    function write_test_pdb(path)
+        residues = ["ALA", "GLY", "SER", "THR"]
+        serial = 1
+        open(path, "w") do io
+            for (resnum, resname) in enumerate(residues)
+                x = 3.8 * (resnum - 1)
+                atoms = (
+                    ("N", x - 1.2, 0.0, 0.0, "N"),
+                    ("CA", x, 0.0, 0.0, "C"),
+                    ("C", x + 1.2, 1.0, 0.0, "C"),
+                    ("O", x + 1.8, 2.0, 0.0, "O"),
+                )
+                for (atom, ax, ay, az, element) in atoms
+                    Printf.@printf(
+                        io,
+                        "ATOM  %5d %-4s %3s A%4d    %8.3f%8.3f%8.3f  1.00 20.00          %2s\n",
+                        serial,
+                        atom,
+                        resname,
+                        resnum,
+                        ax,
+                        ay,
+                        az,
+                        element,
+                    )
+                    serial += 1
+                end
+            end
+            println(io, "TER")
+            println(io, "END")
+        end
+    end
+
+    mktempdir() do dir
+        ref_pdb = joinpath(dir, "1ABC_A.pdb")
+        template_pdb = joinpath(dir, "2DEF_A.pdb")
+        write_test_pdb(ref_pdb)
+        write_test_pdb(template_pdb)
+
+        cluster_dir = joinpath(dir, "cluster_1")
+        mkpath(cluster_dir)
+
+        first_res = create_msa_and_templates(
+            cluster_dir,
+            ref_pdb,
+            "A",
+            "1",
+            [template_pdb],
+            ["A"],
+            ["1"],
+        )
+        @test isdir(joinpath(cluster_dir, "templates"))
+        @test isfile(joinpath(cluster_dir, "sequences.a3m"))
+        @test isfile(joinpath(cluster_dir, "templates", "2def.pdb"))
+        @test size(first_res.msa, 1) == 2
+
+        second_res = create_msa_and_templates(
+            cluster_dir,
+            ref_pdb,
+            "A",
+            "1",
+            [template_pdb],
+            ["A"],
+            ["1"],
+        )
+        @test isdir(joinpath(cluster_dir, "templates"))
+        @test isfile(joinpath(cluster_dir, "templates", "2def.pdb"))
+        @test size(second_res.msa, 1) == 2
+    end
+end

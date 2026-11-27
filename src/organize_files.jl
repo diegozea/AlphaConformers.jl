@@ -52,41 +52,31 @@ function organize_files(output_dir::AbstractString)
     try
         # Main folder.
         predictions_dir = joinpath(output_dir, "predictions")
-        mkdir(predictions_dir)
-
-        mv("config.json", joinpath(predictions_dir, "config.json"))
-        mv("log.txt", joinpath(predictions_dir, "log.txt"))
-        mv("cite.bibtex", joinpath(predictions_dir, "cite.bibtex"))
+        mkpath(predictions_dir)
+        safe_move("config.json", predictions_dir)
+        safe_move("log.txt", predictions_dir)
+        safe_move("cite.bibtex", predictions_dir)
 
         # Sequences folder.
         seq_dir = joinpath(predictions_dir, "sequences")
-        mkdir(seq_dir)
-        if isfile("sequences.a3m") || isfile("sequences.done.txt")
-            mv("sequences.a3m", joinpath(seq_dir, "sequences.a3m"))
-            mv("sequences.done.txt", joinpath(seq_dir, "sequences.done.txt"))
-        end
+        mkpath(seq_dir)
+        safe_move("sequences.a3m", seq_dir)
+        safe_move("sequences.done.txt", seq_dir)
 
         # Models folder.
         models_dir = joinpath(seq_dir, "models")
-        mkdir(models_dir)
-
-        for file in glob("*.pdb", output_dir)
-            mv(file, joinpath(models_dir, basename(file)); force = true)
-        end
+        mkpath(models_dir)
+        safe_move("*.pdb", models_dir)
 
         # Plots folder.
         plots_dir = joinpath(seq_dir, "plots")
-        mkdir(plots_dir)
-        for file in glob("*.png", output_dir)
-            mv(file, joinpath(plots_dir, basename(file)); force = true)
-        end
+        mkpath(plots_dir)
+        safe_move("*.png", plots_dir)
 
         # Scores folder.
         scores_dir = joinpath(seq_dir, "scores")
-        mkdir(scores_dir)
-        for file in glob("*.json", output_dir)
-            mv(file, joinpath(scores_dir, basename(file)); force = true)
-        end
+        mkpath(scores_dir)
+        safe_move("*.json", scores_dir)
 
         println("\n✅ Reorganization complete!")
     finally
