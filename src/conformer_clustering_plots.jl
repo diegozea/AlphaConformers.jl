@@ -210,6 +210,7 @@ function _plot_rmsd_by_score(projection::AbstractMatrix, scores::AbstractVector,
         marker_z = scores,
         markersize = 5,
         markerstrokewidth = 0,
+        colorbar = true,
         colorbar_title = "score",
         xlabel = "PC 1",
         ylabel = "PC 2",
@@ -458,13 +459,25 @@ function _plot_query_path(
     ys = [inter_rmsd[qpos, findfirst(==(c), cluster_ids)] for c in visited]
 
     colors = _cluster_color_map(cluster_ids)
+
+    ref_entries = Tuple{String,Int}[]
+    if ref_clusters !== nothing
+        for (name, cid) in ref_clusters
+            (cid === nothing || !(cid in cluster_ids)) && continue
+            push!(ref_entries, (string(name), Int(cid)))
+        end
+        sort!(ref_entries; by = e -> (findfirst(==(e[2]), visited), e[1]))
+    end
+    ref_cids = Set(last.(ref_entries))
+
     p = plt.plot(
         xs,
         ys;
         color = :gray,
         linewidth = 1.2,
         alpha = 0.7,
-        legend = false,
+        label = "",
+        legend = isempty(ref_entries) ? false : :topleft,
         xlabel = "cluster rank by RMSD to query (0 = query cluster)",
         ylabel = "CA-RMSD to query cluster (Å)",
         title = "Query distance profile (cluster colors)",
@@ -476,6 +489,7 @@ function _plot_query_path(
         bottom_margin = _FIG_MARGIN,
     )
     for (i, c) in enumerate(visited)
+        c in ref_cids && continue
         plt.scatter!(
             p,
             [xs[i]],
@@ -484,24 +498,27 @@ function _plot_query_path(
             markersize = c == query_cluster ? 11 : 8,
             markerstrokewidth = c == query_cluster ? 2.5 : 0.8,
             markerstrokecolor = :black,
+            label = "",
             series_annotations = plt.text(string(c), 7, :black),
         )
     end
-    if ref_clusters !== nothing
-        for (name, cid) in ref_clusters
-            (cid === nothing || !(cid in cluster_ids)) && continue
-            i = findfirst(==(cid), visited)
-            plt.scatter!(
-                p,
-                [xs[i]],
-                [ys[i]];
-                color = colors[cid],
-                markershape = :star5,
-                markersize = 16,
-                markerstrokewidth = 1.8,
-                markerstrokecolor = :black,
-            )
-        end
+    for (name, cid) in ref_entries
+        i = findfirst(==(cid), visited)
+        plt.scatter!(
+            p,
+            [xs[i]],
+            [ys[i]];
+            color = colors[cid],
+            markershape = :star5,
+            markersize = 16,
+            markerstrokewidth = 1.8,
+            markerstrokecolor = :black,
+            label = "$name (cluster $cid)",
+        )
+    end
+    for cid in sort(collect(ref_cids))
+        i = findfirst(==(cid), visited)
+        plt.annotate!(p, xs[i], ys[i], plt.text(string(cid), 7, :black))
     end
     plt.savefig(p, path)
     return path

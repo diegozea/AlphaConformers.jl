@@ -347,6 +347,9 @@ function _validate_alphaconformers_configuration(
     triage::Bool,
     databases,
     sifts_uniprot_mapping,
+    score_threshold::Float64 = _SCORE_CUTOFF,
+    median_gate::Float64 = score_threshold,
+    surviving_frac::Float64 = _SURVIVING_FRAC,
 )
     if !(prepare || predict || triage)
         throw(
@@ -356,6 +359,7 @@ function _validate_alphaconformers_configuration(
         )
     end
     _require_pipeline_keyword(:output_dir, output_dir, "for every `alphaconformers` call")
+    _validate_score_filter_parameters(score_threshold, median_gate, surviving_frac)
 
     if !predict && (!isempty(predictor_args) || !isempty(predictor_kwargs))
         throw(
@@ -634,15 +638,15 @@ end
 Run selected steps of the AlphaConformers pipeline.
 
 `alphaconformers` is the high-level entry point for input preparation, structure
-prediction, and output triage. It runs `prepare_inputs`, then
-`structure_predictor`, then `triage_outputs` when those steps are enabled. The
-selected steps are controlled by `prepare`, `predict`, and `triage`.
+prediction, and output triage. It runs `prepare_inputs`, then `structure_predictor`,
+then the triage step, when those steps are enabled. The selected
+steps are controlled by `prepare`, `predict`, and `triage`.
 
 # Step Selection
-Each step flag can be turned on or off. By default all three are `true`, so the
-full pipeline is run. At least one step must be selected. The only selected-step
-combination that is not valid is `prepare=true`, `predict=false`, and
-`triage=true`, because triage needs prediction outputs.
+- Each step flag can be turned on or off. By default all three are `true`, so the full
+  pipeline is run. At least one step must be selected. The only selected-step
+  combination that is not valid is `prepare=true`, `predict=false`, and `triage=true`,
+  because triage needs prediction outputs.
 
 If `predict=false`, extra positional arguments and unknown keyword arguments are
 rejected so predictor-specific inputs are not silently ignored.
@@ -659,7 +663,9 @@ rejected so predictor-specific inputs are not silently ignored.
 - `output_dir`: Shared AlphaConformers run directory. Required for every call.
 - `prepare`: Run the input preparation step. Defaults to `true`.
 - `predict`: Run the structure prediction step. Defaults to `true`.
-- `triage`: Run the output triage step. Defaults to `true`.
+- `triage`: Run the triage step. This always runs output triage and conformer
+  clustering, and runs DeepAccNet scoring in between only when `deepaccnet_sif` is
+  passed. Defaults to `true`.
 - `structure_predictor`: Prediction function. Defaults to `run_alphafold`.
 - `n_threads`: Number of Foldseek threads for preparation.
 - `databases`: Foldseek database path or paths. Required when `prepare=true`.
@@ -676,6 +682,23 @@ rejected so predictor-specific inputs are not silently ignored.
   omitted, the folder returned by preparation or the folder found in `output_dir` is
   used. During preparation with several databases, AlphaConformers requires exactly
   one database whose name contains `pdb` unless this folder is passed explicitly.
+- `deepaccnet_sif`: Optional path to the DeepAccNet Apptainer/Singularity image. When
+  `triage=true` and this is passed, DeepAccNet scoring runs and its scores feed the
+  clustering filter; when omitted, triage skips DeepAccNet and clusters without a score
+  filter.
+- `ref1`: Optional path to a first reference structure for clustering.
+- `ref2`: Optional path to a second reference structure for clustering.
+- `query`: Optional clustering query, a conformer name or a structure path.
+- `score_threshold`: Per-conformer DeepAccNet score cutoff in `0.0..1.0` passed to
+  `cluster_conformers`. Conformers scoring strictly below `score_threshold` count as
+  removed when the median gate passes. Defaults to `0.6`.
+- `median_gate`: Ensemble median score gate in `0.0..1.0` (or `-Inf`) passed to
+  `cluster_conformers`. Filtering runs only when `median(scores) > median_gate`; otherwise
+  all clusters survive. Defaults to `score_threshold` (set to `-Inf` to apply
+  `score_threshold` unconditionally).
+- `surviving_frac`: Maximum percentage (`0.0..100.0`) of a cluster's members allowed below
+  `score_threshold` for the cluster to survive, passed to `cluster_conformers`. Defaults
+  to `60.0`.
 - `kwargs...`: Keyword arguments passed only to `structure_predictor`.
 
 # Required Inputs by Step
@@ -683,22 +706,33 @@ rejected so predictor-specific inputs are not silently ignored.
 - Prediction needs `output_dir` plus the arguments required by
   `structure_predictor`.
 - Triage needs `query_struct`, `output_dir`, prediction outputs, and
-  `sifts_uniprot_mapping` unless preparation runs in the same call.
+  `sifts_uniprot_mapping` unless preparation runs in the same call. It then clusters the
+  conformers, and scores them with DeepAccNet first when `deepaccnet_sif` is passed. Its
+  DeepAccNet and clustering sub-steps also read the prediction outputs under `output_dir`.
 
 # Returns
-A named tuple with the absolute `output_dir`, boolean step flags, and
-`triage_result`.
+A named tuple with the absolute `output_dir`, the boolean step flags, and the step results `prepared_inputs`, `triage_result`,
+`deepaccnet_result`, and `cluster_result`.
 
 # Throws
 Throws `ArgumentError` when enabled steps and required keywords are inconsistent.
 """
 function alphaconformers(args...; kwargs...)
-    return _alphaconformers(prepare_inputs, triage_outputs, args...; kwargs...)
+    return _alphaconformers(
+        prepare_inputs,
+        triage_outputs,
+        run_deepaccnet,
+        cluster_conformers,
+        args...;
+        kwargs...,
+    )
 end
 
 function _alphaconformers(
     _prepare_inputs_function::Function,
     _triage_outputs_function::Function,
+    _run_deepaccnet_function::Function,
+    _cluster_conformers_function::Function,
     args...;
     query_struct = missing,
     pdb_folder = missing,
@@ -717,6 +751,13 @@ function _alphaconformers(
     sifts_uniprot_mapping = missing,
     folder_af2_result::AbstractString = "af",
     foldseek_results_folder = missing,
+    deepaccnet_sif::AbstractString = "",
+    ref1::String = "",
+    ref2::String = "",
+    query = nothing,
+    score_threshold::Float64 = _SCORE_CUTOFF,
+    median_gate::Float64 = score_threshold,
+    surviving_frac::Float64 = _SURVIVING_FRAC,
     kwargs...,
 )
     _validate_alphaconformers_configuration(
@@ -730,6 +771,9 @@ function _alphaconformers(
         triage,
         databases,
         sifts_uniprot_mapping,
+        score_threshold,
+        median_gate,
+        surviving_frac,
     )
 
     output_dir = abspath(output_dir)
@@ -751,10 +795,13 @@ function _alphaconformers(
         sifts_uniprot_mapping = get_uniprot_mapping()
     end
 
+    run_deepaccnet = triage && !_is_unset(deepaccnet_sif)
     steps = _enabled_pipeline_steps(prepare, predict, triage)
     progress = Progress(steps, 0, length(steps))
     triage_result = nothing
     prepared_inputs = nothing
+    deepaccnet_result = nothing
+    cluster_result = nothing
 
     if prepare
         prepared_inputs = _prepare_inputs_function(
@@ -790,6 +837,26 @@ function _alphaconformers(
             folder_af2_result,
             foldseek_results_folder = triage_foldseek_results_folder,
         )
+
+        if run_deepaccnet
+            deepaccnet_result =
+                _run_deepaccnet_function(output_dir, deepaccnet_sif; n_threads)
+        end
+
+        effective =
+            deepaccnet_result !== nothing ?
+            _deepaccnet_score_table(output_dir, deepaccnet_result) : nothing
+        cluster_result = _cluster_conformers_function(
+            output_dir,
+            ref1,
+            ref2;
+            method = folder_af2_result,
+            score_table = effective,
+            score_threshold,
+            median_gate,
+            surviving_frac,
+            query,
+        )
         progress_bar(progress, "Triage outputs")
     end
 
@@ -798,6 +865,9 @@ function _alphaconformers(
         prepared = prepare,
         prepared_inputs = prepared_inputs,
         predicted = predict,
+        triaged = triage,
         triage_result = triage_result,
+        deepaccnet_result = deepaccnet_result,
+        cluster_result = cluster_result,
     )
 end

@@ -91,6 +91,7 @@ FOLDSEEK_DBS = [
 
 COLABFOLD_SIF = "containers/colabfold-1.5.5-cuda12.2.2.sif"
 COLABFOLD_CACHE_DIR = "cache/colabfold"
+DEEPACCNET_SIF = "containers/deepaccnet.sif"
 
 # Function to run the full pipeline
 alphaconformers(
@@ -103,6 +104,7 @@ alphaconformers(
     n_threads = 16,
     evalue_cutoff = 1e-5,
     cutoff = 1.0,
+    deepaccnet_sif = DEEPACCNET_SIF,
 )
 ```
 
@@ -215,53 +217,11 @@ alphaconformers(;
     triage = true,
     sifts_uniprot_mapping,
     foldseek_results_folder = joinpath(OUTPUT_DIR, "fullpdb_results"),
+    deepaccnet_sif = DEEPACCNET_SIF,
 )
 ```
 --> If `FOLDSEEK_DB_PATH` uses several databases, AlphaConformers chooses the unique database whose name contains
 `pdb`, ignoring case. If it cannot choose one, it stops before running Foldseek and asks for `foldseek_results_folder`. 
-
-## Scoring Conformers with DeepAccNet
-
-`run_deepaccnet` scores the predicted conformers in one AlphaConformers output
-directory. It runs the DeepAccNet Apptainer/Singularity image and writes a CSV
-score table.
-
-The DeepAccNet container is an external pipeline dependency. Download the
-required `deepaccnet.sif` file from Zenodo:
-
-https://zenodo.org/records/21192188
-
-Change `CONTAINER_DIR` to the folder where you want to store the image.
-
-```julia
-using Downloads
-
-CONTAINER_DIR = "/path/to/container/files"
-DEEPACCNET_SIF = joinpath(CONTAINER_DIR, "deepaccnet.sif")
-
-mkpath(CONTAINER_DIR)
-
-Downloads.download(
-    "https://zenodo.org/records/21192188/files/deepaccnet.sif?download=1",
-    DEEPACCNET_SIF,
-)
-```
-
-```julia
-using AlphaConformers
-
-output_dir = "/data/alphaconformers/pdb/1AKZ"
-sif_path = DEEPACCNET_SIF
-
-csv = run_deepaccnet(output_dir, sif_path)
-```
-
-It auto-detects the inner prediction-method folder, flattens every
-`cluster_*/<inner>/predictions/sequences/models/*.pdb` into a flat folder of symlinks named
-`cluster_<N>_<model>.pdb`, runs the `.sif` image on a GPU (`apptainer run --nv`), and
-returns the path to `output_dir/deepaccnet/deepaccnet_results.csv`. The run needs a GPU and
-a working `apptainer` (or `singularity`, via `container_runtime`). Pass `n_threads` to
-control the number of CPUs used for featurization.
 
 ## Output
 
@@ -313,8 +273,55 @@ cluster can produce up to 10 model predictions before triage. Choose an
 separate from `COLABFOLD_CACHE_DIR`, which stores reusable ColabFold files and
 can require around 4 GB or more.
 
+## Scoring and Clustering Conformers
 
-## Conformer Clustering
+When you call `alphaconformers(...)` with `triage = true` (the default), the conformer analysis will occur in two steps:
+
+1. **DeepAccNet scoring (`run_deepaccnet`)**: optional, runs only if you pass
+   `deepaccnet_sif`.
+2. **Conformer clustering (`cluster_conformers`)**: always runs. If step 1 ran, its
+   scores are passed automatically into the clustering score filter; otherwise clustering
+   runs without a score filter.
+
+### Scoring with DeepAccNet (`run_deepaccnet`)
+
+`run_deepaccnet` runs the DeepAccNet Apptainer image over one cluster-output system
+directory and writes a score table to `output_dir/deepaccnet/deepaccnet_results.csv`.
+A DeepAccNet image is available from Zenodo:
+
+https://zenodo.org/records/21192188
+
+Change `CONTAINER_DIR` to the folder where you want to store the image. The file
+name and download URL are fixed for this Zenodo image.
+
+```julia
+using Downloads
+
+CONTAINER_DIR = "/path/to/container/files"
+DEEPACCNET_SIF = joinpath(CONTAINER_DIR, "deepaccnet.sif")
+
+mkpath(CONTAINER_DIR)
+
+Downloads.download(
+    "https://zenodo.org/records/21192188/files/deepaccnet.sif?download=1",
+    DEEPACCNET_SIF,
+)
+```
+
+```julia
+using AlphaConformers
+
+output_dir = "/data/alphaconformers/pdb/1AKZ"
+sif_path = DEEPACCNET_SIF
+
+csv = run_deepaccnet(output_dir, sif_path)
+```
+
+The run needs a GPU and a working `apptainer` (or `singularity`, via
+`container_runtime`). Pass `n_threads` to control the number of CPUs used for
+featurization.
+
+### Clustering conformers (`cluster_conformers`)
 
 `cluster_conformers` groups an AlphaConformer prediction ensemble for one
 protein system by shape. It runs three stages - KMeans clustering, an optional
@@ -351,14 +358,25 @@ the file's basename without extension) and names the reference's `RMSD_<label>`
 column and its cluster-assignment row. The clustering parameters (K = 30,
 agglomerative cut 1.0 Å, average linkage, seed 42) are fixed defaults.
 
-To run the optional DeepAccNet score filter (Stage 2), pass a score table - a
-`DataFrame` or a path to a CSV with a `Name` column and the score column:
+When running `alphaconformers(...)`, DeepAccNet output (`deepaccnet_results.csv`)
+is passed into Stage 2 automatically. When calling `cluster_conformers` standalone,
+pass it via `score_table` to enable the Stage 2 score filter:
+
+- **`score_threshold`** (default: `0.6`, range `0.0..1.0`): per-conformer score cutoff;
+  conformers scoring strictly below `score_threshold` count as removed when the median
+  gate passes.
+- **`median_gate`** (default: `score_threshold`, range `0.0..1.0` or `-Inf`): ensemble
+  median score gate. Filtering runs only when `median(scores) > median_gate`; otherwise
+  no filtering is applied and all clusters survive (set to `-Inf` to filter
+  unconditionally).
+- **`surviving_frac`** (default: `60.0`, range `0.0..100.0`): maximum percentage of a
+  cluster's members allowed below `score_threshold` for that cluster to survive.
 
 ```julia
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; score_table = "deepaccnet_results.csv")
 ```
 
-### Query path
+#### Query path
 
 The query-path figure (`query_path.png`) ranks the clusters by their RMSD to a
 **query** structure, starting from the cluster the query falls into. The query
@@ -386,7 +404,7 @@ cluster_conformers("/data/alphaconformers/1AKZ_A"; query = "cluster_1/.../model_
 cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP_E.pdb"; query = "/path/to/my_query.pdb")
 ```
 
-### Output structure
+#### Output structure
 
 The clustering results are written into a `conformer_clustering/` subfolder of the
 run folder, so they stay separate from the input `cluster_*/` predictions:
@@ -416,7 +434,7 @@ run folder, so they stay separate from the input `cluster_*/` predictions:
     |   `-- minicluster_graph.png        # skipped if the cluster has a single sub-cluster
     |
     `-- deepaccnet/                      # only when a score table is supplied
-        |-- surviving/surviving.csv      # Name, KMeans_K<k>  (the configured 25%/75% cut)
+        |-- surviving/surviving.csv      # Name, KMeans_K<k>  (0.6 cutoff if median > 0.6, frac 60%)
         |-- rmsd_scatter_by_score.png
         `-- kmeans_deepaccnet_filtered.png
 ```

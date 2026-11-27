@@ -5,9 +5,25 @@ const _KMEANS_K = 30
 const _SUBCLUSTER_THRESHOLD = 1.0
 const _LINKAGE = :average
 const _SCORE_COL = "cb-lddt"
-const _SURVIVING_REL = 25
-const _SURVIVING_FRAC = 75
+const _SCORE_CUTOFF = 0.6
+const _SURVIVING_FRAC = 60.0
 const _SEED = 42
+
+function _validate_score_filter_parameters(
+    score_threshold::Float64,
+    median_gate::Float64,
+    surviving_frac::Float64,
+)
+    (isnan(score_threshold) || !(0.0 <= score_threshold <= 1.0)) && throw(
+        ArgumentError("score_threshold must be between 0.0 and 1.0 (got $score_threshold)"),
+    )
+    (isnan(median_gate) || !(median_gate == -Inf || 0.0 <= median_gate <= 1.0)) && throw(
+        ArgumentError("median_gate must be between 0.0 and 1.0, or -Inf (got $median_gate)"),
+    )
+    (isnan(surviving_frac) || !(0.0 <= surviving_frac <= 100.0)) &&
+        throw(ArgumentError("surviving_frac must be in 0.0..100.0 (got $surviving_frac)"))
+    return nothing
+end
 
 # Reference handling
 # -----
@@ -328,24 +344,29 @@ function _align_scores(
     return matched._position, matched._score
 end
 
-# Determine which clusters survive a single relative/fraction cut.
+# Determine which clusters survive a median-gated score cutoff and fraction cut.
 #
-# `labels` and `scores` are the scored subset (one entry per scored conformer). The relative
-# cutoff is the `rel_pct` percentile of all scores; a member is "removed" when its score is
-# strictly below the cutoff. A cluster survives when at most `frac_pct`% of its members are
-# removed. Returns the sorted vector of surviving labels. Deterministic given the inputs.
+# `labels` and `scores` are the scored subset (one entry per scored conformer). When
+# `median(scores) > median_gate`, a member is "removed" if its score is strictly below
+# `score_cutoff`, and a cluster survives when at most `frac_pct`% of its members are removed.
+# When `median(scores) <= median_gate`, no filtering is applied and every cluster survives.
+# Returns the sorted vector of surviving labels. Deterministic given the inputs.
 function _surviving_clusters(
     labels::AbstractVector,
     scores::AbstractVector,
-    rel_pct::Real,
-    frac_pct::Real,
+    score_cutoff::Float64,
+    frac_pct::Float64;
+    median_gate::Float64 = score_cutoff,
 )
-    cutoff = Statistics.quantile(scores, rel_pct / 100)
-    below = scores .< cutoff
+    all_labels = sort(unique(labels))
+    isempty(scores) && return all_labels
+    Statistics.median(scores) <= median_gate && return all_labels
+
+    below = scores .< score_cutoff
     frac = frac_pct / 100
 
     surviving = Int[]
-    for lbl in sort(unique(labels))
+    for lbl in all_labels
         in_cluster = labels .== lbl
         n_total = count(in_cluster)
         frac_removed = n_total == 0 ? 1.0 : count(below .& in_cluster) / n_total
@@ -354,28 +375,29 @@ function _surviving_clusters(
     return surviving
 end
 
-# Write the surviving-cluster table for one relative/fraction cut under
+# Write the surviving-cluster table for the configured median-gated score/fraction cut under
 # `deepaccnet_dir/surviving/`.
 #
-# `names`, `labels` and `scores` are the scored subset. Computes the surviving clusters for the
-# `rel`/`frac` cut and writes the scored conformers in those clusters to `surviving.csv` with
-# columns `Name` and `KMeans_K<k>` (matching the kmeans clustering table). Only this single
-# configured cut is produced, so the cut values are not encoded in the filename. Returns the sorted
-# vector of surviving cluster labels.
+# `names`, `labels` and `scores` are the scored subset. Computes the surviving clusters using
+# `_surviving_clusters` and writes the scored conformers in those clusters to `surviving.csv`
+# with columns `Name` and `KMeans_K<k>` (matching the kmeans clustering table). Only this
+# single configured cut is produced, so the cut values are not encoded in the filename.
+# Returns the sorted vector of surviving cluster labels.
 function _write_surviving_table(
     deepaccnet_dir::AbstractString,
     names::AbstractVector,
     labels::AbstractVector,
     scores::AbstractVector,
     k::Integer,
-    rel::Real,
-    frac::Real,
+    score_cutoff::Float64,
+    frac::Float64;
+    median_gate::Float64 = score_cutoff,
 )
     surv_dir = joinpath(deepaccnet_dir, "surviving")
     mkpath(surv_dir)
     method = "KMeans_K$k"
 
-    surviving = _surviving_clusters(labels, scores, rel, frac)
+    surviving = _surviving_clusters(labels, scores, score_cutoff, frac; median_gate)
     keep = Set(surviving)
     idx = findall(lbl -> lbl in keep, labels)
     table = DataFrames.DataFrame(
@@ -563,7 +585,8 @@ end
 """
     cluster_conformers(output_dir, ref1="", ref2="";
         ref_labels=("ref1", "ref2"), method="af",
-        score_table=nothing, make_plots=true, query=nothing)
+        score_table=nothing, score_threshold=0.6, median_gate=score_threshold,
+        surviving_frac=60.0, make_plots=true, query=nothing)
 
 Cluster an AlphaConformer prediction ensemble by shape, write the base KMeans tables, and
 (when references are supplied) report each reference against the cluster it falls into.
@@ -578,10 +601,11 @@ extension). For each supplied reference it computes the
 sequence-aware RMSD from every conformer, assigns the reference to the cluster whose conformers
 are closest to it on average, and writes the per-reference RMSD table (a `RMSD_<label>` column per
 reference) and the reference cluster-assignment table. When a DeepAccNet score table is supplied
-it runs the optional score filter: for the configured relative/fraction cut it finds the surviving
-clusters (a cluster survives when at most the fraction of its members fall below the relative score
-cutoff) and writes the surviving-cluster table under a `deepaccnet/` folder; with no score table
-this stage is skipped. It then always sub-clusters: within each KMeans cluster it builds the
+it runs the optional score filter: if the ensemble median score is strictly above `median_gate`
+(default: `score_threshold`, `0.6`), a cluster survives when at most `surviving_frac`% (default:
+`60%`) of its members score below `score_threshold` (otherwise no filtering is applied and all
+clusters survive), and it writes the surviving-cluster table under a `deepaccnet/` folder; with
+no score table this stage is skipped. It then always sub-clusters: within each KMeans cluster it builds the
 pairwise RMSD matrix of the members, cuts an agglomerative tree at `subcluster_threshold`, and
 writes that cluster's `output_cluster_members.csv` into its own `kmeans<C>/` folder, while a flat top-level
 `agglomerative_assignments.csv` keeps the single-table view. When the score filter ran, only the
@@ -612,6 +636,14 @@ supplied.
   supplied, the score filter runs; when `nothing` (the default) the filter is skipped. Must hold
   a `Name` column matching the conformers and the `score_col` score column. Conformers absent
   from the table are dropped from the filter.
+- `score_threshold::Float64`: Per-conformer DeepAccNet score cutoff in `0.0..1.0`. Conformers
+  scoring strictly below `score_threshold` count as removed when the median gate passes.
+  Defaults to `0.6`.
+- `median_gate::Float64`: Ensemble median score gate in `0.0..1.0` (or `-Inf`). Filtering runs
+  only when `median(scores) > median_gate`; otherwise all clusters survive. Defaults to
+  `score_threshold` (set to `-Inf` to apply `score_threshold` unconditionally).
+- `surviving_frac::Float64`: Maximum percentage (`0.0..100.0`) of a cluster's members allowed
+  below `score_threshold` for the cluster to survive. Defaults to `60.0`.
 - `make_plots::Bool`: Whether to write the figures alongside the tables. Defaults to `true`.
 - `query`: Optional query input for the query-path view - either a conformer name (as it appears
   in the clustering table) or a path to a structure file. When `nothing` (the default) the query
@@ -635,7 +667,8 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 - `deepaccnet_dir`: `nothing` when no score table is supplied; otherwise the path to the written
   `deepaccnet/` directory.
 - `surviving`: `nothing` when no score table is supplied; otherwise the sorted vector of
-  surviving cluster labels for the configured `surviving_rel`/`surviving_frac` cut.
+  surviving cluster labels for the configured `score_threshold`/`median_gate`/`surviving_frac`
+  cut.
 - `hierarchical`: flat `DataFrame` with columns `Name`, `KMeans_K<k>`, `Sub_Cluster` (1-based
   label within the KMeans cluster) and `Mini_Cluster` (the `c<label>_s<sub>` mini-cluster name).
   One row per conformer, or, when the score filter ran, one row per conformer in a surviving
@@ -646,7 +679,9 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
 
 # Throws
 
-- `ErrorException`: if `output_dir` is blank, if a supplied reference path does not exist, if no
+- `ErrorException`: if `output_dir` is blank, if `score_threshold` is outside `0.0..1.0`, if
+  `median_gate` is outside `0.0..1.0` (and not `-Inf`), if `surviving_frac` is outside `0..100`,
+  if a supplied reference path does not exist, if no
   conformers are found, if the conformers
   share no common CA position, when a score table is
   supplied, if it is missing the `Name`/`score_col` column, if it matches no conformer, or if a `query` is given that is neither
@@ -669,9 +704,9 @@ deepaccnet_dir, surviving, hierarchical, cluster_dirs, figures)`:
    lowest mean RMSD, and write `dist_external_rmsds.csv` and `reference_clusters.csv` at
    `output_dir/conformer_clustering/`.
 6. When a score table is supplied, align its scores to the conformers (dropping unscored ones),
-   find the surviving clusters for the configured `surviving_rel`/`surviving_frac` cut, and write
-   `surviving.csv` under `output_dir/conformer_clustering/deepaccnet/surviving/`. Skipped
-   when no score table is given.
+   find the surviving clusters for the median-gated `0.6` / `60%` cut (applied only when the
+   ensemble median score exceeds `0.6`), and write `surviving.csv` under
+   `output_dir/conformer_clustering/deepaccnet/surviving/`. Skipped when no score table is given.
 7. For each occupied (or, when the filter ran, surviving) KMeans cluster `C`, build the pairwise
    RMSD matrix of its members, cut the agglomerative tree at `subcluster_threshold` with the chosen
    `linkage`, and write that cluster's `output_cluster_members.csv` into `output_dir/conformer_clustering/kmeans<C>/`. A flat
@@ -691,13 +726,17 @@ function cluster_conformers(
     ref_labels = ("ref1", "ref2"),
     method::String = "af",
     score_table = nothing,
+    score_threshold::Float64 = _SCORE_CUTOFF,
+    median_gate::Float64 = score_threshold,
+    surviving_frac::Float64 = _SURVIVING_FRAC,
     make_plots::Bool = true,
     query::Union{Nothing,AbstractString} = nothing,
 )
 
-    # Validate the run folder (predictions are read from it and results are written into it).
+    # Validate the run folder and filter parameters.
     output_dir = String(strip(output_dir))
     isempty(output_dir) && error("output_dir must not be blank")
+    _validate_score_filter_parameters(score_threshold, median_gate, surviving_frac)
 
     ref1_normalized = _normalize_reference(ref1)
     ref2_normalized = _normalize_reference(ref2)
@@ -765,12 +804,12 @@ function cluster_conformers(
         ref_mode == 2 && (rmsd_ref2 = refs[2][3])
     end
 
-    # DeepAccNet score filter (Stage 2). Runs only when a score table is supplied. It computes the
-    # surviving clusters for the configured `surviving_rel`/`surviving_frac` cut (a cluster
-    # survives when at most the fraction of its members fall below the relative cutoff) and writes
-    # that single surviving-cluster table under `deepaccnet/`; the cut feeds the agglomerative
-    # stage below. Skipped cleanly when no score table is given. Reference-free: it needs scores
-    # only.
+    # DeepAccNet score filter (Stage 2). Runs only when a score table is supplied. When the
+    # ensemble median score exceeds `median_gate` (0.6), a cluster survives if at most
+    # `_SURVIVING_FRAC`% (60%) of its members fall below `_SCORE_CUTOFF` (0.6); otherwise no
+    # filtering is applied and every cluster survives. Writes that surviving-cluster table under
+    # `deepaccnet/`; the cut feeds the agglomerative stage below. Skipped cleanly when no score
+    # table is given. Reference-free: it needs scores only.
     deepaccnet_dir = nothing
     surviving = nothing
     scored_idx = Int[]
@@ -784,8 +823,9 @@ function cluster_conformers(
             labels[scored_idx],
             scores,
             kmeans_k,
-            _SURVIVING_REL,
-            _SURVIVING_FRAC,
+            score_threshold,
+            surviving_frac;
+            median_gate = median_gate,
         )
     end
 
