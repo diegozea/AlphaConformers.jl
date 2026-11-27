@@ -30,6 +30,7 @@ Zenodo link for reproducibility: https://zenodo.org/records/21133448
 - [Container Setup](#container-setup)
 - [Common Helpers](#common-helpers)
 - [Development](#development)
+- [Citation](#citation)
 
 ## Installation
 
@@ -79,6 +80,8 @@ AlphaConformers builds inputs for structure prediction tools in several steps:
 5. It writes one folder per cluster, with an alignment and template structures
 6. It can optionally run ColabFold, AlphaFold3, or Boltz2 through helper
    functions --> path to .sif image : `COLABFOLD_SIF` and to cache directory `COLABFOLD_CACHE_DIR` where ColabFold looks for its model weights and cache files
+
+More details on each step are in the [preprint](https://www.biorxiv.org/content/10.64898/2026.08.18.745512v1).
 
 ## Quick Start
 
@@ -279,12 +282,8 @@ cluster_conformers("/data/alphaconformers/1AKZ_A", "refs/1AKZ_A.pdb", "refs/1SSP
 ### Query path
 
 The query-path figure (`query_path.png`) ranks the clusters by their RMSD to a
-**query** structure, starting from the cluster the query falls into. The query
-defaults to a reference, so you usually do not set it:
-
-- One reference: that reference is used as the query.
-- Two references: the **first** reference is used as the query.
-- Reference-free: no query is used unless you pass one, so no query-path figure.
+**query** structure, starting from the cluster the query falls into. By default the
+query is the first reference; with no reference and no `query`, the figure is skipped.
 
 ```julia
 # query_path.png is produced automatically - the first reference is the query.
@@ -464,3 +463,21 @@ julia --project=docs docs/make.jl
 
 Source code is in `src/`, tests are in `test/`, and documentation sources are
 in `docs/src/`.
+
+## Citation
+
+If you use AlphaConformers, please cite:
+
+```bibtex
+@article{Daniel2026.08.18.745512,
+  author       = {Daniel, Julie and Vitoriano De Queiroz Lira, Lucas and Zea, Diego Javier},
+  title        = {AlphaConformers: Structure-guided sampling enables prediction of multiple protein conformations},
+  elocation-id = {2026.08.18.745512},
+  year         = {2026},
+  doi          = {10.64898/2026.08.18.745512},
+  publisher    = {Cold Spring Harbor Laboratory},
+  URL          = {https://www.biorxiv.org/content/early/2026/08/18/2026.08.18.745512},
+  eprint       = {https://www.biorxiv.org/content/early/2026/08/18/2026.08.18.745512.full.pdf},
+  journal      = {bioRxiv}
+}
+```
