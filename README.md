@@ -118,7 +118,6 @@ alphaconformers(
     n_threads = 16,
     evalue_cutoff = 1e-5,
     cutoff = 1.0,
-    dry_run = true, # test, remove to run
 )
 ```
 
