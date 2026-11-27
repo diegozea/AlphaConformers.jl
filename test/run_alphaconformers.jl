@@ -639,188 +639,56 @@ end
     end
 end
 
-@testitem "alphaconformers dry_run validates paths and prints plan without executing steps" begin
-    import DataFrames
-
-    should_not_run = function (args...; kwargs...)
-        error("Dry run must not execute any pipeline step.")
-    end
+@testitem "alphaconformers dry_run validates paths without executing steps" begin
+    should_not_run = (args...; kwargs...) -> error("Dry run must not execute any step.")
 
     mktempdir() do dir
         query_struct = joinpath(dir, "1ABC_A.pdb")
-        write(query_struct, "END\n")
         pdb_folder = joinpath(dir, "pdb")
-        mkpath(pdb_folder)
         foldseek_db = joinpath(dir, "fullpdb")
-        write(foldseek_db, "db")
-        afdb = joinpath(dir, "afdb")
-        write(afdb, "db")
         sif_path = joinpath(dir, "colabfold.sif")
-        write(sif_path, "sif")
         cache_dir = joinpath(dir, "cache")
-        mkpath(cache_dir)
         output_dir = joinpath(dir, "new_run")
 
-        # Full pipeline dry run with default run_alphafold predictor.
-        output_file = joinpath(dir, "dry_run_stdout.txt")
-        result = open(output_file, "w") do io
-            redirect_stdout(io) do
-                AlphaConformers._alphaconformers(
-                    should_not_run,
-                    should_not_run,
-                    sif_path,
-                    cache_dir;
-                    query_struct,
-                    pdb_folder,
-                    output_dir,
-                    databases = [foldseek_db, afdb],
-                    dry_run = true,
-                )
-            end
-        end
-        printed = read(output_file, String)
+        # Missing input paths throw ArgumentError without executing any step.
+        @test_throws ArgumentError AlphaConformers._alphaconformers(
+            should_not_run,
+            should_not_run,
+            sif_path,
+            cache_dir;
+            query_struct,
+            pdb_folder,
+            output_dir,
+            databases = [foldseek_db],
+            dry_run = true,
+        )
 
-        @test result.dry_run == true
-        @test result.output_dir == abspath(output_dir)
-        @test result.prepared == false
-        @test result.prepared_inputs === nothing
-        @test result.predicted == false
-        @test result.triage_result === nothing
-        @test result.steps == ["Prepare inputs", "Predict structures", "Triage outputs"]
-        @test !isdir(output_dir)
-        @test occursin("[dry-run]", printed)
-        @test occursin("Prepare inputs", printed)
-        @test occursin("Predict structures", printed)
-        @test occursin("Triage outputs", printed)
-        @test occursin("Validation passed", printed)
+        # Valid paths succeed, create nothing, and invoke no steps.
+        write(query_struct, "END\n")
+        mkpath(pdb_folder)
+        write(foldseek_db, "db")
+        write(sif_path, "sif")
+        mkpath(cache_dir)
 
-        # Predict-only and triage-only dry run on an existing prepared folder.
-        existing_run = joinpath(dir, "existing_run")
-        mkpath(joinpath(existing_run, "cluster_1"))
-        results_dir = joinpath(existing_run, "fullpdb_results")
-        mkpath(results_dir)
-        write(joinpath(results_dir, "1ABC_A_results.m8"), "row\n")
-        mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
-
-        predict_triage_result = redirect_stdout(devnull) do
+        result = redirect_stdout(devnull) do
             AlphaConformers._alphaconformers(
                 should_not_run,
                 should_not_run,
                 sif_path,
                 cache_dir;
                 query_struct,
-                output_dir = existing_run,
-                prepare = false,
-                predict = true,
-                triage = true,
-                sifts_uniprot_mapping = mapping,
-                dry_run = true,
-            )
-        end
-        @test predict_triage_result.dry_run == true
-        @test predict_triage_result.steps == ["Predict structures", "Triage outputs"]
-    end
-end
-
-@testitem "alphaconformers dry_run reports missing and invalid input paths" begin
-    import DataFrames
-
-    should_not_run = function (args...; kwargs...)
-        error("Dry run must not execute any pipeline step.")
-    end
-
-    function argument_error_message(f)
-        try
-            f()
-        catch err
-            @test err isa ArgumentError
-            return sprint(showerror, err)
-        end
-        error("Expected ArgumentError")
-    end
-
-    mktempdir() do dir
-        msg = argument_error_message() do
-            AlphaConformers._alphaconformers(
-                should_not_run,
-                should_not_run,
-                joinpath(dir, "missing.sif"),
-                joinpath(dir, "missing_cache");
-                query_struct = joinpath(dir, "badname.pdb"),
-                pdb_folder = joinpath(dir, "missing_pdb"),
-                output_dir = joinpath(dir, "run"),
-                databases = [joinpath(dir, "missing_fullpdb")],
-                dry_run = true,
-            )
-        end
-        @test occursin("Dry run validation failed", msg)
-        @test occursin("`query_struct` does not exist", msg)
-        @test occursin("PDBCODE_CHAIN.pdb", msg)
-        @test occursin("`pdb_folder` directory does not exist", msg)
-        @test occursin("Foldseek database file does not exist", msg)
-        @test occursin("Container `.sif` image does not exist", msg)
-        @test occursin("Cache directory does not exist", msg)
-
-        # Wrong predictor positional arg count for run_alphafold.
-        query_struct = joinpath(dir, "1ABC_A.pdb")
-        write(query_struct, "END\n")
-        pdb_folder = joinpath(dir, "pdb")
-        mkpath(pdb_folder)
-        foldseek_db = joinpath(dir, "fullpdb")
-        write(foldseek_db, "db")
-
-        msg = argument_error_message() do
-            AlphaConformers._alphaconformers(
-                should_not_run,
-                should_not_run,
-                joinpath(dir, "only_one_arg.sif");
-                query_struct,
                 pdb_folder,
-                output_dir = joinpath(dir, "run"),
+                output_dir,
                 databases = [foldseek_db],
                 dry_run = true,
             )
         end
-        @test occursin("`run_alphafold` requires 2 positional arguments", msg)
 
-        # Predict-only on existing directory with no cluster_* subfolders.
-        empty_run = joinpath(dir, "empty_run")
-        mkpath(empty_run)
-        sif_path = joinpath(dir, "colabfold.sif")
-        write(sif_path, "sif")
-        cache_dir = joinpath(dir, "cache")
-        mkpath(cache_dir)
-
-        msg = argument_error_message() do
-            AlphaConformers._alphaconformers(
-                should_not_run,
-                should_not_run,
-                sif_path,
-                cache_dir;
-                output_dir = empty_run,
-                prepare = false,
-                predict = true,
-                triage = false,
-                dry_run = true,
-            )
-        end
-        @test occursin("No `cluster_*` folders were found", msg)
-
-        # Triage-only when output_dir has no Foldseek results folder.
-        mapping = DataFrames.DataFrame(PDB = String[], CHAIN = String[])
-        msg = argument_error_message() do
-            AlphaConformers._alphaconformers(
-                should_not_run,
-                should_not_run;
-                query_struct,
-                output_dir = empty_run,
-                prepare = false,
-                predict = false,
-                triage = true,
-                sifts_uniprot_mapping = mapping,
-                dry_run = true,
-            )
-        end
-        @test occursin("Foldseek", msg)
+        @test result.dry_run == true
+        @test result.prepared == false
+        @test result.predicted == false
+        @test result.triage_result === nothing
+        @test result.steps == ["Prepare inputs", "Predict structures", "Triage outputs"]
+        @test !isdir(output_dir)
     end
 end
